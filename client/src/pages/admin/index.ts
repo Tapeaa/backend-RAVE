@@ -1,0 +1,17 @@
+export { AdminLogin } from './AdminLogin';
+export { AdminDashboard } from './AdminDashboard';
+export { AdminClients } from './AdminClients';
+export { AdminClientDetails } from './AdminClientDetails';
+export { AdminChauffeurs } from './AdminChauffeurs';
+export { AdminChauffeurDetails } from './AdminChauffeurDetails';
+export { AdminCommandes } from './AdminCommandes';
+export { AdminCommandeDetails } from './AdminCommandeDetails';
+export { AdminTarifs } from './AdminTarifs';
+export { AdminPaiements } from './AdminPaiements';
+export { AdminCarousel } from './AdminCarousel';
+export { AdminMessages } from './AdminMessages';
+export { AdminPrestataires } from './AdminPrestataires';
+export { AdminPrestataireDetails } from './AdminPrestataireDetails';
+export { AdminCollecte } from './AdminCollecte';
+export { AdminCollecteDetails } from './AdminCollecteDetails';
+export { AdminAWS2023 } from './AdminAWS2023';
