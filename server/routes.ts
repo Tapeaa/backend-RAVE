@@ -2753,6 +2753,60 @@ app.post("/api/live-activities/end", async (req, res) => {
   });
 
   // Update order status (HTTP fallback for socket)
+  // ═══════════════════════════════════════════════════════════════════════════
+  // SIGNATURE CONTRAT: Enregistrer la signature électronique du client
+  // ═══════════════════════════════════════════════════════════════════════════
+  app.patch("/api/orders/:id/signature", async (req, res) => {
+    try {
+      const orderId = req.params.id;
+      const { clientSignatureSvg, clientSignedAt, clientName } = req.body;
+
+      if (!clientSignatureSvg) {
+        return res.status(400).json({ error: "clientSignatureSvg is required" });
+      }
+
+      const order = await dbStorage.getOrder(orderId);
+      if (!order) {
+        return res.status(404).json({ error: "Order not found" });
+      }
+
+      // Stocker la signature dans rideOption (JSONB, passthrough)
+      const updatedRideOption = {
+        ...order.rideOption,
+        clientSignatureSvg,
+        clientSignedAt: clientSignedAt || new Date().toISOString(),
+        clientSignatureName: clientName || order.clientName,
+      };
+
+      // Mettre à jour l'ordre avec la signature et passer le statut à "contract_signed"
+      const [updatedOrder] = await db.update(orders)
+        .set({
+          rideOption: updatedRideOption,
+          status: 'booked', // Garder booked, le loueur verra la signature
+        })
+        .where(eq(orders.id, orderId))
+        .returning();
+
+      if (updatedOrder) {
+        // Notifier le loueur via socket
+        io.to(`order:${orderId}`).emit("contract:signed", {
+          orderId,
+          clientSignatureSvg,
+          clientSignedAt: clientSignedAt || new Date().toISOString(),
+          clientName: clientName || order.clientName,
+        });
+
+        console.log(`[SIGNATURE] Client signature saved for order ${orderId}`);
+        return res.json({ success: true, order: updatedOrder });
+      }
+
+      return res.status(500).json({ error: "Failed to save signature" });
+    } catch (error) {
+      console.error("[SIGNATURE] Error saving signature:", error);
+      return res.status(500).json({ error: "Internal server error" });
+    }
+  });
+
   app.patch("/api/orders/:id/status", async (req, res) => {
     try {
       const orderId = req.params.id;
