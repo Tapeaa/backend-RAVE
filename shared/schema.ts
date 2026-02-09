@@ -506,7 +506,7 @@ export const orderSchema = z.object({
     title: z.string(),
     price: z.number(),
     pricePerKm: z.number(),
-  }),
+  }).passthrough(), // Permettre les champs supplémentaires (rentalData pour la location)
   routeInfo: routeInfoSchema.optional(),
   passengers: z.number().min(1).max(8),
   supplements: z.array(supplementSchema),
