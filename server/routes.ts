@@ -1663,7 +1663,15 @@ const sessionId = headerSessionId || cookieSessionId;
     sendPushToAllDrivers(order);
     
     // Send OneSignal push notifications to all online drivers
-    driverNotifications.newOrder(order.id, order.pickupAddress || 'Nouvelle course', order.totalPrice);
+    // Adapter le message pour les commandes de location
+    const isRentalOrder = (order.rideOption as any)?.isRentalOrder === true;
+    const rentalData = (order.rideOption as any)?.rentalData;
+    if (isRentalOrder && rentalData) {
+      const rentalMsg = `Location ${rentalData.vehicleName || 'véhicule'} - ${rentalData.days || '?'}j`;
+      driverNotifications.newOrder(order.id, rentalMsg, order.totalPrice);
+    } else {
+      driverNotifications.newOrder(order.id, order.pickupAddress || 'Nouvelle course', order.totalPrice);
+    }
     
     // Set timeout to expire order if not accepted
     // Pour les réservations à l'avance et tours de l'île: pas de timeout (3 jours gérés par expiresAt en DB)

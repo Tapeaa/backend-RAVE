@@ -252,11 +252,11 @@ export const clientNotifications = {
  * Notifications prédéfinies pour les CHAUFFEURS
  */
 export const driverNotifications = {
-  // Nouvelle course disponible
-  newOrder: (orderId: string, pickupAddress: string, price: number) => 
+  // Nouvelle demande disponible (course ou location)
+  newOrder: (orderId: string, description: string, price: number) => 
     sendNotificationToDrivers({
-      title: '🚕 Nouvelle course !',
-      message: `${pickupAddress} - ${price.toLocaleString()} XPF`,
+      title: '🚗 Nouvelle demande !',
+      message: `${description} - ${price.toLocaleString()} XPF`,
       data: { type: 'new_order', orderId, price },
       targetType: 'tag',
       tagKey: 'status',
