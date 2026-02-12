@@ -189,7 +189,11 @@ export function requireDashboardAuth(
  * Helper pour vérifier si le prestataire est une société (peut créer des chauffeurs)
  */
 export function isSociete(type: string): boolean {
-  return type === "societe_taxi" || type === "societe_tourisme";
+  return type === "societe_taxi" || type === "societe_tourisme" || type === "agence_location";
+}
+
+export function isLoueur(type: string): boolean {
+  return type === "agence_location" || type === "loueur_individuel";
 }
 
 /**

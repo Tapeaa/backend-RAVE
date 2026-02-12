@@ -11,7 +11,7 @@ import { requireAdminAuth, requirePrestataireAuth, requireDashboardAuth, Authent
 import { db } from "./db";
 import { getIO } from "./routes";
 import { notifyClient, notifyDriver } from "./onesignal";
-import { clients, drivers, orders, invoices, tarifs, supplements, carouselImages, messages, prestataires, collecteFrais } from "@shared/schema";
+import { clients, drivers, orders, invoices, tarifs, supplements, carouselImages, messages, prestataires, collecteFrais, vehicleModels, loueurVehicles } from "@shared/schema";
 import { eq, desc, asc, count, sql, and, gte, inArray, isNotNull, or } from "drizzle-orm";
 
 // ============================================================================
@@ -1747,7 +1747,7 @@ export function registerAdminRoutes(app: Express) {
       }
 
       // Valider le type
-      const validTypes = ["societe_taxi", "societe_tourisme", "patente_taxi", "patente_tourisme"];
+      const validTypes = ["societe_taxi", "societe_tourisme", "patente_taxi", "patente_tourisme", "agence_location", "loueur_individuel"];
       if (!validTypes.includes(type)) {
         return res.status(400).json({ error: "Type invalide" });
       }
@@ -1778,9 +1778,9 @@ export function registerAdminRoutes(app: Express) {
         })
         .returning();
 
-      // Si c'est un patenté, créer automatiquement le compte chauffeur
+      // Si c'est un patenté ou loueur individuel, créer automatiquement le compte chauffeur/loueur
       let createdDriver = null;
-      if (type === "patente_taxi" || type === "patente_tourisme") {
+      if (type === "patente_taxi" || type === "patente_tourisme" || type === "loueur_individuel") {
         // Générer un numéro de téléphone unique si non fourni
         const driverPhone = phone || `+689${code}`;
         
@@ -2246,6 +2246,198 @@ export function registerAdminRoutes(app: Express) {
       });
     } catch (error) {
       console.error("Error recalculating collecte:", error);
+      return res.status(500).json({ error: "Erreur serveur" });
+    }
+  });
+
+  // ============================================================================
+  // GESTION DES MODÈLES DE VÉHICULES (Admin)
+  // ============================================================================
+
+  // GET /api/admin/vehicles - Liste tous les modèles de véhicules
+  app.get("/api/admin/vehicles", requireAdminAuth, async (_req: AuthenticatedRequest, res) => {
+    try {
+      const models = await db
+        .select()
+        .from(vehicleModels)
+        .orderBy(asc(vehicleModels.category), asc(vehicleModels.name));
+
+      // Pour chaque modèle, compter le nombre de véhicules loueurs actifs
+      const modelsWithCounts = await Promise.all(
+        models.map(async (model) => {
+          const [result] = await db
+            .select({ count: count() })
+            .from(loueurVehicles)
+            .where(and(
+              eq(loueurVehicles.vehicleModelId, model.id),
+              eq(loueurVehicles.isActive, true)
+            ));
+          return { ...model, loueurCount: result?.count || 0 };
+        })
+      );
+
+      return res.json(modelsWithCounts);
+    } catch (error) {
+      console.error("Error fetching vehicle models:", error);
+      return res.status(500).json({ error: "Erreur serveur" });
+    }
+  });
+
+  // GET /api/admin/vehicles/:id - Détails d'un modèle de véhicule
+  app.get("/api/admin/vehicles/:id", requireAdminAuth, async (req: AuthenticatedRequest, res) => {
+    try {
+      const { id } = req.params;
+      const [model] = await db
+        .select()
+        .from(vehicleModels)
+        .where(eq(vehicleModels.id, id));
+
+      if (!model) {
+        return res.status(404).json({ error: "Modèle de véhicule introuvable" });
+      }
+
+      // Récupérer les véhicules loueurs liés à ce modèle
+      const vehicles = await db
+        .select({
+          id: loueurVehicles.id,
+          plate: loueurVehicles.plate,
+          pricePerDay: loueurVehicles.pricePerDay,
+          pricePerDayLongTerm: loueurVehicles.pricePerDayLongTerm,
+          availableForRental: loueurVehicles.availableForRental,
+          availableForDelivery: loueurVehicles.availableForDelivery,
+          availableForLongTerm: loueurVehicles.availableForLongTerm,
+          isActive: loueurVehicles.isActive,
+          createdAt: loueurVehicles.createdAt,
+          prestataireName: prestataires.nom,
+          prestataireId: loueurVehicles.prestataireId,
+        })
+        .from(loueurVehicles)
+        .leftJoin(prestataires, eq(loueurVehicles.prestataireId, prestataires.id))
+        .where(eq(loueurVehicles.vehicleModelId, id))
+        .orderBy(desc(loueurVehicles.createdAt));
+
+      return res.json({ ...model, vehicles });
+    } catch (error) {
+      console.error("Error fetching vehicle model details:", error);
+      return res.status(500).json({ error: "Erreur serveur" });
+    }
+  });
+
+  // POST /api/admin/vehicles - Créer un modèle de véhicule
+  app.post("/api/admin/vehicles", requireAdminAuth, async (req: AuthenticatedRequest, res) => {
+    try {
+      const { name, category, imageUrl, description, seats, transmission, fuel } = req.body;
+
+      if (!name || !category) {
+        return res.status(400).json({ error: "Nom et catégorie requis" });
+      }
+
+      if (!["citadine", "berline", "suv"].includes(category)) {
+        return res.status(400).json({ error: "Catégorie invalide (citadine, berline, suv)" });
+      }
+
+      const [newModel] = await db
+        .insert(vehicleModels)
+        .values({
+          name,
+          category,
+          imageUrl: imageUrl || null,
+          description: description || null,
+          seats: seats || 5,
+          transmission: transmission || "auto",
+          fuel: fuel || "essence",
+          isActive: true,
+        })
+        .returning();
+
+      console.log(`[Admin] Vehicle model created: ${newModel.name} (${newModel.category})`);
+      return res.status(201).json(newModel);
+    } catch (error) {
+      console.error("Error creating vehicle model:", error);
+      return res.status(500).json({ error: "Erreur serveur" });
+    }
+  });
+
+  // PATCH /api/admin/vehicles/:id - Modifier un modèle de véhicule
+  app.patch("/api/admin/vehicles/:id", requireAdminAuth, async (req: AuthenticatedRequest, res) => {
+    try {
+      const { id } = req.params;
+      const updates: Record<string, any> = {};
+
+      const allowedFields = ["name", "category", "imageUrl", "description", "seats", "transmission", "fuel", "isActive"];
+      for (const field of allowedFields) {
+        if (req.body[field] !== undefined) {
+          // Map camelCase to schema fields
+          if (field === "imageUrl") updates.imageUrl = req.body[field];
+          else if (field === "isActive") updates.isActive = req.body[field];
+          else updates[field] = req.body[field];
+        }
+      }
+
+      if (Object.keys(updates).length === 0) {
+        return res.status(400).json({ error: "Aucune modification fournie" });
+      }
+
+      if (updates.category && !["citadine", "berline", "suv"].includes(updates.category)) {
+        return res.status(400).json({ error: "Catégorie invalide (citadine, berline, suv)" });
+      }
+
+      const [updated] = await db
+        .update(vehicleModels)
+        .set(updates)
+        .where(eq(vehicleModels.id, id))
+        .returning();
+
+      if (!updated) {
+        return res.status(404).json({ error: "Modèle de véhicule introuvable" });
+      }
+
+      console.log(`[Admin] Vehicle model updated: ${updated.name}`);
+      return res.json(updated);
+    } catch (error) {
+      console.error("Error updating vehicle model:", error);
+      return res.status(500).json({ error: "Erreur serveur" });
+    }
+  });
+
+  // DELETE /api/admin/vehicles/:id - Supprimer un modèle de véhicule
+  app.delete("/api/admin/vehicles/:id", requireAdminAuth, async (req: AuthenticatedRequest, res) => {
+    try {
+      const { id } = req.params;
+
+      // Vérifier s'il y a des véhicules loueurs actifs liés
+      const [activeVehicles] = await db
+        .select({ count: count() })
+        .from(loueurVehicles)
+        .where(and(
+          eq(loueurVehicles.vehicleModelId, id),
+          eq(loueurVehicles.isActive, true)
+        ));
+
+      if (activeVehicles && activeVehicles.count > 0) {
+        return res.status(400).json({
+          error: `Impossible de supprimer: ${activeVehicles.count} véhicule(s) loueur(s) actif(s) utilisent ce modèle. Désactivez-les d'abord.`,
+        });
+      }
+
+      // Supprimer les véhicules loueurs inactifs liés
+      await db
+        .delete(loueurVehicles)
+        .where(eq(loueurVehicles.vehicleModelId, id));
+
+      const [deleted] = await db
+        .delete(vehicleModels)
+        .where(eq(vehicleModels.id, id))
+        .returning();
+
+      if (!deleted) {
+        return res.status(404).json({ error: "Modèle de véhicule introuvable" });
+      }
+
+      console.log(`[Admin] Vehicle model deleted: ${deleted.name}`);
+      return res.json({ success: true, message: `Modèle "${deleted.name}" supprimé` });
+    } catch (error) {
+      console.error("Error deleting vehicle model:", error);
       return res.status(500).json({ error: "Erreur serveur" });
     }
   });

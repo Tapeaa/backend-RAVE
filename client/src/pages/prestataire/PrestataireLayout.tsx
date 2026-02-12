@@ -7,6 +7,7 @@ import { useEffect, useState } from 'react';
 import { Link, useLocation, useRoute } from 'wouter';
 import {
   Car,
+  CarFront,
   LayoutDashboard,
   Users,
   Wallet,
@@ -68,13 +69,18 @@ export function PrestataireLayout({ children }: Props) {
     setLocation('/admin/login');
   }
 
+  const isLoueurType = prestataire?.type === 'agence_location' || prestataire?.type === 'loueur_individuel';
+
   const navItems = [
     { href: '/prestataire', icon: LayoutDashboard, label: 'Dashboard', exact: true },
     { href: '/prestataire/profil', icon: User, label: 'Profil', exact: false },
     ...(prestataire?.isSociete
       ? [{ href: '/prestataire/chauffeurs', icon: Users, label: 'Chauffeurs', exact: false }]
       : []),
-    { href: '/prestataire/courses', icon: Car, label: 'Courses', exact: false },
+    ...(isLoueurType
+      ? [{ href: '/prestataire/vehicles', icon: CarFront, label: 'Mes Véhicules', exact: false }]
+      : []),
+    { href: '/prestataire/courses', icon: Car, label: isLoueurType ? 'Réservations' : 'Courses', exact: false },
     { href: '/prestataire/collecte', icon: Wallet, label: 'Frais', exact: false },
   ];
 

@@ -10,7 +10,7 @@ import { Building2, Search, Eye, Plus, X, Copy, Check, Users, Car, Trash2, Power
 interface Prestataire {
   id: string;
   nom: string;
-  type: 'societe_taxi' | 'societe_tourisme' | 'patente_taxi' | 'patente_tourisme';
+  type: 'societe_taxi' | 'societe_tourisme' | 'patente_taxi' | 'patente_tourisme' | 'agence_location' | 'loueur_individuel';
   numeroTahiti: string | null;
   email: string | null;
   phone: string | null;
@@ -25,6 +25,8 @@ const typeLabels: Record<string, string> = {
   societe_tourisme: 'Société Transport Touristique',
   patente_taxi: 'Taxi Patenté',
   patente_tourisme: 'Transport Touristique Patenté',
+  agence_location: 'Agence de Location',
+  loueur_individuel: 'Loueur Individuel',
 };
 
 const typeColors: Record<string, string> = {
@@ -32,6 +34,8 @@ const typeColors: Record<string, string> = {
   societe_tourisme: 'bg-green-100 text-green-800',
   patente_taxi: 'bg-orange-100 text-orange-800',
   patente_tourisme: 'bg-purple-100 text-purple-800',
+  agence_location: 'bg-teal-100 text-teal-800',
+  loueur_individuel: 'bg-cyan-100 text-cyan-800',
 };
 
 export function AdminPrestataires() {
@@ -148,7 +152,8 @@ export function AdminPrestataires() {
     p.code.includes(searchTerm)
   );
 
-  const isSociete = (type: string) => type === 'societe_taxi' || type === 'societe_tourisme';
+  const isSociete = (type: string) => type === 'societe_taxi' || type === 'societe_tourisme' || type === 'agence_location';
+  const isLoueur = (type: string) => type === 'agence_location' || type === 'loueur_individuel';
 
   return (
     <div className="space-y-6">
@@ -466,10 +471,16 @@ export function AdminPrestataires() {
                       onChange={(e) => setFormData({ ...formData, type: e.target.value as Prestataire['type'] })}
                       className="w-full rounded-lg border border-gray-300 px-3 py-2 focus:border-purple-500 focus:outline-none"
                     >
-                      <option value="societe_taxi">Société Taxi</option>
-                      <option value="societe_tourisme">Société Transport Touristique</option>
-                      <option value="patente_taxi">Taxi Patenté</option>
-                      <option value="patente_tourisme">Transport Touristique Patenté</option>
+                      <optgroup label="Transport">
+                        <option value="societe_taxi">Société Taxi</option>
+                        <option value="societe_tourisme">Société Transport Touristique</option>
+                        <option value="patente_taxi">Taxi Patenté</option>
+                        <option value="patente_tourisme">Transport Touristique Patenté</option>
+                      </optgroup>
+                      <optgroup label="Location RAVE">
+                        <option value="agence_location">Agence de Location</option>
+                        <option value="loueur_individuel">Loueur Individuel</option>
+                      </optgroup>
                     </select>
                   </div>
 

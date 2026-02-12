@@ -8,8 +8,8 @@ import Stripe from "stripe";
 import { storage } from "./storage";
 import { verifyPassword, hashPassword, dbStorage } from "./db-storage";
 import { db } from "./db";
-import { insertOrderSchema, pushSubscriptionSchema, insertClientSchema, orders, driverSessions, drivers, collecteFrais, type Order, type OrderStatus, type DriverSession } from "@shared/schema";
-import { eq } from "drizzle-orm";
+import { insertOrderSchema, pushSubscriptionSchema, insertClientSchema, orders, driverSessions, drivers, collecteFrais, vehicleModels, loueurVehicles, prestataires, type Order, type OrderStatus, type DriverSession } from "@shared/schema";
+import { eq, and, sql as dsql, count } from "drizzle-orm";
 import cookieParser from "cookie-parser";
 import { driverNotifications, clientNotifications, notifyDriver, notifyClient, startClientLiveActivity, updateClientLiveActivity, endClientLiveActivity } from "./onesignal";
 import { sendVerificationCode, verifyCode, isTwilioConfigured, sendSMSMessage } from "./twilio";
@@ -3022,6 +3022,101 @@ app.post("/api/live-activities/end", async (req, res) => {
       return res.json(allSupplements.filter(s => s.actif));
     } catch (error) {
       console.error("Get public supplements error:", error);
+      if (error instanceof Error && error.message.includes('does not exist')) {
+        return res.json([]);
+      }
+      return res.status(500).json({ error: "Erreur serveur" });
+    }
+  });
+
+  // ============ VÉHICULES DISPONIBLES (API publique pour l'app RAVE client) ============
+  
+  // GET /api/vehicles/available - Retourne les modèles de véhicules avec le nombre de loueurs et le prix moyen
+  // Agrège les données de loueurVehicles par vehicleModelId pour chaque type de service
+  app.get("/api/vehicles/available", async (req, res) => {
+    try {
+      const serviceType = (req.query.service as string) || 'rental'; // rental | delivery | longterm
+      
+      // Déterminer le filtre de disponibilité selon le type de service
+      let availabilityFilter;
+      if (serviceType === 'delivery') {
+        availabilityFilter = eq(loueurVehicles.availableForDelivery, true);
+      } else if (serviceType === 'longterm') {
+        availabilityFilter = eq(loueurVehicles.availableForLongTerm, true);
+      } else {
+        availabilityFilter = eq(loueurVehicles.availableForRental, true);
+      }
+      
+      // Récupérer tous les modèles actifs
+      const activeModels = await db
+        .select()
+        .from(vehicleModels)
+        .where(eq(vehicleModels.isActive, true));
+      
+      // Pour chaque modèle, compter les véhicules disponibles et calculer le prix min
+      const result = [];
+      for (const model of activeModels) {
+        const vehiclesForModel = await db
+          .select({
+            count: count(),
+            minPrice: dsql<number>`MIN(${loueurVehicles.pricePerDay})`,
+            minPriceLongTerm: dsql<number>`MIN(${loueurVehicles.pricePerDayLongTerm})`,
+          })
+          .from(loueurVehicles)
+          .innerJoin(prestataires, eq(loueurVehicles.prestataireId, prestataires.id))
+          .where(
+            and(
+              eq(loueurVehicles.vehicleModelId, model.id),
+              eq(loueurVehicles.isActive, true),
+              eq(prestataires.isActive, true),
+              availabilityFilter
+            )
+          );
+        
+        const stats = vehiclesForModel[0];
+        if (stats && stats.count > 0) {
+          result.push({
+            id: model.id,
+            name: model.name,
+            category: model.category,
+            imageUrl: model.imageUrl,
+            description: model.description,
+            seats: model.seats,
+            transmission: model.transmission,
+            fuel: model.fuel,
+            pricePerDay: serviceType === 'longterm' && stats.minPriceLongTerm 
+              ? stats.minPriceLongTerm 
+              : stats.minPrice,
+            availableCount: stats.count,
+          });
+        }
+      }
+      
+      return res.json(result);
+    } catch (error) {
+      console.error("Get available vehicles error:", error);
+      if (error instanceof Error && error.message.includes('does not exist')) {
+        return res.json([]);
+      }
+      return res.status(500).json({ error: "Erreur serveur" });
+    }
+  });
+
+  // GET /api/vehicles/categories - Retourne les catégories distinctes de véhicules actifs
+  app.get("/api/vehicles/categories", async (req, res) => {
+    try {
+      const categories = await db
+        .select({ category: vehicleModels.category })
+        .from(vehicleModels)
+        .where(eq(vehicleModels.isActive, true))
+        .groupBy(vehicleModels.category);
+      
+      return res.json(categories.map(c => ({
+        id: c.category,
+        name: c.category.charAt(0).toUpperCase() + c.category.slice(1),
+      })));
+    } catch (error) {
+      console.error("Get vehicle categories error:", error);
       if (error instanceof Error && error.message.includes('does not exist')) {
         return res.json([]);
       }

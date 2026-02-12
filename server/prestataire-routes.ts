@@ -6,10 +6,10 @@
 import type { Express } from "express";
 import Stripe from "stripe";
 import { z } from "zod";
-import { requirePrestataireAuth, AuthenticatedRequest, isSociete } from "./admin-auth";
+import { requirePrestataireAuth, AuthenticatedRequest, isSociete, isLoueur } from "./admin-auth";
 import { db } from "./db";
-import { drivers, orders, prestataires, collecteFrais, tarifs } from "@shared/schema";
-import { eq, desc, count, sql, and, gte, lte, inArray } from "drizzle-orm";
+import { drivers, orders, prestataires, collecteFrais, tarifs, vehicleModels, loueurVehicles } from "@shared/schema";
+import { eq, desc, asc, count, sql, and, gte, lte, inArray } from "drizzle-orm";
 import { dbStorage } from "./db-storage";
 import { uploadDocument, uploadDocumentToCloudinary } from "./cloudinary";
 
@@ -1286,6 +1286,206 @@ export function registerPrestataireRoutes(app: Express) {
     } catch (error) {
       console.error("Error confirming prestataire payment:", error);
       return res.status(500).json({ error: "Erreur lors de la confirmation" });
+    }
+  });
+
+  // ============================================================================
+  // GESTION DES VÉHICULES LOUEUR (Prestataire)
+  // ============================================================================
+
+  // GET /api/prestataire/vehicle-models - Récupérer tous les modèles disponibles
+  app.get("/api/prestataire/vehicle-models", requirePrestataireAuth, async (req: AuthenticatedRequest, res) => {
+    try {
+      const models = await db
+        .select()
+        .from(vehicleModels)
+        .where(eq(vehicleModels.isActive, true))
+        .orderBy(asc(vehicleModels.category), asc(vehicleModels.name));
+
+      return res.json(models);
+    } catch (error) {
+      console.error("Error fetching vehicle models:", error);
+      return res.status(500).json({ error: "Erreur serveur" });
+    }
+  });
+
+  // GET /api/prestataire/vehicles - Véhicules du loueur connecté
+  app.get("/api/prestataire/vehicles", requirePrestataireAuth, async (req: AuthenticatedRequest, res) => {
+    try {
+      if (!req.prestataire) {
+        return res.status(401).json({ error: "Non authentifié" });
+      }
+
+      const vehicles = await db
+        .select({
+          id: loueurVehicles.id,
+          vehicleModelId: loueurVehicles.vehicleModelId,
+          plate: loueurVehicles.plate,
+          pricePerDay: loueurVehicles.pricePerDay,
+          pricePerDayLongTerm: loueurVehicles.pricePerDayLongTerm,
+          availableForRental: loueurVehicles.availableForRental,
+          availableForDelivery: loueurVehicles.availableForDelivery,
+          availableForLongTerm: loueurVehicles.availableForLongTerm,
+          customImageUrl: loueurVehicles.customImageUrl,
+          isActive: loueurVehicles.isActive,
+          createdAt: loueurVehicles.createdAt,
+          // Infos du modèle
+          modelName: vehicleModels.name,
+          modelCategory: vehicleModels.category,
+          modelImageUrl: vehicleModels.imageUrl,
+          modelSeats: vehicleModels.seats,
+          modelTransmission: vehicleModels.transmission,
+          modelFuel: vehicleModels.fuel,
+        })
+        .from(loueurVehicles)
+        .leftJoin(vehicleModels, eq(loueurVehicles.vehicleModelId, vehicleModels.id))
+        .where(eq(loueurVehicles.prestataireId, req.prestataire.id))
+        .orderBy(desc(loueurVehicles.createdAt));
+
+      return res.json(vehicles);
+    } catch (error) {
+      console.error("Error fetching loueur vehicles:", error);
+      return res.status(500).json({ error: "Erreur serveur" });
+    }
+  });
+
+  // POST /api/prestataire/vehicles - Ajouter un véhicule
+  app.post("/api/prestataire/vehicles", requirePrestataireAuth, async (req: AuthenticatedRequest, res) => {
+    try {
+      if (!req.prestataire) {
+        return res.status(401).json({ error: "Non authentifié" });
+      }
+
+      if (!isLoueur(req.prestataire.type)) {
+        return res.status(403).json({ error: "Seuls les loueurs peuvent ajouter des véhicules" });
+      }
+
+      const {
+        vehicleModelId, plate, pricePerDay, pricePerDayLongTerm,
+        availableForRental, availableForDelivery, availableForLongTerm, customImageUrl
+      } = req.body;
+
+      if (!vehicleModelId || !pricePerDay) {
+        return res.status(400).json({ error: "Modèle et prix par jour requis" });
+      }
+
+      // Vérifier que le modèle existe
+      const [model] = await db
+        .select()
+        .from(vehicleModels)
+        .where(eq(vehicleModels.id, vehicleModelId));
+
+      if (!model || !model.isActive) {
+        return res.status(400).json({ error: "Modèle de véhicule introuvable ou inactif" });
+      }
+
+      // Pour loueur_individuel, chercher le driver associé
+      let driverId: string | null = null;
+      if (req.prestataire.type === "loueur_individuel") {
+        const [driver] = await db
+          .select()
+          .from(drivers)
+          .where(eq(drivers.prestataireId, req.prestataire.id));
+        driverId = driver?.id || null;
+      }
+
+      const [newVehicle] = await db
+        .insert(loueurVehicles)
+        .values({
+          vehicleModelId,
+          prestataireId: req.prestataire.id,
+          driverId,
+          plate: plate || null,
+          pricePerDay,
+          pricePerDayLongTerm: pricePerDayLongTerm || null,
+          availableForRental: availableForRental ?? true,
+          availableForDelivery: availableForDelivery ?? false,
+          availableForLongTerm: availableForLongTerm ?? false,
+          customImageUrl: customImageUrl || null,
+          isActive: true,
+        })
+        .returning();
+
+      console.log(`[Prestataire] Vehicle added: ${model.name} by ${req.prestataire.nom}`);
+      return res.status(201).json(newVehicle);
+    } catch (error) {
+      console.error("Error adding loueur vehicle:", error);
+      return res.status(500).json({ error: "Erreur serveur" });
+    }
+  });
+
+  // PATCH /api/prestataire/vehicles/:id - Modifier un véhicule
+  app.patch("/api/prestataire/vehicles/:id", requirePrestataireAuth, async (req: AuthenticatedRequest, res) => {
+    try {
+      if (!req.prestataire) {
+        return res.status(401).json({ error: "Non authentifié" });
+      }
+
+      const { id } = req.params;
+
+      // Vérifier que le véhicule appartient au prestataire
+      const [existing] = await db
+        .select()
+        .from(loueurVehicles)
+        .where(and(
+          eq(loueurVehicles.id, id),
+          eq(loueurVehicles.prestataireId, req.prestataire.id)
+        ));
+
+      if (!existing) {
+        return res.status(404).json({ error: "Véhicule introuvable" });
+      }
+
+      const updates: Record<string, any> = {};
+      const allowedFields = ["plate", "pricePerDay", "pricePerDayLongTerm", "availableForRental", "availableForDelivery", "availableForLongTerm", "customImageUrl", "isActive"];
+      for (const field of allowedFields) {
+        if (req.body[field] !== undefined) {
+          updates[field] = req.body[field];
+        }
+      }
+
+      if (Object.keys(updates).length === 0) {
+        return res.status(400).json({ error: "Aucune modification" });
+      }
+
+      const [updated] = await db
+        .update(loueurVehicles)
+        .set(updates)
+        .where(eq(loueurVehicles.id, id))
+        .returning();
+
+      return res.json(updated);
+    } catch (error) {
+      console.error("Error updating loueur vehicle:", error);
+      return res.status(500).json({ error: "Erreur serveur" });
+    }
+  });
+
+  // DELETE /api/prestataire/vehicles/:id - Supprimer un véhicule
+  app.delete("/api/prestataire/vehicles/:id", requirePrestataireAuth, async (req: AuthenticatedRequest, res) => {
+    try {
+      if (!req.prestataire) {
+        return res.status(401).json({ error: "Non authentifié" });
+      }
+
+      const { id } = req.params;
+
+      const [deleted] = await db
+        .delete(loueurVehicles)
+        .where(and(
+          eq(loueurVehicles.id, id),
+          eq(loueurVehicles.prestataireId, req.prestataire.id)
+        ))
+        .returning();
+
+      if (!deleted) {
+        return res.status(404).json({ error: "Véhicule introuvable" });
+      }
+
+      return res.json({ success: true, message: "Véhicule supprimé" });
+    } catch (error) {
+      console.error("Error deleting loueur vehicle:", error);
+      return res.status(500).json({ error: "Erreur serveur" });
     }
   });
 }

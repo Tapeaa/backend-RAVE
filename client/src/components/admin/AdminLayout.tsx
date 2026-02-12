@@ -21,6 +21,7 @@ import {
   Wallet,
   Database,
   ChevronDown,
+  CarFront,
 } from "lucide-react";
 
 interface AdminLayoutProps {
@@ -41,6 +42,12 @@ const navigationSections = [
       { name: "Clients", href: "/admin/clients", icon: Users },
       { name: "Chauffeurs", href: "/admin/chauffeurs", icon: Car },
       { name: "Prestataires", href: "/admin/prestataires", icon: Building2 },
+    ]
+  },
+  {
+    title: "Location RAVE",
+    items: [
+      { name: "Véhicules", href: "/admin/vehicles", icon: CarFront },
     ]
   },
   {

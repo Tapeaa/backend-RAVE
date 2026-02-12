@@ -60,6 +60,37 @@ export const drivers = pgTable("drivers", {
   createdAt: timestamp("created_at").defaultNow().notNull(),
 });
 
+// ═══ MODÈLES DE VÉHICULES (géré par l'admin) ═══
+export const vehicleModels = pgTable("vehicle_models", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  name: text("name").notNull(), // Ex: "Renault Clio", "Toyota RAV4"
+  category: text("category").notNull(), // "citadine" | "berline" | "suv"
+  imageUrl: text("image_url"), // Image par défaut (Cloudinary)
+  description: text("description"),
+  seats: integer("seats").default(5).notNull(),
+  transmission: text("transmission").default("auto").notNull(), // "auto" | "manual"
+  fuel: text("fuel").default("essence").notNull(), // "essence" | "diesel" | "electrique" | "hybride"
+  isActive: boolean("is_active").default(true).notNull(),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+});
+
+// ═══ VÉHICULES DES LOUEURS (géré par le prestataire loueur) ═══
+export const loueurVehicles = pgTable("loueur_vehicles", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  vehicleModelId: varchar("vehicle_model_id").notNull().references(() => vehicleModels.id),
+  prestataireId: varchar("prestataire_id").notNull().references(() => prestataires.id),
+  driverId: varchar("driver_id").references(() => drivers.id), // Nullable - pour loueur individuel
+  plate: text("plate"), // Immatriculation
+  pricePerDay: real("price_per_day").notNull(), // Prix/jour en XPF
+  pricePerDayLongTerm: real("price_per_day_long_term"), // Prix réduit pour location longue durée
+  availableForRental: boolean("available_for_rental").default(true).notNull(), // Louer
+  availableForDelivery: boolean("available_for_delivery").default(false).notNull(), // Livraison
+  availableForLongTerm: boolean("available_for_long_term").default(false).notNull(), // Long terme
+  customImageUrl: text("custom_image_url"), // Override image du modèle
+  isActive: boolean("is_active").default(true).notNull(),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+});
+
 // Carousel images table (for advertising/pub)
 export const carouselImages = pgTable("carousel_images", {
   id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
@@ -754,7 +785,7 @@ export const collecteFrais = pgTable("collecte_frais", {
 export const prestataireSchema = z.object({
   id: z.string(),
   nom: z.string(),
-  type: z.enum(["societe_taxi", "societe_tourisme", "patente_taxi", "patente_tourisme"]),
+  type: z.enum(["societe_taxi", "societe_tourisme", "patente_taxi", "patente_tourisme", "agence_location", "loueur_individuel"]),
   numeroTahiti: z.string().nullable(),
   email: z.string().nullable(),
   phone: z.string().nullable(),
@@ -768,7 +799,7 @@ export type Prestataire = z.infer<typeof prestataireSchema>;
 // Insert prestataire schema
 export const insertPrestataireSchema = z.object({
   nom: z.string().min(1, "Nom requis"),
-  type: z.enum(["societe_taxi", "societe_tourisme", "patente_taxi", "patente_tourisme"]),
+  type: z.enum(["societe_taxi", "societe_tourisme", "patente_taxi", "patente_tourisme", "agence_location", "loueur_individuel"]),
   numeroTahiti: z.string().optional(),
   email: z.string().email().optional().or(z.literal("")),
   phone: z.string().optional(),
@@ -776,6 +807,66 @@ export const insertPrestataireSchema = z.object({
 });
 
 export type InsertPrestataire = z.infer<typeof insertPrestataireSchema>;
+
+// ═══ VEHICLE MODEL SCHEMAS ═══
+export const vehicleModelSchema = z.object({
+  id: z.string(),
+  name: z.string(),
+  category: z.enum(["citadine", "berline", "suv"]),
+  imageUrl: z.string().nullable(),
+  description: z.string().nullable(),
+  seats: z.number(),
+  transmission: z.enum(["auto", "manual"]),
+  fuel: z.enum(["essence", "diesel", "electrique", "hybride"]),
+  isActive: z.boolean(),
+  createdAt: z.string(),
+});
+
+export type VehicleModel = z.infer<typeof vehicleModelSchema>;
+
+export const insertVehicleModelSchema = z.object({
+  name: z.string().min(1, "Nom du véhicule requis"),
+  category: z.enum(["citadine", "berline", "suv"]),
+  imageUrl: z.string().optional(),
+  description: z.string().optional(),
+  seats: z.number().min(1).max(9).optional(),
+  transmission: z.enum(["auto", "manual"]).optional(),
+  fuel: z.enum(["essence", "diesel", "electrique", "hybride"]).optional(),
+});
+
+export type InsertVehicleModel = z.infer<typeof insertVehicleModelSchema>;
+
+// ═══ LOUEUR VEHICLE SCHEMAS ═══
+export const loueurVehicleSchema = z.object({
+  id: z.string(),
+  vehicleModelId: z.string(),
+  prestataireId: z.string(),
+  driverId: z.string().nullable(),
+  plate: z.string().nullable(),
+  pricePerDay: z.number(),
+  pricePerDayLongTerm: z.number().nullable(),
+  availableForRental: z.boolean(),
+  availableForDelivery: z.boolean(),
+  availableForLongTerm: z.boolean(),
+  customImageUrl: z.string().nullable(),
+  isActive: z.boolean(),
+  createdAt: z.string(),
+});
+
+export type LoueurVehicle = z.infer<typeof loueurVehicleSchema>;
+
+export const insertLoueurVehicleSchema = z.object({
+  vehicleModelId: z.string().min(1, "Modèle de véhicule requis"),
+  plate: z.string().optional(),
+  pricePerDay: z.number().min(1, "Prix par jour requis"),
+  pricePerDayLongTerm: z.number().optional(),
+  availableForRental: z.boolean().optional(),
+  availableForDelivery: z.boolean().optional(),
+  availableForLongTerm: z.boolean().optional(),
+  customImageUrl: z.string().optional(),
+});
+
+export type InsertLoueurVehicle = z.infer<typeof insertLoueurVehicleSchema>;
 
 // Collecte frais schema
 export const collecteFraisSchema = z.object({

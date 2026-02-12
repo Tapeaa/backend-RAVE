@@ -24,11 +24,12 @@ import { AdminPrestataireDetails } from "@/pages/admin/AdminPrestataireDetails";
 import { AdminCollecte } from "@/pages/admin/AdminCollecte";
 import { AdminCollecteDetails } from "@/pages/admin/AdminCollecteDetails";
 import { AdminAWS2023 } from "@/pages/admin/AdminAWS2023";
+import { AdminVehicles } from "@/pages/admin/AdminVehicles";
 import { AdminProtectedRoute } from "@/components/AdminProtectedRoute";
 import { AdminLayout } from "@/components/admin/AdminLayout";
 
 // Prestataire pages
-import { PrestataireDashboard, PrestataireProfil, PrestataireChauffeurs, PrestataireCourses, PrestataireCourseDetails, PrestataireCollecte, PrestataireCollecteDetails } from "@/pages/prestataire";
+import { PrestataireDashboard, PrestataireProfil, PrestataireChauffeurs, PrestataireCourses, PrestataireCourseDetails, PrestataireCollecte, PrestataireCollecteDetails, PrestataireMesVehicules } from "@/pages/prestataire";
 import { PrestataireLayout } from "@/pages/prestataire/PrestataireLayout";
 import { PrestataireProtectedRoute } from "@/components/PrestataireProtectedRoute";
 
@@ -177,6 +178,15 @@ function Router() {
           </AdminProtectedRoute>
         )}
       </Route>
+      <Route path="/admin/vehicles">
+        {() => (
+          <AdminProtectedRoute>
+            <AdminLayout>
+              <AdminVehicles />
+            </AdminLayout>
+          </AdminProtectedRoute>
+        )}
+      </Route>
       <Route path="/admin/aws-2023">
         {() => (
           <AdminProtectedRoute>
@@ -202,6 +212,15 @@ function Router() {
           <PrestataireProtectedRoute>
             <PrestataireLayout>
               <PrestataireChauffeurs />
+            </PrestataireLayout>
+          </PrestataireProtectedRoute>
+        )}
+      </Route>
+      <Route path="/prestataire/vehicles">
+        {() => (
+          <PrestataireProtectedRoute>
+            <PrestataireLayout>
+              <PrestataireMesVehicules />
             </PrestataireLayout>
           </PrestataireProtectedRoute>
         )}
