@@ -1797,7 +1797,6 @@ app.post("/api/rental-orders", async (req, res) => {
 
     console.log(`[RENTAL] New rental order created: ${order.id} — ${orderData.rideOption.title} (${orderData.rideOption.days}j)`);
 
-    invalidateActiveOrderCaches();
     res.json({ success: true, order, clientToken });
   } catch (error) {
     console.error("[RENTAL] Error creating rental order:", error);
