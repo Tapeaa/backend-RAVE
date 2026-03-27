@@ -8,7 +8,7 @@ import { Link } from 'wouter';
 import { 
   ClipboardList, Search, Eye, Filter, 
   ChevronLeft, ChevronRight, ArrowUpDown,
-  Calendar, DollarSign, CreditCard, Wallet
+  Calendar, DollarSign, CreditCard, Wallet, Car
 } from 'lucide-react';
 
 interface Commande {
@@ -88,6 +88,10 @@ export function AdminCommandes() {
         {config.label}
       </span>
     );
+  }
+
+  function isRentalOrder(commande: Commande): boolean {
+    return commande.rideOption?.type === 'rental' || commande.rideOption?.id?.startsWith('rental-');
   }
 
   function formatCurrency(amount: number): string {
@@ -251,21 +255,35 @@ export function AdminCommandes() {
                   </span>
                 </div>
                 
-                {/* Adresses */}
-                <div className="bg-slate-50 rounded-xl p-3 mb-3 text-xs overflow-hidden border border-slate-100">
-                  <p className="text-slate-700 truncate mb-1">
-                    <span className="inline-block w-2 h-2 rounded-full bg-green-500 mr-2"></span> {pickupAddr?.value || 'Non spécifié'}
-                  </p>
-                  <p className="text-slate-700 truncate">
-                    <span className="inline-block w-2 h-2 rounded-full bg-red-500 mr-2"></span> {dropoffAddr?.value || 'Non spécifié'}
-                  </p>
-                </div>
+                {/* Adresses / Info location */}
+                {isRentalOrder(commande) ? (
+                  <div className="bg-amber-50 rounded-xl p-3 mb-3 text-xs overflow-hidden border border-amber-200">
+                    <p className="text-amber-800 font-medium mb-1">
+                      <Car className="inline h-3 w-3 mr-1" /> {commande.rideOption?.title}
+                    </p>
+                    <p className="text-amber-700 truncate">
+                      {commande.rideOption?.days ? `${commande.rideOption.days} jour(s)` : ''} — {pickupAddr?.value || commande.rideOption?.pickupLocation || 'Non spécifié'}
+                    </p>
+                  </div>
+                ) : (
+                  <div className="bg-slate-50 rounded-xl p-3 mb-3 text-xs overflow-hidden border border-slate-100">
+                    <p className="text-slate-700 truncate mb-1">
+                      <span className="inline-block w-2 h-2 rounded-full bg-green-500 mr-2"></span> {pickupAddr?.value || 'Non spécifié'}
+                    </p>
+                    <p className="text-slate-700 truncate">
+                      <span className="inline-block w-2 h-2 rounded-full bg-red-500 mr-2"></span> {dropoffAddr?.value || 'Non spécifié'}
+                    </p>
+                  </div>
+                )}
                 
                 {/* Statut + Date */}
                 <div className="flex items-center justify-between gap-2">
                   <div className="flex items-center gap-1.5 flex-wrap min-w-0">
                     {getStatusBadge(commande.status)}
-                    {commande.isAdvanceBooking && (
+                    {isRentalOrder(commande) && (
+                      <span className="rounded-full bg-amber-100 border border-amber-200 px-2 py-0.5 text-xs font-medium text-amber-700">Location</span>
+                    )}
+                    {!isRentalOrder(commande) && commande.isAdvanceBooking && (
                       <span className="rounded-full bg-blue-100 border border-blue-200 px-2 py-0.5 text-xs font-medium text-blue-700">Résa</span>
                     )}
                   </div>
@@ -365,9 +383,11 @@ export function AdminCommandes() {
                           <p className="font-medium text-gray-900">
                             {formatDate(commande.createdAt)}
                           </p>
-                          {commande.isAdvanceBooking && (
+                          {isRentalOrder(commande) ? (
+                            <p className="text-xs text-amber-600 font-medium">Location véhicule</p>
+                          ) : commande.isAdvanceBooking ? (
                             <p className="text-xs text-blue-600">Réservation</p>
-                          )}
+                          ) : null}
                         </div>
                       </td>
                       <td className="px-6 py-4">
@@ -377,12 +397,21 @@ export function AdminCommandes() {
                         </div>
                       </td>
                       <td className="px-6 py-4">
-                        <div className="text-sm">
-                          <p className="text-gray-900">
-                            {pickupAddr?.value || 'Non spécifié'}
-                          </p>
-                          <p className="text-gray-500">→ {dropoffAddr?.value || 'Non spécifié'}</p>
-                        </div>
+                        {isRentalOrder(commande) ? (
+                          <div className="text-sm">
+                            <p className="text-gray-900 font-medium">{commande.rideOption?.title}</p>
+                            <p className="text-gray-500">
+                              {commande.rideOption?.days ? `${commande.rideOption.days}j` : ''} — {pickupAddr?.value || commande.rideOption?.pickupLocation || 'Non spécifié'}
+                            </p>
+                          </div>
+                        ) : (
+                          <div className="text-sm">
+                            <p className="text-gray-900">
+                              {pickupAddr?.value || 'Non spécifié'}
+                            </p>
+                            <p className="text-gray-500">→ {dropoffAddr?.value || 'Non spécifié'}</p>
+                          </div>
+                        )}
                       </td>
                       <td className="px-6 py-4">
                         <p className="font-semibold text-gray-900">

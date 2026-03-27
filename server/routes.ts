@@ -1714,6 +1714,97 @@ const sessionId = headerSessionId || cookieSessionId;
   }
 });
 
+// ============================================
+// COMMANDES DE LOCATION DE VÉHICULE (RAVE)
+// ============================================
+app.post("/api/rental-orders", orderLimiter, async (req, res) => {
+  try {
+    const body = req.body;
+
+    if (!body.client?.firstName || !body.client?.lastName || !body.client?.phone) {
+      return res.status(400).json({ success: false, error: "Informations client incomplètes" });
+    }
+    if (!body.vehicle?.model || !body.rental?.startDate || !body.rental?.endDate) {
+      return res.status(400).json({ success: false, error: "Informations véhicule ou dates manquantes" });
+    }
+
+    const rentalSupplements = Array.isArray(body.supplements)
+      ? body.supplements.map((s: any) => ({
+          id: s.id,
+          name: s.name,
+          price: s.pricePerDay || s.total || 0,
+          quantity: body.rental.days || 1,
+        }))
+      : [];
+
+    const orderData = {
+      clientName: `${body.client.firstName} ${body.client.lastName}`,
+      clientPhone: body.client.phone,
+      addresses: [
+        {
+          id: "pickup",
+          value: body.rental.pickupLocation || "Non spécifié",
+          placeId: null,
+          type: "pickup" as const,
+        },
+      ],
+      rideOption: {
+        id: `rental-${body.vehicle.category || "classique"}`,
+        title: `${body.vehicle.model} ${body.vehicle.year || ""}`.trim(),
+        price: body.pricing?.pricePerDay || 0,
+        pricePerKm: 0,
+        type: "rental",
+        category: body.vehicle.category,
+        categoryLabel: body.vehicle.categoryLabel,
+        days: body.rental.days,
+        startDate: body.rental.startDate,
+        endDate: body.rental.endDate,
+        pickupLocation: body.rental.pickupLocation,
+        deposit: body.pricing?.deposit,
+        km: body.pricing?.km,
+        owner: body.owner,
+        supplementsTotal: body.pricing?.supplementsTotal || 0,
+      },
+      routeInfo: undefined,
+      passengers: 1,
+      supplements: rentalSupplements,
+      paymentMethod: "cash" as const,
+      totalPrice: body.pricing?.grandTotal || body.pricing?.subtotal || 0,
+      driverEarnings: 0,
+      driverComment: `LOCATION ${body.rental.days}j — ${body.vehicle.categoryLabel || body.vehicle.category} — ${body.vehicle.model}`,
+      scheduledTime: body.rental.startDate,
+      isAdvanceBooking: true,
+    };
+
+    const headerSessionRaw = (req.headers["x-client-session-id"] as string | undefined) || "";
+    const headerSessionId = headerSessionRaw.split(",")[0].trim() || undefined;
+    const rawCookieSessionId = req.cookies?.clientSessionId as string | undefined;
+    const cookieSessionId = rawCookieSessionId?.split(",")[0].trim() || undefined;
+    const sessionId = headerSessionId || cookieSessionId;
+
+    let clientId: string | undefined = undefined;
+    if (sessionId) {
+      const session = await dbStorage.getClientSession(sessionId);
+      if (session && new Date(session.expiresAt) > new Date()) {
+        clientId = session.clientId;
+      }
+    }
+
+    const order = await dbStorage.createOrder(orderData as any, clientId);
+
+    const clientToken = generateClientToken();
+    orderClientTokens.set(order.id, { token: clientToken, socketId: null });
+
+    console.log(`[RENTAL] New rental order created: ${order.id} — ${orderData.rideOption.title} (${orderData.rideOption.days}j)`);
+
+    invalidateActiveOrderCaches();
+    res.json({ success: true, order, clientToken });
+  } catch (error) {
+    console.error("[RENTAL] Error creating rental order:", error);
+    res.status(400).json({ success: false, error: "Données de location invalides" });
+  }
+});
+
 // Vérifier la majoration hauteur avant commande
 app.post("/api/height-surcharge-check", async (req, res) => {
   try {

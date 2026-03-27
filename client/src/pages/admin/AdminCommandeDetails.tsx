@@ -206,6 +206,7 @@ export function AdminCommandeDetails() {
   }
 
   const { commande, client, chauffeur, ratings = { client: null, chauffeur: null }, prestataire, waitingRatePerMin = 42, freeMinutes = 0 } = details;
+  const isRental = commande.rideOption?.type === 'rental' || commande.rideOption?.id?.startsWith('rental-');
   // Utiliser fraisConfig de /api/frais-service-config (même source que prestataire) pour cohérence des calculs
   const fsPctFromConfig = fraisConfig?.fraisServicePrestataire ?? details.fraisConfig?.fraisServicePrestataire ?? details.fraisServicePercent ?? 15;
   const commissionPctFromConfig = fraisConfig?.commissionPrestataire ?? details.fraisConfig?.commissionPrestataire ?? 0;
@@ -243,7 +244,9 @@ export function AdminCommandeDetails() {
                 {commande.id.slice(0, 8).toUpperCase()}…
               </span>
             </nav>
-            <h1 className="text-xl font-bold text-gray-900 mt-0.5">Détails de la commande</h1>
+            <h1 className="text-xl font-bold text-gray-900 mt-0.5">
+              {isRental ? 'Détails de la location' : 'Détails de la commande'}
+            </h1>
           </div>
         </div>
         <div className="flex items-center gap-3">
@@ -275,9 +278,11 @@ export function AdminCommandeDetails() {
           </p>
         </div>
         <div className="rounded-xl border border-gray-200/80 bg-white p-3 sm:p-4 shadow-sm">
-          <p className="text-xs font-medium uppercase tracking-wider text-gray-500">Chauffeur</p>
-          <p className="mt-1 text-xs sm:text-sm font-semibold text-gray-900 truncate" title={chauffeur ? `${chauffeur.firstName} ${chauffeur.lastName}` : '—'}>
-            {chauffeur ? `${chauffeur.firstName} ${chauffeur.lastName}` : '—'}
+          <p className="text-xs font-medium uppercase tracking-wider text-gray-500">
+            {isRental ? 'Véhicule' : 'Chauffeur'}
+          </p>
+          <p className="mt-1 text-xs sm:text-sm font-semibold text-gray-900 truncate" title={isRental ? commande.rideOption?.title : (chauffeur ? `${chauffeur.firstName} ${chauffeur.lastName}` : '—')}>
+            {isRental ? commande.rideOption?.title : (chauffeur ? `${chauffeur.firstName} ${chauffeur.lastName}` : '—')}
           </p>
         </div>
       </div>
@@ -286,85 +291,144 @@ export function AdminCommandeDetails() {
       <div className="grid gap-6 lg:grid-cols-3">
         {/* Colonne gauche : Trajet, Acteurs, Notations */}
         <div className="space-y-6 lg:col-span-2">
-          {/* Trajet - Timeline moderne */}
-          <div className="rounded-xl border border-gray-200/80 bg-white p-4 sm:p-6 shadow-sm">
-            <h2 className="mb-4 sm:mb-5 flex items-center gap-2 text-base font-semibold text-gray-900">
-              <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-purple-100">
-                <MapPin className="h-4 w-4 text-purple-600" />
+          {isRental ? (
+            /* Location de véhicule */
+            <div className="rounded-xl border border-amber-200/80 bg-white p-4 sm:p-6 shadow-sm">
+              <h2 className="mb-4 sm:mb-5 flex items-center gap-2 text-base font-semibold text-gray-900">
+                <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-amber-100">
+                  <Car className="h-4 w-4 text-amber-600" />
+                </div>
+                Location de véhicule
+              </h2>
+              <div className="bg-amber-50 rounded-lg p-4 mb-4">
+                <p className="text-lg font-bold text-gray-900">{commande.rideOption?.title}</p>
+                <p className="text-sm text-amber-700 mt-1">
+                  {commande.rideOption?.categoryLabel || commande.rideOption?.category}
+                </p>
               </div>
-              Parcours
-            </h2>
-            <div className="relative space-y-0">
-              {/* Ligne verticale */}
-              <div className="absolute left-4 top-2 bottom-2 w-0.5 bg-gradient-to-b from-emerald-400 via-amber-400 to-rose-400" />
-              {/* Départ */}
-              <div className="relative flex gap-4 pb-5">
-                <div className="relative z-10 flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-emerald-500 text-white ring-4 ring-white shadow">
-                  <span className="text-xs font-bold">A</span>
+              <div className="grid grid-cols-2 gap-3 mb-4">
+                <div className="rounded-lg bg-gray-50 p-3">
+                  <p className="text-xs font-medium text-gray-500">Début</p>
+                  <p className="font-semibold text-gray-900 text-sm">
+                    {commande.rideOption?.startDate ? formatDate(commande.rideOption.startDate) : '—'}
+                  </p>
                 </div>
-                <div className="flex-1 rounded-lg border border-emerald-200/80 bg-emerald-50/50 p-4">
-                  <p className="text-xs font-semibold uppercase tracking-wider text-emerald-700">Départ</p>
-                  <p className="mt-1 font-medium text-gray-900">{pickup.value || 'Non spécifié'}</p>
-                </div>
-              </div>
-              {/* Arrêts */}
-              {stops.map((stop: any, index: number) => (
-                <div key={stop.id || index} className="relative flex gap-4 pb-5">
-                  <div className="relative z-10 flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-amber-500 text-white ring-4 ring-white shadow">
-                    <span className="text-xs font-bold">{index + 1}</span>
-                  </div>
-                  <div className="flex-1 rounded-lg border border-amber-200/80 bg-amber-50/50 p-4">
-                    <p className="text-xs font-semibold uppercase tracking-wider text-amber-700">Arrêt {index + 1}</p>
-                    <p className="mt-1 font-medium text-gray-900">{stop.value || 'Non spécifié'}</p>
-                  </div>
-                </div>
-              ))}
-              {/* Destination */}
-              <div className="relative flex gap-4">
-                <div className="relative z-10 flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-rose-500 text-white ring-4 ring-white shadow">
-                  <span className="text-xs font-bold">B</span>
-                </div>
-                <div className="flex-1 rounded-lg border border-rose-200/80 bg-rose-50/50 p-4">
-                  <p className="text-xs font-semibold uppercase tracking-wider text-rose-700">Arrivée</p>
-                  <p className="mt-1 font-medium text-gray-900">{dropoff.value || 'Non spécifié'}</p>
+                <div className="rounded-lg bg-gray-50 p-3">
+                  <p className="text-xs font-medium text-gray-500">Fin</p>
+                  <p className="font-semibold text-gray-900 text-sm">
+                    {commande.rideOption?.endDate ? formatDate(commande.rideOption.endDate) : '—'}
+                  </p>
                 </div>
               </div>
-            </div>
-            <div className="mt-5 flex flex-wrap gap-3 text-sm">
-              <span className="inline-flex items-center gap-1.5 rounded-full bg-gray-100 px-3 py-1 font-medium text-gray-700">
-                <Package className="h-4 w-4" />
-                {commande.passengers} passager{commande.passengers > 1 ? 's' : ''}
-              </span>
-              {commande.scheduledTime && (
-                <span className="inline-flex items-center gap-1.5 rounded-full bg-violet-100 px-3 py-1 font-medium text-violet-700">
-                  <Clock className="h-4 w-4" />
-                  Résa {formatDate(commande.scheduledTime)}
+              <div className="flex flex-wrap gap-3 text-sm">
+                <span className="inline-flex items-center gap-1.5 rounded-full bg-amber-100 px-3 py-1 font-medium text-amber-700">
+                  <Calendar className="h-4 w-4" />
+                  {commande.rideOption?.days || '—'} jour(s)
                 </span>
+                <span className="inline-flex items-center gap-1.5 rounded-full bg-gray-100 px-3 py-1 font-medium text-gray-700">
+                  <MapPin className="h-4 w-4" />
+                  {commande.rideOption?.pickupLocation || pickup.value || 'Non spécifié'}
+                </span>
+              </div>
+              {commande.rideOption?.km && (
+                <div className="mt-4 rounded-lg bg-gray-50 p-3">
+                  <p className="text-xs font-medium text-gray-500">Kilométrage inclus</p>
+                  <p className="font-semibold text-gray-900">{commande.rideOption.km}</p>
+                </div>
+              )}
+              {commande.rideOption?.deposit && (
+                <div className="mt-2 rounded-lg bg-gray-50 p-3">
+                  <p className="text-xs font-medium text-gray-500">Caution</p>
+                  <p className="font-semibold text-gray-900">{commande.rideOption.deposit}</p>
+                </div>
+              )}
+              {commande.rideOption?.owner && (
+                <div className="mt-4 rounded-lg border border-gray-200 p-3">
+                  <p className="text-xs font-medium text-gray-500 mb-1">Loueur</p>
+                  <p className="font-medium text-gray-900">{commande.rideOption.owner.name}</p>
+                  {commande.rideOption.owner.rating && (
+                    <p className="text-sm text-gray-500">Note : {commande.rideOption.owner.rating} — {commande.rideOption.owner.trips}</p>
+                  )}
+                </div>
               )}
             </div>
-            <div className="mt-4 sm:mt-5 grid grid-cols-2 gap-3 rounded-lg bg-gray-50 p-3 sm:p-4">
-              <div>
-                <p className="text-xs font-medium text-gray-500">Distance</p>
-                <p className="font-semibold text-gray-900">
-                  {typeof routeInfo?.distance === 'number' && routeInfo.distance > 0
-                    ? (routeInfo.distance >= 1000 
-                        ? (routeInfo.distance / 1000).toFixed(1) + ' km'
-                        : routeInfo.distance.toFixed(1) + ' km')
-                    : '—'}
-                </p>
+          ) : (
+            /* Trajet VTC - Timeline moderne */
+            <div className="rounded-xl border border-gray-200/80 bg-white p-4 sm:p-6 shadow-sm">
+              <h2 className="mb-4 sm:mb-5 flex items-center gap-2 text-base font-semibold text-gray-900">
+                <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-purple-100">
+                  <MapPin className="h-4 w-4 text-purple-600" />
+                </div>
+                Parcours
+              </h2>
+              <div className="relative space-y-0">
+                <div className="absolute left-4 top-2 bottom-2 w-0.5 bg-gradient-to-b from-emerald-400 via-amber-400 to-rose-400" />
+                <div className="relative flex gap-4 pb-5">
+                  <div className="relative z-10 flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-emerald-500 text-white ring-4 ring-white shadow">
+                    <span className="text-xs font-bold">A</span>
+                  </div>
+                  <div className="flex-1 rounded-lg border border-emerald-200/80 bg-emerald-50/50 p-4">
+                    <p className="text-xs font-semibold uppercase tracking-wider text-emerald-700">Départ</p>
+                    <p className="mt-1 font-medium text-gray-900">{pickup.value || 'Non spécifié'}</p>
+                  </div>
+                </div>
+                {stops.map((stop: any, index: number) => (
+                  <div key={stop.id || index} className="relative flex gap-4 pb-5">
+                    <div className="relative z-10 flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-amber-500 text-white ring-4 ring-white shadow">
+                      <span className="text-xs font-bold">{index + 1}</span>
+                    </div>
+                    <div className="flex-1 rounded-lg border border-amber-200/80 bg-amber-50/50 p-4">
+                      <p className="text-xs font-semibold uppercase tracking-wider text-amber-700">Arrêt {index + 1}</p>
+                      <p className="mt-1 font-medium text-gray-900">{stop.value || 'Non spécifié'}</p>
+                    </div>
+                  </div>
+                ))}
+                <div className="relative flex gap-4">
+                  <div className="relative z-10 flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-rose-500 text-white ring-4 ring-white shadow">
+                    <span className="text-xs font-bold">B</span>
+                  </div>
+                  <div className="flex-1 rounded-lg border border-rose-200/80 bg-rose-50/50 p-4">
+                    <p className="text-xs font-semibold uppercase tracking-wider text-rose-700">Arrivée</p>
+                    <p className="mt-1 font-medium text-gray-900">{dropoff.value || 'Non spécifié'}</p>
+                  </div>
+                </div>
               </div>
-              <div>
-                <p className="text-xs font-medium text-gray-500">Durée estimée</p>
-                <p className="font-semibold text-gray-900">
-                  {routeInfo?.duration != null
-                    ? (typeof routeInfo.duration === 'number'
-                        ? `${Math.round(routeInfo.duration / 60)} min`
-                        : String(routeInfo.duration))
-                    : '—'}
-                </p>
+              <div className="mt-5 flex flex-wrap gap-3 text-sm">
+                <span className="inline-flex items-center gap-1.5 rounded-full bg-gray-100 px-3 py-1 font-medium text-gray-700">
+                  <Package className="h-4 w-4" />
+                  {commande.passengers} passager{commande.passengers > 1 ? 's' : ''}
+                </span>
+                {commande.scheduledTime && (
+                  <span className="inline-flex items-center gap-1.5 rounded-full bg-violet-100 px-3 py-1 font-medium text-violet-700">
+                    <Clock className="h-4 w-4" />
+                    Résa {formatDate(commande.scheduledTime)}
+                  </span>
+                )}
+              </div>
+              <div className="mt-4 sm:mt-5 grid grid-cols-2 gap-3 rounded-lg bg-gray-50 p-3 sm:p-4">
+                <div>
+                  <p className="text-xs font-medium text-gray-500">Distance</p>
+                  <p className="font-semibold text-gray-900">
+                    {typeof routeInfo?.distance === 'number' && routeInfo.distance > 0
+                      ? (routeInfo.distance >= 1000 
+                          ? (routeInfo.distance / 1000).toFixed(1) + ' km'
+                          : routeInfo.distance.toFixed(1) + ' km')
+                      : '—'}
+                  </p>
+                </div>
+                <div>
+                  <p className="text-xs font-medium text-gray-500">Durée estimée</p>
+                  <p className="font-semibold text-gray-900">
+                    {routeInfo?.duration != null
+                      ? (typeof routeInfo.duration === 'number'
+                          ? `${Math.round(routeInfo.duration / 60)} min`
+                          : String(routeInfo.duration))
+                      : '—'}
+                  </p>
+                </div>
               </div>
             </div>
-          </div>
+          )}
 
           {/* Acteurs : Client & Chauffeur */}
           <div className="grid gap-4 sm:gap-6 grid-cols-1 sm:grid-cols-2">
