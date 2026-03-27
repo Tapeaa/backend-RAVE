@@ -1717,7 +1717,7 @@ const sessionId = headerSessionId || cookieSessionId;
 // ============================================
 // COMMANDES DE LOCATION DE VÉHICULE (RAVE)
 // ============================================
-app.post("/api/rental-orders", orderLimiter, async (req, res) => {
+app.post("/api/rental-orders", async (req, res) => {
   try {
     const body = req.body;
 
