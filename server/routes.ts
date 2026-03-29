@@ -1982,6 +1982,7 @@ app.post("/api/rental-orders/:id/decline", async (req, res) => {
 // ============================================
 // CANCEL A RENTAL ORDER (by client or driver)
 // ============================================
+// Driver cancels directly
 app.post("/api/rental-orders/:id/cancel", async (req, res) => {
   try {
     const { id } = req.params;
@@ -1996,23 +1997,95 @@ app.post("/api/rental-orders/:id/cancel", async (req, res) => {
       return res.status(409).json({ success: false, error: "Commande déjà terminée ou annulée" });
     }
 
-    await dbStorage.updateOrderStatus(id, "cancelled");
+    if (role === "driver") {
+      await dbStorage.updateOrderStatus(id, "cancelled");
+      const orderData = {
+        orderId: id,
+        cancelledBy: role,
+        reason,
+        clientName: order.clientName || "Client",
+        vehicleTitle: (order.rideOption as any)?.title || "Véhicule",
+        totalPrice: order.totalPrice || 0,
+        pickupLocation: order.addresses?.find((a: any) => a.type === "pickup")?.value || "",
+      };
+      io.to(`order:${id}`).emit("rental-order:cancelled", orderData);
+      io.to("drivers:online").emit("rental-order:cancelled", orderData);
+      console.log(`[RENTAL] Order ${id} cancelled directly by driver: ${reason}`);
+      return res.json({ success: true, order: { ...order, status: "cancelled" } });
+    }
 
-    io.to(`order:${id}`).emit("rental-order:cancelled", {
+    // Client: just a request, not a direct cancel
+    const orderData = {
       orderId: id,
-      cancelledBy: role,
       reason,
-    });
-    io.to("drivers:online").emit("rental-order:cancelled", {
-      orderId: id,
-      cancelledBy: role,
-      reason,
-    });
-
-    console.log(`[RENTAL] Order ${id} cancelled by ${role}: ${reason}`);
-    res.json({ success: true, order: { ...order, status: "cancelled" } });
+      clientName: order.clientName || "Client",
+      clientPhone: order.clientPhone || "",
+      vehicleTitle: (order.rideOption as any)?.title || "Véhicule",
+      totalPrice: order.totalPrice || 0,
+      pickupLocation: order.addresses?.find((a: any) => a.type === "pickup")?.value || "",
+      scheduledTime: order.scheduledTime || null,
+    };
+    io.to("drivers:online").emit("rental-order:cancel-request", orderData);
+    io.to(`order:${id}`).emit("rental-order:cancel-request", orderData);
+    console.log(`[RENTAL] Client requested cancellation for order ${id}: ${reason}`);
+    res.json({ success: true, pending: true, message: "Demande d'annulation envoyée au loueur" });
   } catch (error) {
     console.error("[RENTAL] Error cancelling rental order:", error);
+    res.status(500).json({ success: false, error: "Erreur serveur" });
+  }
+});
+
+// Driver approves client's cancel request
+app.post("/api/rental-orders/:id/cancel-approve", async (req, res) => {
+  try {
+    const { id } = req.params;
+    const order = await dbStorage.getOrder(id);
+    if (!order) {
+      return res.status(404).json({ success: false, error: "Commande introuvable" });
+    }
+    if (order.status === "cancelled" || order.status === "completed") {
+      return res.status(409).json({ success: false, error: "Commande déjà terminée ou annulée" });
+    }
+
+    await dbStorage.updateOrderStatus(id, "cancelled");
+    const orderData = {
+      orderId: id,
+      cancelledBy: "client",
+      approvedByDriver: true,
+      reason: req.body.reason || "Annulation validée par le loueur",
+      clientName: order.clientName || "Client",
+      vehicleTitle: (order.rideOption as any)?.title || "Véhicule",
+      totalPrice: order.totalPrice || 0,
+    };
+    io.to(`order:${id}`).emit("rental-order:cancelled", orderData);
+    io.to("drivers:online").emit("rental-order:cancelled", orderData);
+    console.log(`[RENTAL] Order ${id} cancel approved by driver`);
+    res.json({ success: true, order: { ...order, status: "cancelled" } });
+  } catch (error) {
+    console.error("[RENTAL] Error approving cancel:", error);
+    res.status(500).json({ success: false, error: "Erreur serveur" });
+  }
+});
+
+// Driver rejects client's cancel request
+app.post("/api/rental-orders/:id/cancel-reject", async (req, res) => {
+  try {
+    const { id } = req.params;
+    const order = await dbStorage.getOrder(id);
+    if (!order) {
+      return res.status(404).json({ success: false, error: "Commande introuvable" });
+    }
+    const rejectData = {
+      orderId: id,
+      reason: req.body.reason || "Le loueur a refusé l'annulation",
+      vehicleTitle: (order.rideOption as any)?.title || "Véhicule",
+      totalPrice: order.totalPrice || 0,
+    };
+    io.to(`order:${id}`).emit("rental-order:cancel-rejected", rejectData);
+    console.log(`[RENTAL] Order ${id} cancel rejected by driver`);
+    res.json({ success: true });
+  } catch (error) {
+    console.error("[RENTAL] Error rejecting cancel:", error);
     res.status(500).json({ success: false, error: "Erreur serveur" });
   }
 });
