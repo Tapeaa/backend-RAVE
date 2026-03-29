@@ -2042,6 +2042,10 @@ app.get("/api/orders/active/client", async (req, res) => {
 
     const matchingOrders = orders
       .filter((o: Order) => {
+        // Exclure les commandes de location (gérées par le flux rental-orders)
+        const ro = o.rideOption as any;
+        if (ro?.type === "rental") return false;
+
         // Inclure les commandes avec statut actif
         if (!activeStatuses.includes(o.status as OrderStatus)) {
           return false;
@@ -2186,10 +2190,14 @@ app.post("/api/live-activities/end", async (req, res) => {
       return res.json({ hasActiveOrder: false });
     }
     
-    // Find active order for this driver (only truly active statuses)
+    // Find active order for this driver (only truly active statuses, exclude rental orders)
     const activeStatuses: OrderStatus[] = ["accepted", "driver_enroute", "driver_arrived", "in_progress"];
     const orders = await dbStorage.getOrdersByDriver(driverId);
-    const activeOrder = orders.find((o: Order) => activeStatuses.includes(o.status as OrderStatus));
+    const activeOrder = orders.find((o: Order) => {
+      const ro = o.rideOption as any;
+      if (ro?.type === "rental") return false;
+      return activeStatuses.includes(o.status as OrderStatus);
+    });
     
     if (!activeOrder) {
       return res.json({ hasActiveOrder: false });
