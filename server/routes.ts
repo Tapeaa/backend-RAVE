@@ -342,6 +342,14 @@ export async function registerRoutes(app: Express): Promise<Server> {
       socket.join(orderRoom);
       console.log(`Client socket ${socket.id} authenticated and joined order room: ${data.orderId}`);
     });
+
+    // Rental order room join (simplified - no token required for rental orders)
+    socket.on("rental-order:join", (data: { orderId: string }) => {
+      if (!data.orderId) return;
+      const orderRoom = `order:${data.orderId}`;
+      socket.join(orderRoom);
+      console.log(`[RENTAL] Socket ${socket.id} joined rental order room: ${orderRoom}`);
+    });
     
     // Driver goes online/offline
     socket.on("driver:status", async (data: { sessionId: string; isOnline: boolean }) => {
@@ -1797,10 +1805,177 @@ app.post("/api/rental-orders", async (req, res) => {
 
     console.log(`[RENTAL] New rental order created: ${order.id} — ${orderData.rideOption.title} (${orderData.rideOption.days}j)`);
 
-    res.json({ success: true, order, clientToken });
+    // Notify all online drivers/loueurs via Socket.IO
+    const rentalPayload = {
+      id: order.id,
+      type: "rental",
+      status: "pending",
+      vehicle: body.vehicle,
+      client: body.client,
+      rental: body.rental,
+      pricing: body.pricing,
+      supplements: body.supplements || [],
+      owner: body.owner ? { name: body.owner } : undefined,
+      scheduledTime: body.rental.startDate,
+      isAdvanceBooking: true,
+      createdAt: order.createdAt,
+      expiresAt: order.expiresAt,
+    };
+    io.to("drivers:online").emit("rental-order:new", rentalPayload);
+    console.log(`[RENTAL] Emitted rental-order:new to drivers:online`);
+
+    res.json({ success: true, order, clientToken, id: order.id, orderId: order.id });
   } catch (error) {
     console.error("[RENTAL] Error creating rental order:", error);
     res.status(400).json({ success: false, error: "Données de location invalides" });
+  }
+});
+
+// ============================================
+// GET PENDING RENTAL ORDERS (for loueur app)
+// ============================================
+app.get("/api/rental-orders/pending", async (req, res) => {
+  try {
+    const sessionId = (req.headers["x-driver-session"] as string || "").split(",")[0].trim();
+    if (!sessionId) {
+      return res.status(401).json({ success: false, error: "Session requise" });
+    }
+    const session = await dbStorage.getDriverSession(sessionId);
+    if (!session) {
+      return res.status(401).json({ success: false, error: "Session invalide" });
+    }
+
+    const allPending = await dbStorage.getPendingOrders();
+    const rentalOrders = allPending
+      .filter((o: any) => {
+        const ro = o.rideOption as any;
+        return ro?.type === "rental";
+      })
+      .map((o: any) => {
+        const ro = o.rideOption as any;
+        const nameParts = (o.clientName || "").split(" ");
+        const firstName = nameParts[0] || "";
+        const lastName = nameParts.slice(1).join(" ") || "";
+        return {
+          id: o.id,
+          type: "rental",
+          status: o.status,
+          vehicle: {
+            model: (ro.title || "").replace(/\s*\d{4}\s*$/, ""),
+            year: undefined,
+            category: ro.category,
+            categoryLabel: ro.categoryLabel,
+          },
+          client: {
+            firstName,
+            lastName,
+            phone: o.clientPhone,
+          },
+          rental: {
+            startDate: ro.startDate,
+            endDate: ro.endDate,
+            days: ro.days,
+            pickupLocation: ro.pickupLocation || (o.addresses?.[0]?.value),
+          },
+          pricing: {
+            pricePerDay: ro.price,
+            subtotal: (ro.price || 0) * (ro.days || 1),
+            supplementsTotal: ro.supplementsTotal || 0,
+            grandTotal: o.totalPrice,
+            deposit: typeof ro.deposit === "string" ? parseInt(ro.deposit, 10) || 0 : ro.deposit,
+            km: ro.km,
+          },
+          supplements: (o.supplements || []).map((s: any) => ({
+            id: s.id,
+            name: s.name,
+            pricePerDay: s.price,
+            total: (s.price || 0) * (s.quantity || 1),
+          })),
+          owner: ro.owner ? { name: ro.owner } : undefined,
+          scheduledTime: o.scheduledTime,
+          isAdvanceBooking: o.isAdvanceBooking,
+          createdAt: o.createdAt,
+          expiresAt: o.expiresAt,
+        };
+      });
+
+    console.log(`[RENTAL] GET /api/rental-orders/pending — ${rentalOrders.length} rental order(s) found`);
+    res.json({ success: true, orders: rentalOrders });
+  } catch (error) {
+    console.error("[RENTAL] Error fetching pending rental orders:", error);
+    res.status(500).json({ success: false, error: "Erreur serveur" });
+  }
+});
+
+// ============================================
+// ACCEPT A RENTAL ORDER
+// ============================================
+app.post("/api/rental-orders/:id/accept", async (req, res) => {
+  try {
+    const { id } = req.params;
+    const sessionId = (req.headers["x-driver-session"] as string || req.body.sessionId || "").split(",")[0].trim();
+    if (!sessionId) {
+      return res.status(401).json({ success: false, error: "Session requise" });
+    }
+    const session = await dbStorage.getDriverSession(sessionId);
+    if (!session) {
+      return res.status(401).json({ success: false, error: "Session invalide" });
+    }
+
+    const order = await dbStorage.getOrder(id);
+    if (!order) {
+      return res.status(404).json({ success: false, error: "Commande introuvable" });
+    }
+    if (order.status !== "pending") {
+      return res.status(409).json({ success: false, error: "Commande déjà traitée" });
+    }
+
+    const updatedOrder = await dbStorage.updateOrderStatus(id, "accepted", session.driverId);
+
+    // Notify the client via socket
+    io.to(`order:${id}`).emit("rental-order:accepted", {
+      orderId: id,
+      driverName: session.driverName,
+      driverId: session.driverId,
+      status: "accepted",
+    });
+    io.to(`order:${id}`).emit("order:booking:confirmed", {
+      orderId: id,
+      driverName: session.driverName,
+      status: "accepted",
+    });
+
+    // Notify other drivers this order is taken
+    io.to("drivers:online").emit("rental-order:taken", { orderId: id });
+
+    console.log(`[RENTAL] Order ${id} accepted by driver ${session.driverName} (${session.driverId})`);
+    res.json({ success: true, order: updatedOrder });
+  } catch (error) {
+    console.error("[RENTAL] Error accepting rental order:", error);
+    res.status(500).json({ success: false, error: "Erreur serveur" });
+  }
+});
+
+// ============================================
+// DECLINE A RENTAL ORDER
+// ============================================
+app.post("/api/rental-orders/:id/decline", async (req, res) => {
+  try {
+    const { id } = req.params;
+    const sessionId = (req.headers["x-driver-session"] as string || req.body.sessionId || "").split(",")[0].trim();
+    if (!sessionId) {
+      return res.status(401).json({ success: false, error: "Session requise" });
+    }
+    const session = await dbStorage.getDriverSession(sessionId);
+    if (!session) {
+      return res.status(401).json({ success: false, error: "Session invalide" });
+    }
+
+    console.log(`[RENTAL] Order ${id} declined by driver ${session.driverName}`);
+    res.json({ success: true });
+  } catch (error) {
+    console.error("[RENTAL] Error declining rental order:", error);
+    res.status(500).json({ success: false, error: "Erreur serveur" });
   }
 });
 
