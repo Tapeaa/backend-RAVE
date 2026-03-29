@@ -1979,6 +1979,44 @@ app.post("/api/rental-orders/:id/decline", async (req, res) => {
   }
 });
 
+// ============================================
+// CANCEL A RENTAL ORDER (by client or driver)
+// ============================================
+app.post("/api/rental-orders/:id/cancel", async (req, res) => {
+  try {
+    const { id } = req.params;
+    const role = req.body.role || "client";
+    const reason = req.body.reason || "Annulation";
+
+    const order = await dbStorage.getOrder(id);
+    if (!order) {
+      return res.status(404).json({ success: false, error: "Commande introuvable" });
+    }
+    if (order.status === "cancelled" || order.status === "completed") {
+      return res.status(409).json({ success: false, error: "Commande déjà terminée ou annulée" });
+    }
+
+    await dbStorage.updateOrderStatus(id, "cancelled");
+
+    io.to(`order:${id}`).emit("rental-order:cancelled", {
+      orderId: id,
+      cancelledBy: role,
+      reason,
+    });
+    io.to("drivers:online").emit("rental-order:cancelled", {
+      orderId: id,
+      cancelledBy: role,
+      reason,
+    });
+
+    console.log(`[RENTAL] Order ${id} cancelled by ${role}: ${reason}`);
+    res.json({ success: true, order: { ...order, status: "cancelled" } });
+  } catch (error) {
+    console.error("[RENTAL] Error cancelling rental order:", error);
+    res.status(500).json({ success: false, error: "Erreur serveur" });
+  }
+});
+
 // Vérifier la majoration hauteur avant commande
 app.post("/api/height-surcharge-check", async (req, res) => {
   try {
