@@ -1840,7 +1840,7 @@ app.get("/api/rental-orders/pending", async (req, res) => {
     if (!sessionId) {
       return res.status(401).json({ success: false, error: "Session requise" });
     }
-    const session = await dbStorage.getDriverSession(sessionId);
+    const session = await getDriverSessionWithFallback(sessionId);
     if (!session) {
       return res.status(401).json({ success: false, error: "Session invalide" });
     }
@@ -1917,7 +1917,7 @@ app.post("/api/rental-orders/:id/accept", async (req, res) => {
     if (!sessionId) {
       return res.status(401).json({ success: false, error: "Session requise" });
     }
-    const session = await dbStorage.getDriverSession(sessionId);
+    const session = await getDriverSessionWithFallback(sessionId);
     if (!session) {
       return res.status(401).json({ success: false, error: "Session invalide" });
     }
@@ -1966,7 +1966,7 @@ app.post("/api/rental-orders/:id/decline", async (req, res) => {
     if (!sessionId) {
       return res.status(401).json({ success: false, error: "Session requise" });
     }
-    const session = await dbStorage.getDriverSession(sessionId);
+    const session = await getDriverSessionWithFallback(sessionId);
     if (!session) {
       return res.status(401).json({ success: false, error: "Session invalide" });
     }
