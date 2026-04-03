@@ -3508,6 +3508,212 @@ app.post("/api/live-activities/end", async (req, res) => {
     }
   });
 
+  // ============ VÉHICULES DU LOUEUR (auth via X-Driver-Session) ============
+
+  // GET /api/driver/vehicle-models - Modèles disponibles
+  app.get("/api/driver/vehicle-models", async (req, res) => {
+    try {
+      const sessionId = req.headers['x-driver-session'] as string;
+      if (!sessionId) return res.status(401).json({ error: "Session requise" });
+      const session = await getDriverSessionWithFallback(sessionId);
+      if (!session) return res.status(401).json({ error: "Session invalide" });
+
+      const models = await db
+        .select()
+        .from(vehicleModels)
+        .where(eq(vehicleModels.isActive, true));
+
+      return res.json(models);
+    } catch (error) {
+      console.error("Error fetching vehicle models (driver):", error);
+      return res.status(500).json({ error: "Erreur serveur" });
+    }
+  });
+
+  // GET /api/driver/vehicles - Véhicules du loueur connecté
+  app.get("/api/driver/vehicles", async (req, res) => {
+    try {
+      const sessionId = req.headers['x-driver-session'] as string;
+      if (!sessionId) return res.status(401).json({ error: "Session requise" });
+      const session = await getDriverSessionWithFallback(sessionId);
+      if (!session) return res.status(401).json({ error: "Session invalide" });
+
+      const driver = await dbStorage.getDriver(session.driverId);
+      if (!driver || !driver.prestataireId) {
+        return res.status(403).json({ error: "Aucun prestataire associé" });
+      }
+
+      const vehicles = await db
+        .select({
+          id: loueurVehicles.id,
+          vehicleModelId: loueurVehicles.vehicleModelId,
+          plate: loueurVehicles.plate,
+          pricePerDay: loueurVehicles.pricePerDay,
+          pricePerDayLongTerm: loueurVehicles.pricePerDayLongTerm,
+          availableForRental: loueurVehicles.availableForRental,
+          availableForDelivery: loueurVehicles.availableForDelivery,
+          availableForLongTerm: loueurVehicles.availableForLongTerm,
+          customImageUrl: loueurVehicles.customImageUrl,
+          isActive: loueurVehicles.isActive,
+          createdAt: loueurVehicles.createdAt,
+          modelName: vehicleModels.name,
+          modelCategory: vehicleModels.category,
+          modelImageUrl: vehicleModels.imageUrl,
+          modelSeats: vehicleModels.seats,
+          modelTransmission: vehicleModels.transmission,
+          modelFuel: vehicleModels.fuel,
+        })
+        .from(loueurVehicles)
+        .leftJoin(vehicleModels, eq(loueurVehicles.vehicleModelId, vehicleModels.id))
+        .where(eq(loueurVehicles.prestataireId, driver.prestataireId));
+
+      return res.json(vehicles);
+    } catch (error) {
+      console.error("Error fetching driver vehicles:", error);
+      return res.status(500).json({ error: "Erreur serveur" });
+    }
+  });
+
+  // POST /api/driver/vehicles - Ajouter un véhicule
+  app.post("/api/driver/vehicles", async (req, res) => {
+    try {
+      const sessionId = req.headers['x-driver-session'] as string;
+      if (!sessionId) return res.status(401).json({ error: "Session requise" });
+      const session = await getDriverSessionWithFallback(sessionId);
+      if (!session) return res.status(401).json({ error: "Session invalide" });
+
+      const driver = await dbStorage.getDriver(session.driverId);
+      if (!driver || !driver.prestataireId) {
+        return res.status(403).json({ error: "Aucun prestataire associé" });
+      }
+
+      const {
+        vehicleModelId, plate, pricePerDay, pricePerDayLongTerm,
+        availableForRental, availableForDelivery, availableForLongTerm, customImageUrl
+      } = req.body;
+
+      if (!vehicleModelId || !pricePerDay) {
+        return res.status(400).json({ error: "Modèle et prix par jour requis" });
+      }
+
+      const [model] = await db
+        .select()
+        .from(vehicleModels)
+        .where(eq(vehicleModels.id, vehicleModelId));
+
+      if (!model || !model.isActive) {
+        return res.status(400).json({ error: "Modèle introuvable ou inactif" });
+      }
+
+      const [newVehicle] = await db
+        .insert(loueurVehicles)
+        .values({
+          vehicleModelId,
+          prestataireId: driver.prestataireId,
+          driverId: driver.id,
+          plate: plate || null,
+          pricePerDay,
+          pricePerDayLongTerm: pricePerDayLongTerm || null,
+          availableForRental: availableForRental ?? true,
+          availableForDelivery: availableForDelivery ?? false,
+          availableForLongTerm: availableForLongTerm ?? false,
+          customImageUrl: customImageUrl || null,
+          isActive: true,
+        })
+        .returning();
+
+      console.log(`[Driver] Vehicle added: ${model.name} by driver ${driver.firstName} ${driver.lastName}`);
+      return res.status(201).json(newVehicle);
+    } catch (error) {
+      console.error("Error adding driver vehicle:", error);
+      return res.status(500).json({ error: "Erreur serveur" });
+    }
+  });
+
+  // PATCH /api/driver/vehicles/:id - Modifier un véhicule
+  app.patch("/api/driver/vehicles/:id", async (req, res) => {
+    try {
+      const sessionId = req.headers['x-driver-session'] as string;
+      if (!sessionId) return res.status(401).json({ error: "Session requise" });
+      const session = await getDriverSessionWithFallback(sessionId);
+      if (!session) return res.status(401).json({ error: "Session invalide" });
+
+      const driver = await dbStorage.getDriver(session.driverId);
+      if (!driver || !driver.prestataireId) {
+        return res.status(403).json({ error: "Aucun prestataire associé" });
+      }
+
+      const { id } = req.params;
+      const [existing] = await db
+        .select()
+        .from(loueurVehicles)
+        .where(and(
+          eq(loueurVehicles.id, id),
+          eq(loueurVehicles.prestataireId, driver.prestataireId)
+        ));
+
+      if (!existing) {
+        return res.status(404).json({ error: "Véhicule introuvable" });
+      }
+
+      const updates: Record<string, any> = {};
+      const allowedFields = ["plate", "pricePerDay", "pricePerDayLongTerm", "availableForRental", "availableForDelivery", "availableForLongTerm", "customImageUrl", "isActive"];
+      for (const field of allowedFields) {
+        if (req.body[field] !== undefined) {
+          updates[field] = req.body[field];
+        }
+      }
+
+      if (Object.keys(updates).length === 0) {
+        return res.status(400).json({ error: "Aucune modification" });
+      }
+
+      const [updated] = await db
+        .update(loueurVehicles)
+        .set(updates)
+        .where(eq(loueurVehicles.id, id))
+        .returning();
+
+      return res.json(updated);
+    } catch (error) {
+      console.error("Error updating driver vehicle:", error);
+      return res.status(500).json({ error: "Erreur serveur" });
+    }
+  });
+
+  // DELETE /api/driver/vehicles/:id - Supprimer un véhicule
+  app.delete("/api/driver/vehicles/:id", async (req, res) => {
+    try {
+      const sessionId = req.headers['x-driver-session'] as string;
+      if (!sessionId) return res.status(401).json({ error: "Session requise" });
+      const session = await getDriverSessionWithFallback(sessionId);
+      if (!session) return res.status(401).json({ error: "Session invalide" });
+
+      const driver = await dbStorage.getDriver(session.driverId);
+      if (!driver || !driver.prestataireId) {
+        return res.status(403).json({ error: "Aucun prestataire associé" });
+      }
+
+      const { id } = req.params;
+      const [deleted] = await db
+        .delete(loueurVehicles)
+        .where(and(
+          eq(loueurVehicles.id, id),
+          eq(loueurVehicles.prestataireId, driver.prestataireId)
+        ))
+        .returning();
+
+      if (!deleted) {
+        return res.status(404).json({ error: "Véhicule introuvable" });
+      }
+
+      return res.json({ success: true, message: "Véhicule supprimé" });
+    } catch (error) {
+      console.error("Error deleting driver vehicle:", error);
+      return res.status(500).json({ error: "Erreur serveur" });
+    }
+  });
+
   // ============ COMMISSIONS API (pour l'app chauffeur) ============
   
   // Get all commissions (public - used by driver app)
