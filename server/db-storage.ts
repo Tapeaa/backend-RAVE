@@ -16,7 +16,8 @@ import {
   supportMessages,
   commissions,
   prestataires,
-  ratings
+  ratings,
+  loueurVehicles,
 } from "@shared/schema";
 import { 
   type Client,
@@ -637,6 +638,55 @@ export class DbStorage {
       ));
     
     return result.map((order: any) => this.mapOrder(order));
+  }
+
+  /** Loueur avec au moins une annonce active : même modèle, contrat app_default, location activée */
+  async prestataireHasEligibleBroadcastRentalVehicle(
+    prestataireId: string,
+    vehicleModelId: string
+  ): Promise<boolean> {
+    const [row] = await db
+      .select({ id: loueurVehicles.id })
+      .from(loueurVehicles)
+      .where(and(
+        eq(loueurVehicles.prestataireId, prestataireId),
+        eq(loueurVehicles.vehicleModelId, vehicleModelId),
+        eq(loueurVehicles.isActive, true),
+        eq(loueurVehicles.availableForRental, true),
+        eq(loueurVehicles.rentalContractMode, "app_default")
+      ))
+      .limit(1);
+    return !!row;
+  }
+
+  /** Acceptation location : une seule transaction — premier accepté gagne */
+  async tryAcceptOrderIfStillPending(orderId: string, driverId: string): Promise<Order | undefined> {
+    const [updated] = await db
+      .update(orders)
+      .set({ status: "accepted", assignedDriverId: driverId })
+      .where(and(eq(orders.id, orderId), eq(orders.status, "pending")))
+      .returning();
+    if (!updated) return undefined;
+    return this.mapOrder(updated);
+  }
+
+  /** Refus en mode diffusion : ce chauffeur ne voit plus la demande ; la commande reste pending */
+  async appendRentalBroadcastDecline(orderId: string, driverId: string): Promise<void> {
+    const current = await this.getOrder(orderId);
+    if (!current) return;
+    const ro = current.rideOption as any;
+    if (!ro || ro.type !== "rental") return;
+    const d = ro.rentalDispatch || {};
+    const declined: string[] = Array.isArray(d.rentalDeclinedBy) ? [...d.rentalDeclinedBy] : [];
+    if (!declined.includes(driverId)) declined.push(driverId);
+    const newRideOption = {
+      ...ro,
+      rentalDispatch: {
+        ...d,
+        rentalDeclinedBy: declined,
+      },
+    };
+    await db.update(orders).set({ rideOption: newRideOption as any }).where(eq(orders.id, orderId));
   }
 
   async updateOrderStatus(id: string, status: Order["status"], driverId?: string, waitingTimeMinutes?: number | null, driverArrivedAt?: Date | null, driverEarnings?: number): Promise<Order | undefined> {

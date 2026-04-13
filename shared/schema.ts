@@ -87,6 +87,8 @@ export const loueurVehicles = pgTable("loueur_vehicles", {
   availableForDelivery: boolean("available_for_delivery").default(false).notNull(), // Livraison
   availableForLongTerm: boolean("available_for_long_term").default(false).notNull(), // Long terme
   customImageUrl: text("custom_image_url"), // Override image du modèle
+  /** app_default = contrat RAVE partagé (plusieurs loueurs même modèle peuvent recevoir la demande) ; custom = annonce liée à un seul loueur */
+  rentalContractMode: text("rental_contract_mode").default("app_default").notNull(),
   isActive: boolean("is_active").default(true).notNull(),
   createdAt: timestamp("created_at").defaultNow().notNull(),
 });
@@ -809,15 +811,19 @@ export const insertPrestataireSchema = z.object({
 export type InsertPrestataire = z.infer<typeof insertPrestataireSchema>;
 
 // ═══ VEHICLE MODEL SCHEMAS ═══
+export const VEHICLE_CATEGORIES = ["citadine", "berline", "suv", "utilitaire", "premium", "autre"] as const;
+export const VEHICLE_FUELS = ["essence", "diesel", "electrique", "hybride"] as const;
+export const VEHICLE_TRANSMISSIONS = ["auto", "manual"] as const;
+
 export const vehicleModelSchema = z.object({
   id: z.string(),
   name: z.string(),
-  category: z.enum(["citadine", "berline", "suv"]),
+  category: z.enum(VEHICLE_CATEGORIES),
   imageUrl: z.string().nullable(),
   description: z.string().nullable(),
   seats: z.number(),
-  transmission: z.enum(["auto", "manual"]),
-  fuel: z.enum(["essence", "diesel", "electrique", "hybride"]),
+  transmission: z.enum(VEHICLE_TRANSMISSIONS),
+  fuel: z.enum(VEHICLE_FUELS),
   isActive: z.boolean(),
   createdAt: z.string(),
 });
@@ -826,12 +832,12 @@ export type VehicleModel = z.infer<typeof vehicleModelSchema>;
 
 export const insertVehicleModelSchema = z.object({
   name: z.string().min(1, "Nom du véhicule requis"),
-  category: z.enum(["citadine", "berline", "suv"]),
+  category: z.enum(VEHICLE_CATEGORIES),
   imageUrl: z.string().optional(),
   description: z.string().optional(),
   seats: z.number().min(1).max(9).optional(),
-  transmission: z.enum(["auto", "manual"]).optional(),
-  fuel: z.enum(["essence", "diesel", "electrique", "hybride"]).optional(),
+  transmission: z.enum(VEHICLE_TRANSMISSIONS).optional(),
+  fuel: z.enum(VEHICLE_FUELS).optional(),
 });
 
 export type InsertVehicleModel = z.infer<typeof insertVehicleModelSchema>;
@@ -849,6 +855,7 @@ export const loueurVehicleSchema = z.object({
   availableForDelivery: z.boolean(),
   availableForLongTerm: z.boolean(),
   customImageUrl: z.string().nullable(),
+  rentalContractMode: z.enum(["app_default", "custom"]).optional(),
   isActive: z.boolean(),
   createdAt: z.string(),
 });
@@ -864,6 +871,7 @@ export const insertLoueurVehicleSchema = z.object({
   availableForDelivery: z.boolean().optional(),
   availableForLongTerm: z.boolean().optional(),
   customImageUrl: z.string().optional(),
+  rentalContractMode: z.enum(["app_default", "custom"]).optional(),
 });
 
 export type InsertLoueurVehicle = z.infer<typeof insertLoueurVehicleSchema>;

@@ -1327,6 +1327,7 @@ export function registerPrestataireRoutes(app: Express) {
           availableForDelivery: loueurVehicles.availableForDelivery,
           availableForLongTerm: loueurVehicles.availableForLongTerm,
           customImageUrl: loueurVehicles.customImageUrl,
+          rentalContractMode: loueurVehicles.rentalContractMode,
           isActive: loueurVehicles.isActive,
           createdAt: loueurVehicles.createdAt,
           // Infos du modèle
@@ -1362,7 +1363,8 @@ export function registerPrestataireRoutes(app: Express) {
 
       const {
         vehicleModelId, plate, pricePerDay, pricePerDayLongTerm,
-        availableForRental, availableForDelivery, availableForLongTerm, customImageUrl
+        availableForRental, availableForDelivery, availableForLongTerm, customImageUrl,
+        rentalContractMode,
       } = req.body;
 
       if (!vehicleModelId || !pricePerDay) {
@@ -1389,6 +1391,9 @@ export function registerPrestataireRoutes(app: Express) {
         driverId = driver?.id || null;
       }
 
+      const contractMode =
+        rentalContractMode === "custom" ? "custom" : "app_default";
+
       const [newVehicle] = await db
         .insert(loueurVehicles)
         .values({
@@ -1402,6 +1407,7 @@ export function registerPrestataireRoutes(app: Express) {
           availableForDelivery: availableForDelivery ?? false,
           availableForLongTerm: availableForLongTerm ?? false,
           customImageUrl: customImageUrl || null,
+          rentalContractMode: contractMode,
           isActive: true,
         })
         .returning();
@@ -1437,11 +1443,15 @@ export function registerPrestataireRoutes(app: Express) {
       }
 
       const updates: Record<string, any> = {};
-      const allowedFields = ["plate", "pricePerDay", "pricePerDayLongTerm", "availableForRental", "availableForDelivery", "availableForLongTerm", "customImageUrl", "isActive"];
+      const allowedFields = ["plate", "pricePerDay", "pricePerDayLongTerm", "availableForRental", "availableForDelivery", "availableForLongTerm", "customImageUrl", "isActive", "rentalContractMode"];
       for (const field of allowedFields) {
         if (req.body[field] !== undefined) {
           updates[field] = req.body[field];
         }
+      }
+
+      if (updates.rentalContractMode !== undefined) {
+        updates.rentalContractMode = updates.rentalContractMode === "custom" ? "custom" : "app_default";
       }
 
       if (Object.keys(updates).length === 0) {

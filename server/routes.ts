@@ -3539,9 +3539,8 @@ app.post("/api/live-activities/end", async (req, res) => {
       if (!session) return res.status(401).json({ error: "Session invalide" });
 
       const driver = await dbStorage.getDriver(session.driverId);
-      if (!driver || !driver.prestataireId) {
-        return res.status(403).json({ error: "Aucun prestataire associé" });
-      }
+      if (!driver) return res.status(403).json({ error: "Chauffeur introuvable" });
+      if (!driver.prestataireId) return res.json([]);
 
       const vehicles = await db
         .select({
@@ -3554,6 +3553,7 @@ app.post("/api/live-activities/end", async (req, res) => {
           availableForDelivery: loueurVehicles.availableForDelivery,
           availableForLongTerm: loueurVehicles.availableForLongTerm,
           customImageUrl: loueurVehicles.customImageUrl,
+          rentalContractMode: loueurVehicles.rentalContractMode,
           isActive: loueurVehicles.isActive,
           createdAt: loueurVehicles.createdAt,
           modelName: vehicleModels.name,
@@ -3583,33 +3583,84 @@ app.post("/api/live-activities/end", async (req, res) => {
       if (!session) return res.status(401).json({ error: "Session invalide" });
 
       const driver = await dbStorage.getDriver(session.driverId);
-      if (!driver || !driver.prestataireId) {
-        return res.status(403).json({ error: "Aucun prestataire associé" });
+      if (!driver) return res.status(403).json({ error: "Chauffeur introuvable" });
+
+      // Auto-création d'un prestataire loueur si le driver n'en a pas
+      let prestataireId = driver.prestataireId;
+      if (!prestataireId) {
+        const code = Math.random().toString().slice(2, 8);
+        const [newPrestataire] = await db
+          .insert(prestataires)
+          .values({
+            nom: `${driver.firstName} ${driver.lastName}`,
+            type: "loueur_individuel",
+            phone: driver.phone,
+            code,
+            isActive: true,
+          })
+          .returning();
+        prestataireId = newPrestataire.id;
+        await db.update(drivers).set({ prestataireId }).where(eq(drivers.id, driver.id));
+        console.log(`[Driver] Auto-created prestataire loueur ${prestataireId} for driver ${driver.id}`);
       }
 
       const {
-        vehicleModelId, plate, pricePerDay, pricePerDayLongTerm,
-        availableForRental, availableForDelivery, availableForLongTerm, customImageUrl
+        vehicleModelId, vehicleModelName, vehicleModelCategory,
+        plate, pricePerDay, pricePerDayLongTerm,
+        availableForRental, availableForDelivery, availableForLongTerm,
+        customImageUrl, rentalContractMode, customContractText,
       } = req.body;
 
       if (!vehicleModelId || !pricePerDay) {
         return res.status(400).json({ error: "Modèle et prix par jour requis" });
       }
 
-      const [model] = await db
+      // Chercher le modèle en base ; auto-créer si c'est un builtin (b-*) ou si le nom est fourni
+      let [model] = await db
         .select()
         .from(vehicleModels)
         .where(eq(vehicleModels.id, vehicleModelId));
 
-      if (!model || !model.isActive) {
-        return res.status(400).json({ error: "Modèle introuvable ou inactif" });
+      if (!model && vehicleModelName) {
+        // Chercher par nom exact (éviter les doublons)
+        const [existingByName] = await db
+          .select()
+          .from(vehicleModels)
+          .where(eq(vehicleModels.name, vehicleModelName));
+
+        if (existingByName) {
+          model = existingByName;
+        } else {
+          const validCategories = ["citadine", "berline", "suv", "utilitaire", "premium", "autre"];
+          const category = validCategories.includes(vehicleModelCategory || "") ? vehicleModelCategory : "autre";
+          const [created] = await db
+            .insert(vehicleModels)
+            .values({
+              id: vehicleModelId,
+              name: vehicleModelName,
+              category: category!,
+              seats: 5,
+              transmission: "auto",
+              fuel: "essence",
+              isActive: true,
+            })
+            .returning();
+          model = created;
+          console.log(`[Driver] Auto-created vehicle model: ${vehicleModelName} (${vehicleModelId})`);
+        }
       }
+
+      if (!model || !model.isActive) {
+        return res.status(400).json({ error: "Modèle introuvable ou inactif. Fournissez vehicleModelName pour auto-créer." });
+      }
+
+      const contractMode = rentalContractMode === "custom" ? "custom" : "app_default";
 
       const [newVehicle] = await db
         .insert(loueurVehicles)
         .values({
-          vehicleModelId,
-          prestataireId: driver.prestataireId,
+          vehicleModelId: model.id,
+          prestataireId,
           driverId: driver.id,
           plate: plate || null,
           pricePerDay,
@@ -3618,12 +3669,24 @@ app.post("/api/live-activities/end", async (req, res) => {
           availableForDelivery: availableForDelivery ?? false,
           availableForLongTerm: availableForLongTerm ?? false,
           customImageUrl: customImageUrl || null,
+          rentalContractMode: contractMode,
           isActive: true,
         })
         .returning();
 
+      // Retourner avec les infos du modèle pour le frontend
+      const response = {
+        ...newVehicle,
+        modelName: model.name,
+        modelCategory: model.category,
+        modelImageUrl: model.imageUrl,
+        modelSeats: model.seats,
+        modelTransmission: model.transmission,
+        modelFuel: model.fuel,
+      };
+
       console.log(`[Driver] Vehicle added: ${model.name} by driver ${driver.firstName} ${driver.lastName}`);
-      return res.status(201).json(newVehicle);
+      return res.status(201).json(response);
     } catch (error) {
       console.error("Error adding driver vehicle:", error);
       return res.status(500).json({ error: "Erreur serveur" });
