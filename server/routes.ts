@@ -3618,6 +3618,7 @@ app.post("/api/live-activities/end", async (req, res) => {
           availableForLongTerm: loueurVehicles.availableForLongTerm,
           customImageUrl: loueurVehicles.customImageUrl,
           rentalContractMode: loueurVehicles.rentalContractMode,
+          customContractText: loueurVehicles.customContractText,
           isActive: loueurVehicles.isActive,
           createdAt: loueurVehicles.createdAt,
           modelName: vehicleModels.name,
@@ -3787,7 +3788,7 @@ app.post("/api/live-activities/end", async (req, res) => {
       const allowedFields = [
         "plate", "pricePerDay", "pricePerDayLongTerm",
         "availableForRental", "availableForDelivery", "availableForLongTerm",
-        "customImageUrl", "rentalContractMode", "isActive",
+        "customImageUrl", "rentalContractMode", "customContractText", "isActive",
       ];
       for (const field of allowedFields) {
         if (req.body[field] !== undefined) {
