@@ -3720,7 +3720,11 @@ app.post("/api/live-activities/end", async (req, res) => {
       }
 
       const updates: Record<string, any> = {};
-      const allowedFields = ["plate", "pricePerDay", "pricePerDayLongTerm", "availableForRental", "availableForDelivery", "availableForLongTerm", "customImageUrl", "isActive"];
+      const allowedFields = [
+        "plate", "pricePerDay", "pricePerDayLongTerm",
+        "availableForRental", "availableForDelivery", "availableForLongTerm",
+        "customImageUrl", "rentalContractMode", "isActive",
+      ];
       for (const field of allowedFields) {
         if (req.body[field] !== undefined) {
           updates[field] = req.body[field];
@@ -3737,7 +3741,21 @@ app.post("/api/live-activities/end", async (req, res) => {
         .where(eq(loueurVehicles.id, id))
         .returning();
 
-      return res.json(updated);
+      // Retourner avec les infos du modèle
+      const [model] = await db
+        .select()
+        .from(vehicleModels)
+        .where(eq(vehicleModels.id, updated.vehicleModelId));
+
+      return res.json({
+        ...updated,
+        modelName: model?.name ?? null,
+        modelCategory: model?.category ?? null,
+        modelImageUrl: model?.imageUrl ?? null,
+        modelSeats: model?.seats ?? null,
+        modelTransmission: model?.transmission ?? null,
+        modelFuel: model?.fuel ?? null,
+      });
     } catch (error) {
       console.error("Error updating driver vehicle:", error);
       return res.status(500).json({ error: "Erreur serveur" });
