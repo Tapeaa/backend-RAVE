@@ -3486,6 +3486,70 @@ app.post("/api/live-activities/end", async (req, res) => {
     }
   });
 
+  // GET /api/vehicles/model/:modelId/loueurs - Retourne les loueurs individuels pour un modèle donné
+  app.get("/api/vehicles/model/:modelId/loueurs", async (req, res) => {
+    try {
+      const { modelId } = req.params;
+
+      const rows = await db
+        .select({
+          loueurVehicleId: loueurVehicles.id,
+          plate: loueurVehicles.plate,
+          pricePerDay: loueurVehicles.pricePerDay,
+          pricePerDayLongTerm: loueurVehicles.pricePerDayLongTerm,
+          prestataireNom: prestataires.nom,
+          driverId: loueurVehicles.driverId,
+          transmission: vehicleModels.transmission,
+          fuel: vehicleModels.fuel,
+          seats: vehicleModels.seats,
+          modelName: vehicleModels.name,
+          modelCategory: vehicleModels.category,
+        })
+        .from(loueurVehicles)
+        .innerJoin(prestataires, eq(loueurVehicles.prestataireId, prestataires.id))
+        .innerJoin(vehicleModels, eq(loueurVehicles.vehicleModelId, vehicleModels.id))
+        .where(
+          and(
+            eq(loueurVehicles.vehicleModelId, modelId),
+            eq(loueurVehicles.isActive, true),
+            eq(prestataires.isActive, true),
+            eq(loueurVehicles.availableForRental, true),
+          )
+        );
+
+      const result = [];
+      for (const row of rows) {
+        let ownerName = row.prestataireNom;
+        if (row.driverId) {
+          const [driver] = await db
+            .select({ firstName: drivers.firstName, lastName: drivers.lastName })
+            .from(drivers)
+            .where(eq(drivers.id, row.driverId));
+          if (driver) {
+            ownerName = `${driver.firstName} ${driver.lastName}`;
+          }
+        }
+        result.push({
+          loueurVehicleId: row.loueurVehicleId,
+          plate: row.plate,
+          pricePerDay: row.pricePerDay,
+          pricePerDayLongTerm: row.pricePerDayLongTerm,
+          ownerName,
+          transmission: row.transmission,
+          fuel: row.fuel,
+          seats: row.seats,
+          modelName: row.modelName,
+          modelCategory: row.modelCategory,
+        });
+      }
+
+      return res.json(result);
+    } catch (error) {
+      console.error("Get loueurs for model error:", error);
+      return res.status(500).json({ error: "Erreur serveur" });
+    }
+  });
+
   // GET /api/vehicles/categories - Retourne les catégories distinctes de véhicules actifs
   app.get("/api/vehicles/categories", async (req, res) => {
     try {
