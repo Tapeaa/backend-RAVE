@@ -13,6 +13,7 @@ import { ensurePrestatairesTable } from "./ensure-prestataires-table";
 import { ensureFraisServiceConfigTable } from "./ensure-frais-service-config";
 import { ensureCollecteFraisColumns } from "./ensure-collecte-frais-columns";
 import { ensureDriverCommissionColumn } from "./ensure-driver-commission-column";
+import { ensureCustomContractTextColumn } from "./ensure-custom-contract-text";
 
 const app = express();
 app.set("trust proxy", 1);
@@ -78,6 +79,9 @@ app.use((req, res, next) => {
     
     // S'assurer que la colonne commission_chauffeur existe dans drivers
     await ensureDriverCommissionColumn();
+    
+    // S'assurer que la colonne custom_contract_text existe dans loueur_vehicles
+    await ensureCustomContractTextColumn();
     
     const server = await registerRoutes(app);
 
