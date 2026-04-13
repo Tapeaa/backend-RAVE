@@ -3416,20 +3416,10 @@ app.post("/api/live-activities/end", async (req, res) => {
   // ============ VÉHICULES DISPONIBLES (API publique pour l'app RAVE client) ============
   
   // GET /api/vehicles/available - Retourne les modèles de véhicules avec le nombre de loueurs et le prix moyen
-  // Agrège les données de loueurVehicles par vehicleModelId pour chaque type de service
+  // ?service=rental|delivery|longterm|all (défaut: all = au moins un service actif)
   app.get("/api/vehicles/available", async (req, res) => {
     try {
-      const serviceType = (req.query.service as string) || 'rental'; // rental | delivery | longterm
-      
-      // Déterminer le filtre de disponibilité selon le type de service
-      let availabilityFilter;
-      if (serviceType === 'delivery') {
-        availabilityFilter = eq(loueurVehicles.availableForDelivery, true);
-      } else if (serviceType === 'longterm') {
-        availabilityFilter = eq(loueurVehicles.availableForLongTerm, true);
-      } else {
-        availabilityFilter = eq(loueurVehicles.availableForRental, true);
-      }
+      const serviceType = (req.query.service as string) || 'all';
       
       // Récupérer tous les modèles actifs
       const activeModels = await db
@@ -3437,14 +3427,16 @@ app.post("/api/live-activities/end", async (req, res) => {
         .from(vehicleModels)
         .where(eq(vehicleModels.isActive, true));
       
-      // Pour chaque modèle, compter les véhicules disponibles et calculer le prix min
       const result = [];
       for (const model of activeModels) {
-        const vehiclesForModel = await db
+        // Récupérer les véhicules actifs pour ce modèle avec des loueurs actifs
+        const vehiclesRaw = await db
           .select({
-            count: count(),
-            minPrice: dsql<number>`MIN(${loueurVehicles.pricePerDay})`,
-            minPriceLongTerm: dsql<number>`MIN(${loueurVehicles.pricePerDayLongTerm})`,
+            pricePerDay: loueurVehicles.pricePerDay,
+            pricePerDayLongTerm: loueurVehicles.pricePerDayLongTerm,
+            availableForRental: loueurVehicles.availableForRental,
+            availableForDelivery: loueurVehicles.availableForDelivery,
+            availableForLongTerm: loueurVehicles.availableForLongTerm,
           })
           .from(loueurVehicles)
           .innerJoin(prestataires, eq(loueurVehicles.prestataireId, prestataires.id))
@@ -3453,12 +3445,28 @@ app.post("/api/live-activities/end", async (req, res) => {
               eq(loueurVehicles.vehicleModelId, model.id),
               eq(loueurVehicles.isActive, true),
               eq(prestataires.isActive, true),
-              availabilityFilter
             )
           );
         
-        const stats = vehiclesForModel[0];
-        if (stats && stats.count > 0) {
+        // Filtrer selon le type de service demandé
+        let filtered;
+        if (serviceType === 'rental') {
+          filtered = vehiclesRaw.filter(v => v.availableForRental);
+        } else if (serviceType === 'delivery') {
+          filtered = vehiclesRaw.filter(v => v.availableForDelivery);
+        } else if (serviceType === 'longterm') {
+          filtered = vehiclesRaw.filter(v => v.availableForLongTerm);
+        } else {
+          // "all" : au moins un service actif
+          filtered = vehiclesRaw.filter(v => v.availableForRental || v.availableForDelivery || v.availableForLongTerm);
+        }
+        
+        if (filtered.length > 0) {
+          const minPrice = Math.min(...filtered.map(v => v.pricePerDay));
+          const hasRental = filtered.some(v => v.availableForRental);
+          const hasDelivery = filtered.some(v => v.availableForDelivery);
+          const hasLongTerm = filtered.some(v => v.availableForLongTerm);
+          
           result.push({
             id: model.id,
             name: model.name,
@@ -3468,10 +3476,13 @@ app.post("/api/live-activities/end", async (req, res) => {
             seats: model.seats,
             transmission: model.transmission,
             fuel: model.fuel,
-            pricePerDay: serviceType === 'longterm' && stats.minPriceLongTerm 
-              ? stats.minPriceLongTerm 
-              : stats.minPrice,
-            availableCount: stats.count,
+            pricePerDay: minPrice,
+            availableCount: filtered.length,
+            services: {
+              rental: hasRental,
+              delivery: hasDelivery,
+              longTerm: hasLongTerm,
+            },
           });
         }
       }
