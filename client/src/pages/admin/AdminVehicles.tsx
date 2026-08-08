@@ -4,8 +4,8 @@
  * quand le loueur n'a pas uploadé sa propre photo.
  */
 
-import { useEffect, useState, useRef } from 'react';
-import { CarFront, Search, Plus, X, Edit, Trash2, Upload, Check, Filter, Eye, EyeOff, ImageOff } from 'lucide-react';
+import { useEffect, useMemo, useState, useRef } from 'react';
+import { CarFront, Search, Plus, X, Edit, Trash2, Upload, Check, Filter, Eye, EyeOff, ImageOff, RefreshCw } from 'lucide-react';
 
 interface VehicleModel {
   id: string;
@@ -78,17 +78,30 @@ export function AdminVehicles() {
   const [isLoading, setIsLoading] = useState(true);
   const [searchTerm, setSearchTerm] = useState('');
   const [filterCategory, setFilterCategory] = useState<string>('all');
+  const [filterBrand, setFilterBrand] = useState<string>('all');
   const [filterNoPhoto, setFilterNoPhoto] = useState(false);
   const [showModal, setShowModal] = useState(false);
   const [editingVehicle, setEditingVehicle] = useState<VehicleModel | null>(null);
   const [formData, setFormData] = useState(defaultForm);
   const [isSaving, setIsSaving] = useState(false);
   const [isUploading, setIsUploading] = useState(false);
+  const [isSyncing, setIsSyncing] = useState(false);
+  const [quickUploadId, setQuickUploadId] = useState<string | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const quickFileInputRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
     fetchVehicles();
   }, []);
+
+  function extractBrand(name: string): string {
+    const n = (name || '').trim();
+    if (!n) return 'Autre';
+    if (/^land\s+rover/i.test(n)) return 'Land Rover';
+    if (/^ssangyong/i.test(n)) return 'SsangYong';
+    if (/^volkswagen/i.test(n)) return 'Volkswagen';
+    return n.split(/\s+/)[0] || 'Autre';
+  }
 
   async function fetchVehicles() {
     setIsLoading(true);
@@ -105,6 +118,89 @@ export function AdminVehicles() {
       console.error('Error fetching vehicles:', error);
     } finally {
       setIsLoading(false);
+    }
+  }
+
+  async function handleSyncCatalog() {
+    setIsSyncing(true);
+    try {
+      const token = localStorage.getItem('admin_token');
+      const response = await fetch('/api/admin/vehicles/sync-catalog', {
+        method: 'POST',
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      const data = await response.json().catch(() => ({}));
+      if (response.ok) {
+        alert(data.message || 'Catalogue synchronisé');
+        await fetchVehicles();
+      } else {
+        alert(data.error || 'Erreur de synchronisation');
+      }
+    } catch (error) {
+      console.error('Sync catalog error:', error);
+      alert('Erreur de synchronisation');
+    } finally {
+      setIsSyncing(false);
+    }
+  }
+
+  async function uploadImageFile(file: File): Promise<string | null> {
+    if (!file.type.startsWith('image/')) {
+      alert('Veuillez sélectionner une image (JPG, PNG, WebP…)');
+      return null;
+    }
+    if (file.size > 8 * 1024 * 1024) {
+      alert('Image trop lourde (max 8 Mo)');
+      return null;
+    }
+    const token = localStorage.getItem('admin_token');
+    const fd = new FormData();
+    fd.append('image', file);
+    fd.append('folder', 'rave/vehicles');
+    const response = await fetch('/api/upload', {
+      method: 'POST',
+      headers: { Authorization: `Bearer ${token}` },
+      body: fd,
+    });
+    if (!response.ok) {
+      alert("Erreur lors de l'upload de l'image");
+      return null;
+    }
+    const data = await response.json();
+    return data.url || null;
+  }
+
+  async function handleQuickPhotoChange(e: React.ChangeEvent<HTMLInputElement>) {
+    const file = e.target.files?.[0];
+    const modelId = quickUploadId;
+    if (quickFileInputRef.current) quickFileInputRef.current.value = '';
+    if (!file || !modelId) return;
+
+    setIsUploading(true);
+    try {
+      const url = await uploadImageFile(file);
+      if (!url) return;
+      const token = localStorage.getItem('admin_token');
+      const response = await fetch(`/api/admin/vehicles/${modelId}`, {
+        method: 'PATCH',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${token}`,
+        },
+        body: JSON.stringify({ imageUrl: url }),
+      });
+      if (response.ok) {
+        await fetchVehicles();
+      } else {
+        const err = await response.json().catch(() => ({}));
+        alert(err.error || 'Erreur lors de la sauvegarde de la photo');
+      }
+    } catch (error) {
+      console.error('Quick photo error:', error);
+      alert("Erreur lors de l'upload");
+    } finally {
+      setIsUploading(false);
+      setQuickUploadId(null);
     }
   }
 
@@ -130,42 +226,18 @@ export function AdminVehicles() {
 
   async function handleImageUpload(e: React.ChangeEvent<HTMLInputElement>) {
     const file = e.target.files?.[0];
+    if (fileInputRef.current) fileInputRef.current.value = '';
     if (!file) return;
-
-    if (!file.type.startsWith('image/')) {
-      alert('Veuillez sélectionner une image (JPG, PNG, WebP…)');
-      return;
-    }
-    if (file.size > 8 * 1024 * 1024) {
-      alert('Image trop lourde (max 8 Mo)');
-      return;
-    }
 
     setIsUploading(true);
     try {
-      const token = localStorage.getItem('admin_token');
-      const fd = new FormData();
-      fd.append('image', file);
-      fd.append('folder', 'rave/vehicles');
-
-      const response = await fetch('/api/upload', {
-        method: 'POST',
-        headers: { Authorization: `Bearer ${token}` },
-        body: fd,
-      });
-
-      if (response.ok) {
-        const data = await response.json();
-        setFormData((prev) => ({ ...prev, imageUrl: data.url }));
-      } else {
-        alert("Erreur lors de l'upload de l'image");
-      }
+      const url = await uploadImageFile(file);
+      if (url) setFormData((prev) => ({ ...prev, imageUrl: url }));
     } catch (error) {
       console.error('Error uploading image:', error);
       alert("Erreur lors de l'upload");
     } finally {
       setIsUploading(false);
-      if (fileInputRef.current) fileInputRef.current.value = '';
     }
   }
 
@@ -258,11 +330,17 @@ export function AdminVehicles() {
     }
   }
 
+  const brands = useMemo(() => {
+    const set = new Set(vehicles.map((v) => extractBrand(v.name)));
+    return Array.from(set).sort((a, b) => a.localeCompare(b, 'fr'));
+  }, [vehicles]);
+
   const filteredVehicles = vehicles.filter((v) => {
     const matchSearch = v.name.toLowerCase().includes(searchTerm.toLowerCase());
     const matchCategory = filterCategory === 'all' || v.category === filterCategory;
+    const matchBrand = filterBrand === 'all' || extractBrand(v.name) === filterBrand;
     const matchPhoto = !filterNoPhoto || !v.imageUrl;
-    return matchSearch && matchCategory && matchPhoto;
+    return matchSearch && matchCategory && matchBrand && matchPhoto;
   });
 
   const stats = {
@@ -285,20 +363,44 @@ export function AdminVehicles() {
             </p>
           </div>
         </div>
-        <button
-          onClick={openCreateModal}
-          className="flex items-center gap-2 px-4 py-2 bg-black text-white rounded-lg hover:bg-gray-800 transition-colors"
-          type="button"
-        >
-          <Plus className="w-4 h-4" />
-          Ajouter un modèle
-        </button>
+        <div className="flex flex-wrap gap-2">
+          <button
+            onClick={handleSyncCatalog}
+            disabled={isSyncing || isLoading}
+            className="flex items-center gap-2 px-4 py-2 border border-gray-300 bg-white text-gray-800 rounded-lg hover:bg-gray-50 transition-colors disabled:opacity-50"
+            type="button"
+          >
+            <RefreshCw className={`w-4 h-4 ${isSyncing ? 'animate-spin' : ''}`} />
+            Importer catalogue Loueur
+          </button>
+          <button
+            onClick={openCreateModal}
+            className="flex items-center gap-2 px-4 py-2 bg-black text-white rounded-lg hover:bg-gray-800 transition-colors"
+            type="button"
+          >
+            <Plus className="w-4 h-4" />
+            Ajouter un modèle
+          </button>
+        </div>
       </div>
 
-      <div className="rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-900">
-        La photo du modèle s’affiche dans l’app <strong>RAVE Loueur</strong> et le catalogue{' '}
-        <strong>RAVE Client</strong> si le loueur ne met pas sa propre photo sur l’annonce.
+      <div className="rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-900 space-y-1">
+        <p>
+          Tous les modèles proposés dans l’app <strong>RAVE Loueur</strong> (~200) apparaissent ici après sync.
+          Cliquez sur <strong>Ajouter photo</strong> sur une carte, puis Enregistrer n’est plus nécessaire.
+        </p>
+        <p>
+          Cette photo s’affiche dans l’app Loueur et le catalogue Client si le loueur n’upload pas la sienne.
+        </p>
       </div>
+
+      <input
+        ref={quickFileInputRef}
+        type="file"
+        accept="image/*"
+        className="hidden"
+        onChange={handleQuickPhotoChange}
+      />
 
       <div className="grid grid-cols-3 gap-3">
         <div className="p-3 rounded-xl border bg-gray-50 border-gray-200">
@@ -334,7 +436,7 @@ export function AdminVehicles() {
             className="w-full pl-10 pr-4 py-2 border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-black/20"
           />
         </div>
-        <div className="flex items-center gap-2">
+        <div className="flex flex-wrap items-center gap-2">
           <Filter className="w-4 h-4 text-gray-400" />
           <select
             value={filterCategory}
@@ -345,6 +447,18 @@ export function AdminVehicles() {
             {CATEGORIES.map((cat) => (
               <option key={cat} value={cat}>
                 {categoryLabels[cat]}
+              </option>
+            ))}
+          </select>
+          <select
+            value={filterBrand}
+            onChange={(e) => setFilterBrand(e.target.value)}
+            className="px-3 py-2 border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-black/20"
+          >
+            <option value="all">Toutes marques</option>
+            {brands.map((brand) => (
+              <option key={brand} value={brand}>
+                {brand}
               </option>
             ))}
           </select>
@@ -359,17 +473,17 @@ export function AdminVehicles() {
         <div className="text-center py-16 bg-gray-50 rounded-xl">
           <CarFront className="w-12 h-12 text-gray-300 mx-auto mb-3" />
           <p className="text-gray-500">
-            {searchTerm || filterCategory !== 'all' || filterNoPhoto
+            {searchTerm || filterCategory !== 'all' || filterBrand !== 'all' || filterNoPhoto
               ? 'Aucun modèle trouvé avec ces filtres'
-              : 'Aucun modèle de véhicule créé'}
+              : 'Aucun modèle — cliquez « Importer catalogue Loueur »'}
           </p>
-          {!searchTerm && filterCategory === 'all' && !filterNoPhoto && (
+          {!searchTerm && filterCategory === 'all' && filterBrand === 'all' && !filterNoPhoto && (
             <button
-              onClick={openCreateModal}
+              onClick={handleSyncCatalog}
               className="mt-3 text-sm text-black underline hover:no-underline"
               type="button"
             >
-              Créer le premier modèle
+              Importer le catalogue Loueur
             </button>
           )}
         </div>
@@ -412,6 +526,18 @@ export function AdminVehicles() {
                     Inactif
                   </span>
                 )}
+                <button
+                  type="button"
+                  disabled={isUploading}
+                  onClick={() => {
+                    setQuickUploadId(vehicle.id);
+                    quickFileInputRef.current?.click();
+                  }}
+                  className="absolute bottom-2 right-2 flex items-center gap-1 rounded-lg bg-black/80 px-2.5 py-1.5 text-xs font-medium text-white hover:bg-black disabled:opacity-50"
+                >
+                  <Upload className="w-3.5 h-3.5" />
+                  {vehicle.imageUrl ? 'Changer photo' : 'Ajouter photo'}
+                </button>
               </div>
 
               <div className="p-4">

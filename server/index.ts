@@ -15,6 +15,7 @@ import { ensureFraisServiceConfigTable } from "./ensure-frais-service-config";
 import { ensureCollecteFraisColumns } from "./ensure-collecte-frais-columns";
 import { ensureDriverCommissionColumn } from "./ensure-driver-commission-column";
 import { ensureCustomContractTextColumn } from "./ensure-custom-contract-text";
+import { syncTahitiVehicleCatalog } from "./sync-vehicle-catalog";
 
 const app = express();
 app.set("trust proxy", 1);
@@ -141,6 +142,10 @@ app.use((req, res, next) => {
     const port = parseInt(process.env.PORT || '5000', 10);
     server.listen(port, "0.0.0.0", () => {
       log(`serving on port ${port}`);
+      // Importe les ~200 modèles Loueur (sans écraser les photos existantes)
+      syncTahitiVehicleCatalog()
+        .then((r) => log(`[Catalog] sync done (+${r.inserted}/${r.total})`))
+        .catch((err) => console.warn("[Catalog] sync failed:", err));
     });
   } catch (error) {
     console.error("Failed to start server:", error);

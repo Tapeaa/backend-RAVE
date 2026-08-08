@@ -13,6 +13,7 @@ import { getIO } from "./routes";
 import { notifyClient, notifyDriver } from "./onesignal";
 import { clients, drivers, orders, invoices, tarifs, supplements, carouselImages, messages, prestataires, collecteFrais, vehicleModels, loueurVehicles } from "@shared/schema";
 import { eq, desc, asc, count, sql, and, gte, inArray, isNotNull, or } from "drizzle-orm";
+import { syncTahitiVehicleCatalog } from "./sync-vehicle-catalog";
 
 // ============================================================================
 // ROUTES D'AUTHENTIFICATION ADMIN
@@ -2330,9 +2331,36 @@ export function registerAdminRoutes(app: Express) {
   // GESTION DES MODÈLES DE VÉHICULES (Admin)
   // ============================================================================
 
-  // GET /api/admin/vehicles - Liste tous les modèles de véhicules
+  // POST /api/admin/vehicles/sync-catalog — Importe tous les modèles de l'app Loueur
+  app.post("/api/admin/vehicles/sync-catalog", requireAdminAuth, async (_req: AuthenticatedRequest, res) => {
+    try {
+      const result = await syncTahitiVehicleCatalog();
+      return res.json({
+        success: true,
+        inserted: result.inserted,
+        total: result.total,
+        message:
+          result.inserted > 0
+            ? `${result.inserted} modèle(s) importé(s) depuis le catalogue Loueur (${result.total} au total).`
+            : `Catalogue déjà à jour (${result.total} modèles).`,
+      });
+    } catch (error) {
+      console.error("Error syncing vehicle catalog:", error);
+      return res.status(500).json({ error: "Erreur lors de la synchronisation du catalogue" });
+    }
+  });
+
+  // GET /api/admin/vehicles - Liste tous les modèles (+ sync catalogue Loueur)
   app.get("/api/admin/vehicles", requireAdminAuth, async (_req: AuthenticatedRequest, res) => {
     try {
+      // Assure que tous les modèles proposés dans l'app Loueur existent en base
+      // pour pouvoir leur assigner une photo par défaut.
+      try {
+        await syncTahitiVehicleCatalog();
+      } catch (syncErr) {
+        console.warn("[Admin] Catalog sync skipped:", syncErr);
+      }
+
       const models = await db
         .select()
         .from(vehicleModels)
