@@ -2078,56 +2078,121 @@ export class DbStorage {
 
   async deleteDriver(driverId: string): Promise<boolean> {
     try {
-      // Récupérer le chauffeur avant de le supprimer
       const driver = await this.getDriver(driverId);
       if (!driver) {
-        throw new Error(`Chauffeur ${driverId} non trouvé`);
+        throw new Error(`Loueur ${driverId} non trouvé`);
       }
 
-      // Supprimer toutes les données associées dans l'ordre (éviter les erreurs de clé étrangère)
-      // 1. Sessions chauffeur
+      const prestataireId = driver.prestataireId || null;
+
+      // 1. Sessions
       await db.delete(driverSessions).where(eq(driverSessions.driverId, driverId));
-      
-      // 2. Ratings où le chauffeur est rater ou rated
-      await db.execute(sql`DELETE FROM ratings WHERE rater_id = ${driverId} OR rated_id = ${driverId}`);
-      
-      // 3. Messages liés aux commandes du chauffeur (AVANT de supprimer les orders - contrainte FK)
+
+      // 2. Ratings
       try {
-        // Supprimer les messages liés aux commandes du chauffeur
-        await db.execute(sql`DELETE FROM messages WHERE order_id IN (SELECT id FROM orders WHERE assigned_driver_id = ${driverId})`);
-        // Supprimer aussi les messages envoyés par le chauffeur (senderId avec senderType = 'driver')
-        await db.execute(sql`DELETE FROM messages WHERE sender_id = ${driverId} AND sender_type = 'driver'`);
+        await db.execute(sql`DELETE FROM ratings WHERE rater_id = ${driverId} OR rated_id = ${driverId}`);
       } catch (e) {
-        // Table messages peut ne pas exister, ignorer l'erreur
-        console.log('[deleteDriver] Table messages non trouvée, ignoré');
+        console.log("[deleteDriver] ratings ignoré:", e);
       }
-      
-      // 4. Factures (invoices) - supprimer les factures liées aux commandes du chauffeur (AVANT de supprimer les orders - contrainte FK)
+
+      // 3. Messages support
       try {
-        await db.execute(sql`DELETE FROM invoices WHERE order_id IN (SELECT id FROM orders WHERE assigned_driver_id = ${driverId})`);
+        await db
+          .delete(supportMessages)
+          .where(
+            and(
+              eq(supportMessages.recipientType, "driver"),
+              eq(supportMessages.recipientId, driverId),
+            ),
+          );
+        await db.execute(
+          sql`DELETE FROM support_messages WHERE sender_type = 'driver' AND sender_id = ${driverId}`,
+        );
       } catch (e) {
-        // Table invoices peut ne pas exister, ignorer l'erreur
-        console.log('[deleteDriver] Table invoices non trouvée, ignoré');
+        console.log("[deleteDriver] support_messages ignoré:", e);
       }
-      
-      // 5. Commandes (orders) - supprimer toutes les commandes assignées au chauffeur (après invoices)
+
+      // 4. Messages commande + factures (avant orders)
+      try {
+        await db.execute(
+          sql`DELETE FROM messages WHERE order_id IN (SELECT id FROM orders WHERE assigned_driver_id = ${driverId})`,
+        );
+        await db.execute(
+          sql`DELETE FROM messages WHERE sender_id = ${driverId} AND sender_type = 'driver'`,
+        );
+      } catch (e) {
+        console.log("[deleteDriver] messages ignoré:", e);
+      }
+
+      try {
+        await db.execute(
+          sql`DELETE FROM invoices WHERE order_id IN (SELECT id FROM orders WHERE assigned_driver_id = ${driverId})`,
+        );
+      } catch (e) {
+        console.log("[deleteDriver] invoices ignoré:", e);
+      }
+
+      // 5. Commandes assignées
       await db.delete(orders).where(eq(orders.assignedDriverId, driverId));
-      
-      // 6. Collecte de frais - mettre driver_id à NULL pour garder l'historique
+
+      // 6. Véhicules loueur (bloque la suppression via FK driver_id / prestataire)
+      try {
+        await db.delete(loueurVehicles).where(eq(loueurVehicles.driverId, driverId));
+        if (prestataireId) {
+          // Loueur individuel : tous ses véhicules liés à l'org
+          const remainingDrivers = await db
+            .select({ id: drivers.id })
+            .from(drivers)
+            .where(and(eq(drivers.prestataireId, prestataireId), sql`${drivers.id} <> ${driverId}`));
+          if (remainingDrivers.length === 0) {
+            await db.delete(loueurVehicles).where(eq(loueurVehicles.prestataireId, prestataireId));
+          }
+        }
+        console.log(`[deleteDriver] Véhicules loueur supprimés pour ${driverId}`);
+      } catch (e) {
+        console.error("[deleteDriver] Erreur suppression loueur_vehicles:", e);
+        throw e;
+      }
+
+      // 7. Collecte de frais — garder l'historique
       try {
         await db.execute(sql`UPDATE collecte_frais SET driver_id = NULL WHERE driver_id = ${driverId}`);
-        console.log(`[deleteDriver] Collecte de frais mise à jour (driver_id => NULL)`);
       } catch (e) {
-        console.log('[deleteDriver] Erreur mise à jour collecte_frais, ignoré:', e);
+        console.log("[deleteDriver] collecte_frais ignoré:", e);
       }
-      
-      // 7. Enfin, supprimer le chauffeur lui-même
+
+      // 8. Compte driver
       await db.delete(drivers).where(eq(drivers.id, driverId));
-      
-      console.log(`[deleteDriver] Chauffeur ${driverId} et toutes ses données supprimés avec succès`);
+
+      // 9. Org loueur_individuel orpheline
+      if (prestataireId) {
+        try {
+          const stillLinked = await db
+            .select({ id: drivers.id })
+            .from(drivers)
+            .where(eq(drivers.prestataireId, prestataireId))
+            .limit(1);
+          if (stillLinked.length === 0) {
+            await db.delete(loueurVehicles).where(eq(loueurVehicles.prestataireId, prestataireId));
+            try {
+              await db.execute(
+                sql`UPDATE collecte_frais SET prestataire_id = NULL WHERE prestataire_id = ${prestataireId}`,
+              );
+            } catch {
+              /* ignore */
+            }
+            await db.delete(prestataires).where(eq(prestataires.id, prestataireId));
+            console.log(`[deleteDriver] Prestataire orphelin ${prestataireId} supprimé`);
+          }
+        } catch (e) {
+          console.warn("[deleteDriver] Nettoyage prestataire ignoré:", e);
+        }
+      }
+
+      console.log(`[deleteDriver] Loueur ${driverId} supprimé avec succès`);
       return true;
     } catch (error) {
-      console.error(`[deleteDriver] Erreur lors de la suppression du chauffeur ${driverId}:`, error);
+      console.error(`[deleteDriver] Erreur lors de la suppression du loueur ${driverId}:`, error);
       throw error;
     }
   }

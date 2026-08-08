@@ -299,16 +299,15 @@ export function AdminChauffeurDetails() {
       });
 
       if (response.ok) {
-        // Rediriger vers la liste des chauffeurs apr?s suppression
         setLocation('/admin/chauffeurs');
       } else {
-        const data = await response.json();
-        alert(data.error || 'Erreur lors de la suppression');
+        const data = await response.json().catch(() => ({}));
+        alert(data.error || 'Erreur lors de la suppression du loueur');
         setShowDeleteConfirm(false);
       }
     } catch (error) {
-      console.error('Error deleting chauffeur:', error);
-      alert('Erreur lors de la suppression du chauffeur');
+      console.error('Error deleting loueur:', error);
+      alert('Erreur lors de la suppression du loueur');
       setShowDeleteConfirm(false);
     } finally {
       setIsDeleting(false);

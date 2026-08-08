@@ -1030,26 +1030,31 @@ export function registerAdminRoutes(app: Express) {
     }
   });
 
-  // Supprimer un chauffeur complètement (avec toutes ses données)
+  // Supprimer un loueur complètement (véhicules, sessions, org liée)
   app.delete("/api/admin/chauffeurs/:id", requireAdminAuth, async (req: AuthenticatedRequest, res) => {
     try {
       const driverId = req.params.id;
-      
-      // Vérifier que le chauffeur existe
+
       const driver = await dbStorage.getDriver(driverId);
       if (!driver) {
-        return res.status(404).json({ error: "Chauffeur non trouvé", code: "NOT_FOUND" });
+        return res.status(404).json({ error: "Loueur introuvable", code: "NOT_FOUND" });
       }
 
-      // Supprimer le chauffeur et toutes ses données associées
       await dbStorage.deleteDriver(driverId);
 
-      console.log(`[Admin] Chauffeur ${driverId} (${driver.firstName} ${driver.lastName}) supprimé complètement`);
-      
-      return res.json({ success: true, message: "Chauffeur supprimé avec succès" });
-    } catch (error) {
-      console.error("Delete chauffeur error:", error);
-      return res.status(500).json({ error: "Erreur serveur lors de la suppression", code: "SERVER_ERROR" });
+      console.log(`[Admin] Loueur ${driverId} (${driver.firstName} ${driver.lastName}) supprimé`);
+
+      return res.json({ success: true, message: "Loueur supprimé avec succès" });
+    } catch (error: any) {
+      console.error("Delete loueur error:", error);
+      const detail = String(error?.message || error || "");
+      return res.status(500).json({
+        error: detail.includes("foreign key") || detail.includes("violates")
+          ? "Impossible de supprimer : des données liées bloquent encore la suppression. Réessayez."
+          : "Erreur serveur lors de la suppression du loueur",
+        code: "SERVER_ERROR",
+        detail: process.env.NODE_ENV === "development" ? detail : undefined,
+      });
     }
   });
 
