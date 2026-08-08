@@ -3283,6 +3283,35 @@ app.post("/api/live-activities/end", async (req, res) => {
     }
   });
 
+  app.patch("/api/orders/:id/documents", async (req, res) => {
+    try {
+      const orderId = req.params.id;
+      const { licenseFrontUri, licenseBackUri } = req.body;
+
+      const order = await dbStorage.getOrder(orderId);
+      if (!order) {
+        return res.status(404).json({ error: "Order not found" });
+      }
+
+      const updatedRideOption = {
+        ...order.rideOption,
+        clientLicenseFront: licenseFrontUri || null,
+        clientLicenseBack: licenseBackUri || null,
+      };
+
+      const [updatedOrder] = await db.update(orders)
+        .set({ rideOption: updatedRideOption })
+        .where(eq(orders.id, orderId))
+        .returning();
+
+      console.log(`[DOCUMENTS] Client documents saved for order ${orderId}`);
+      return res.json({ success: true, order: updatedOrder });
+    } catch (error) {
+      console.error("[DOCUMENTS] Error saving documents:", error);
+      return res.status(500).json({ error: "Internal server error" });
+    }
+  });
+
   app.patch("/api/orders/:id/status", async (req, res) => {
     try {
       const orderId = req.params.id;
