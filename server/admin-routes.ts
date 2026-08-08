@@ -935,6 +935,7 @@ export function registerAdminRoutes(app: Express) {
           customImageUrl: loueurVehicles.customImageUrl,
           modelName: vehicleModels.name,
           modelCategory: vehicleModels.category,
+          modelImageUrl: vehicleModels.imageUrl,
           vehicleModelId: loueurVehicles.vehicleModelId,
         })
         .from(loueurVehicles)
@@ -2407,8 +2408,9 @@ export function registerAdminRoutes(app: Express) {
         return res.status(400).json({ error: "Nom et catégorie requis" });
       }
 
-      if (!["citadine", "berline", "suv"].includes(category)) {
-        return res.status(400).json({ error: "Catégorie invalide (citadine, berline, suv)" });
+      const validCategories = ["citadine", "berline", "suv", "pickup", "utilitaire", "premium", "autre"];
+      if (!validCategories.includes(category)) {
+        return res.status(400).json({ error: `Catégorie invalide (${validCategories.join(", ")})` });
       }
 
       const [newModel] = await db
@@ -2425,7 +2427,7 @@ export function registerAdminRoutes(app: Express) {
         })
         .returning();
 
-      console.log(`[Admin] Vehicle model created: ${newModel.name} (${newModel.category})`);
+      console.log(`[Admin] Vehicle model created: ${newModel.name} (${newModel.category}) image=${!!newModel.imageUrl}`);
       return res.status(201).json(newModel);
     } catch (error) {
       console.error("Error creating vehicle model:", error);
@@ -2453,8 +2455,9 @@ export function registerAdminRoutes(app: Express) {
         return res.status(400).json({ error: "Aucune modification fournie" });
       }
 
-      if (updates.category && !["citadine", "berline", "suv"].includes(updates.category)) {
-        return res.status(400).json({ error: "Catégorie invalide (citadine, berline, suv)" });
+      const validCategories = ["citadine", "berline", "suv", "pickup", "utilitaire", "premium", "autre"];
+      if (updates.category && !validCategories.includes(updates.category)) {
+        return res.status(400).json({ error: `Catégorie invalide (${validCategories.join(", ")})` });
       }
 
       const [updated] = await db

@@ -84,6 +84,20 @@ function normalizeVehicleImageUrls(urls: unknown, coverUrl?: string | null): str
   return Array.from(new Set(out)).slice(0, 8);
 }
 
+/** Photos loueur, sinon photo défaut du modèle (back-office). */
+function resolveVehicleDisplayImages(
+  customUrls: unknown,
+  coverUrl?: string | null,
+  modelImageUrl?: string | null,
+): string[] {
+  const custom = normalizeVehicleImageUrls(customUrls, coverUrl);
+  if (custom.length > 0) return custom;
+  if (typeof modelImageUrl === "string" && modelImageUrl.trim()) {
+    return [modelImageUrl.trim()];
+  }
+  return [];
+}
+
 function respondTaxiDisabled(res: { status: (code: number) => { json: (body: unknown) => unknown } }) {
   return res.status(410).json({
     error: TAXI_DISABLED_MESSAGE,
@@ -3879,7 +3893,11 @@ app.post("/api/live-activities/end", async (req, res) => {
           || row.prestataireNom
           || 'Loueur';
 
-        const imageUrls = normalizeVehicleImageUrls(row.customImageUrls, row.customImageUrl);
+        const imageUrls = resolveVehicleDisplayImages(
+          row.customImageUrls,
+          row.customImageUrl,
+          row.modelImageUrl,
+        );
 
         result.push({
           id: row.loueurVehicleId,
@@ -3889,8 +3907,9 @@ app.post("/api/live-activities/end", async (req, res) => {
           ownerName,
           plate: row.plate,
           category: row.category || 'autre',
-          imageUrl: imageUrls[0] || row.modelImageUrl || null,
+          imageUrl: imageUrls[0] || null,
           imageUrls,
+          modelImageUrl: row.modelImageUrl || null,
           description: row.description,
           seats: row.seats ?? 5,
           transmission: row.transmission || 'auto',
@@ -3940,6 +3959,7 @@ app.post("/api/live-activities/end", async (req, res) => {
         seats: vehicleModels.seats,
         modelName: vehicleModels.name,
         modelCategory: vehicleModels.category,
+        modelImageUrl: vehicleModels.imageUrl,
       };
 
       let rows: any[] = [];
@@ -3986,7 +4006,11 @@ app.post("/api/live-activities/end", async (req, res) => {
             ownerName = `${driver.firstName} ${driver.lastName}`;
           }
         }
-        const imageUrls = normalizeVehicleImageUrls(row.customImageUrls, row.customImageUrl);
+        const imageUrls = resolveVehicleDisplayImages(
+          row.customImageUrls,
+          row.customImageUrl,
+          row.modelImageUrl,
+        );
         result.push({
           loueurVehicleId: row.loueurVehicleId,
           plate: row.plate,
@@ -3996,6 +4020,7 @@ app.post("/api/live-activities/end", async (req, res) => {
           customContractText: row.customContractText,
           customImageUrl: imageUrls[0] || null,
           customImageUrls: imageUrls,
+          modelImageUrl: row.modelImageUrl || null,
           ownerName,
           driverId: row.driverId,
           transmission: row.transmission,
@@ -4134,11 +4159,18 @@ app.post("/api/live-activities/end", async (req, res) => {
       }
 
       const normalized = vehicles.map((v) => {
-        const urls = normalizeVehicleImageUrls(v.customImageUrls, v.customImageUrl);
+        const customUrls = normalizeVehicleImageUrls(v.customImageUrls, v.customImageUrl);
+        const displayUrls = resolveVehicleDisplayImages(
+          v.customImageUrls,
+          v.customImageUrl,
+          v.modelImageUrl,
+        );
         return {
           ...v,
-          customImageUrls: urls,
-          customImageUrl: urls[0] || v.customImageUrl || null,
+          customImageUrls: customUrls,
+          customImageUrl: customUrls[0] || null,
+          displayImageUrl: displayUrls[0] || null,
+          displayImageUrls: displayUrls,
         };
       });
 
