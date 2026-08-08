@@ -9,7 +9,7 @@ import { storage } from "./storage";
 import { verifyPassword, hashPassword, dbStorage } from "./db-storage";
 import { db } from "./db";
 import { insertOrderSchema, pushSubscriptionSchema, insertClientSchema, orders, driverSessions, drivers, collecteFrais, vehicleModels, loueurVehicles, prestataires, type Order, type OrderStatus, type DriverSession } from "@shared/schema";
-import { eq, and, sql as dsql, count } from "drizzle-orm";
+import { eq, and, sql as dsql, count, inArray } from "drizzle-orm";
 import cookieParser from "cookie-parser";
 import { driverNotifications, clientNotifications, notifyDriver, notifyClient, startClientLiveActivity, updateClientLiveActivity, endClientLiveActivity } from "./onesignal";
 import { sendVerificationCode, verifyCode, isTwilioConfigured, sendSMSMessage } from "./twilio";
@@ -1782,8 +1782,64 @@ app.post("/api/rental-orders", async (req, res) => {
     if (!body.client?.firstName || !body.client?.lastName || !body.client?.phone) {
       return res.status(400).json({ success: false, error: "Informations client incomplètes" });
     }
-    if (!body.vehicle?.model || !body.rental?.startDate || !body.rental?.endDate) {
-      return res.status(400).json({ success: false, error: "Informations véhicule ou dates manquantes" });
+    if (!body.rental?.startDate || !body.rental?.endDate) {
+      return res.status(400).json({ success: false, error: "Dates de location manquantes" });
+    }
+
+    const loueurVehicleId = String(body.loueurVehicleId || "").trim();
+    if (!loueurVehicleId) {
+      return res.status(400).json({ success: false, error: "loueurVehicleId requis — sélectionnez un loueur" });
+    }
+
+    // Source de vérité serveur : fiche loueur (prix, propriétaire, modèle)
+    const [vehicleRow] = await db
+      .select({
+        id: loueurVehicles.id,
+        driverId: loueurVehicles.driverId,
+        prestataireId: loueurVehicles.prestataireId,
+        plate: loueurVehicles.plate,
+        pricePerDay: loueurVehicles.pricePerDay,
+        isActive: loueurVehicles.isActive,
+        availableForRental: loueurVehicles.availableForRental,
+        prestataireNom: prestataires.nom,
+        prestataireActive: prestataires.isActive,
+        modelId: vehicleModels.id,
+        modelName: vehicleModels.name,
+        modelCategory: vehicleModels.category,
+        transmission: vehicleModels.transmission,
+        fuel: vehicleModels.fuel,
+        seats: vehicleModels.seats,
+      })
+      .from(loueurVehicles)
+      .leftJoin(prestataires, eq(loueurVehicles.prestataireId, prestataires.id))
+      .innerJoin(vehicleModels, eq(loueurVehicles.vehicleModelId, vehicleModels.id))
+      .where(eq(loueurVehicles.id, loueurVehicleId))
+      .limit(1);
+
+    if (!vehicleRow) {
+      return res.status(404).json({ success: false, error: "Véhicule loueur introuvable" });
+    }
+    if (!vehicleRow.isActive || !vehicleRow.availableForRental || vehicleRow.prestataireActive === false) {
+      return res.status(409).json({ success: false, error: "Ce véhicule n'est plus disponible à la location" });
+    }
+    if (!vehicleRow.driverId) {
+      return res.status(409).json({ success: false, error: "Aucun loueur associé à ce véhicule" });
+    }
+
+    let ownerName = vehicleRow.prestataireNom || "Loueur";
+    const [driver] = await db
+      .select({ firstName: drivers.firstName, lastName: drivers.lastName })
+      .from(drivers)
+      .where(eq(drivers.id, vehicleRow.driverId))
+      .limit(1);
+    if (driver) {
+      ownerName = `${driver.firstName} ${driver.lastName}`.trim();
+    }
+
+    const days = Math.max(1, Number(body.rental.days) || 1);
+    const pricePerDay = Number(vehicleRow.pricePerDay) || 0;
+    if (pricePerDay <= 0) {
+      return res.status(409).json({ success: false, error: "Tarif journalier invalide pour ce véhicule" });
     }
 
     const rentalSupplements = Array.isArray(body.supplements)
@@ -1791,9 +1847,20 @@ app.post("/api/rental-orders", async (req, res) => {
           id: s.id,
           name: s.name,
           price: s.pricePerDay || s.total || 0,
-          quantity: body.rental.days || 1,
+          quantity: days,
         }))
       : [];
+    const supplementsTotal = rentalSupplements.reduce(
+      (sum: number, s: any) => sum + (Number(s.price) || 0) * days,
+      0
+    );
+    const subtotal = pricePerDay * days;
+    const discountAmount = Number(body.pricing?.discountAmount) || 0;
+    const grandTotal = Math.max(0, subtotal + supplementsTotal - discountAmount);
+
+    const modelName = vehicleRow.modelName || body.vehicle?.model || "Véhicule";
+    const category = vehicleRow.modelCategory || body.vehicle?.category || "autre";
+    const categoryLabel = body.vehicle?.categoryLabel || category;
 
     const orderData = {
       clientName: `${body.client.firstName} ${body.client.lastName}`,
@@ -1807,21 +1874,28 @@ app.post("/api/rental-orders", async (req, res) => {
         },
       ],
       rideOption: {
-        id: `rental-${body.vehicle.category || "classique"}`,
-        title: `${body.vehicle.model} ${body.vehicle.year || ""}`.trim(),
-        price: body.pricing?.pricePerDay || 0,
+        id: `rental-${category}`,
+        title: modelName,
+        price: pricePerDay,
         pricePerKm: 0,
         type: "rental",
-        category: body.vehicle.category,
-        categoryLabel: body.vehicle.categoryLabel,
-        days: body.rental.days,
+        category,
+        categoryLabel,
+        days,
         startDate: body.rental.startDate,
         endDate: body.rental.endDate,
         pickupLocation: body.rental.pickupLocation,
         deposit: body.pricing?.deposit,
         km: body.pricing?.km,
-        owner: body.owner,
-        supplementsTotal: body.pricing?.supplementsTotal || 0,
+        owner: ownerName,
+        loueurVehicleId: vehicleRow.id,
+        vehicleModelId: vehicleRow.modelId,
+        targetDriverId: vehicleRow.driverId,
+        plate: vehicleRow.plate,
+        transmission: vehicleRow.transmission,
+        fuel: vehicleRow.fuel,
+        seats: vehicleRow.seats,
+        supplementsTotal,
         isRentalOrder: true,
         ...(body.signature ? {
           clientSignatureSvg: body.signature.clientSignatureSvg,
@@ -1837,9 +1911,9 @@ app.post("/api/rental-orders", async (req, res) => {
       passengers: 1,
       supplements: rentalSupplements,
       paymentMethod: "cash" as const,
-      totalPrice: body.pricing?.grandTotal || body.pricing?.subtotal || 0,
+      totalPrice: grandTotal,
       driverEarnings: 0,
-      driverComment: `LOCATION ${body.rental.days}j — ${body.vehicle.categoryLabel || body.vehicle.category} — ${body.vehicle.model}`,
+      driverComment: `LOCATION ${days}j — ${categoryLabel} — ${modelName} — ${ownerName}`,
       scheduledTime: body.rental.startDate,
       isAdvanceBooking: true,
     };
@@ -1866,26 +1940,44 @@ app.post("/api/rental-orders", async (req, res) => {
     const sigPresent = !!(body.signature?.clientSignatureSvg);
     const docFront = !!(body.clientDocuments?.licenseFrontUri);
     const docBack = !!(body.clientDocuments?.licenseBackUri);
-    console.log(`[RENTAL] New rental order created: ${order.id} — ${orderData.rideOption.title} (${orderData.rideOption.days}j) | signature: ${sigPresent}, licenseFront: ${docFront}, licenseBack: ${docBack}`);
+    console.log(`[RENTAL] New rental order ${order.id} → driver ${vehicleRow.driverId} (${ownerName}) — ${modelName} ${pricePerDay}XPF/j × ${days}j | sig:${sigPresent} docs:${docFront}/${docBack}`);
 
-    // Notify all online drivers/loueurs via Socket.IO
     const rentalPayload = {
       id: order.id,
       type: "rental",
       status: "pending",
-      vehicle: body.vehicle,
+      vehicle: {
+        model: modelName,
+        category,
+        categoryLabel,
+        transmission: vehicleRow.transmission,
+        fuel: vehicleRow.fuel,
+        seats: vehicleRow.seats,
+        plate: vehicleRow.plate,
+      },
       client: body.client,
-      rental: body.rental,
-      pricing: body.pricing,
+      rental: { ...body.rental, days },
+      pricing: {
+        pricePerDay,
+        subtotal,
+        supplementsTotal,
+        discountAmount,
+        grandTotal,
+        deposit: body.pricing?.deposit,
+        km: body.pricing?.km,
+      },
       supplements: body.supplements || [],
-      owner: body.owner ? { name: body.owner } : undefined,
+      owner: { name: ownerName },
+      loueurVehicleId: vehicleRow.id,
+      targetDriverId: vehicleRow.driverId,
       scheduledTime: body.rental.startDate,
       isAdvanceBooking: true,
       createdAt: order.createdAt,
       expiresAt: order.expiresAt,
     };
-    io.to("drivers:online").emit("rental-order:new", rentalPayload);
-    console.log(`[RENTAL] Emitted rental-order:new to drivers:online`);
+    // Notification ciblée au loueur propriétaire uniquement
+    io.to(`driver:${vehicleRow.driverId}`).emit("rental-order:new", rentalPayload);
+    console.log(`[RENTAL] Emitted rental-order:new to driver:${vehicleRow.driverId}`);
 
     res.json({ success: true, order, clientToken, id: order.id, orderId: order.id });
   } catch (error) {
@@ -1912,7 +2004,13 @@ app.get("/api/rental-orders/pending", async (req, res) => {
     const rentalOrders = allPending
       .filter((o: any) => {
         const ro = o.rideOption as any;
-        return ro?.type === "rental";
+        if (ro?.type !== "rental") return false;
+        // Commande ciblée : uniquement le loueur propriétaire du véhicule
+        if (ro.targetDriverId) {
+          return ro.targetDriverId === session.driverId;
+        }
+        // Anciennes commandes sans cible : visibles par tous (rétrocompat)
+        return true;
       })
       .map((o: any) => {
         const ro = o.rideOption as any;
@@ -1928,6 +2026,7 @@ app.get("/api/rental-orders/pending", async (req, res) => {
             year: undefined,
             category: ro.category,
             categoryLabel: ro.categoryLabel,
+            plate: ro.plate,
           },
           client: {
             firstName,
@@ -1955,6 +2054,8 @@ app.get("/api/rental-orders/pending", async (req, res) => {
             total: (s.price || 0) * (s.quantity || 1),
           })),
           owner: ro.owner ? { name: ro.owner } : undefined,
+          loueurVehicleId: ro.loueurVehicleId,
+          targetDriverId: ro.targetDriverId,
           scheduledTime: o.scheduledTime,
           isAdvanceBooking: o.isAdvanceBooking,
           createdAt: o.createdAt,
@@ -1985,18 +2086,24 @@ app.post("/api/rental-orders/:id/accept", async (req, res) => {
       return res.status(401).json({ success: false, error: "Session invalide" });
     }
 
+    const currentOrder = await dbStorage.getOrder(id);
+    if (!currentOrder) {
+      return res.status(404).json({ success: false, error: "Commande introuvable" });
+    }
+    const currentRideOption = currentOrder.rideOption as any;
+    if (currentRideOption?.type === "rental" && currentRideOption?.targetDriverId
+      && currentRideOption.targetDriverId !== session.driverId) {
+      return res.status(403).json({ success: false, error: "Cette commande est destinée à un autre loueur" });
+    }
+
     const loueurSignature = req.body.loueurSignature || null;
     if (loueurSignature) {
-      const currentOrder = await dbStorage.getOrder(id);
-      if (currentOrder) {
-        const currentRideOption = currentOrder.rideOption as any;
-        const newRideOption = {
-          ...currentRideOption,
-          loueurSignatureSvg: loueurSignature,
-          loueurSignedAt: new Date().toISOString(),
-        };
-        await db.update(orders).set({ rideOption: newRideOption as any }).where(eq(orders.id, id));
-      }
+      const newRideOption = {
+        ...currentRideOption,
+        loueurSignatureSvg: loueurSignature,
+        loueurSignedAt: new Date().toISOString(),
+      };
+      await db.update(orders).set({ rideOption: newRideOption as any }).where(eq(orders.id, id));
     }
 
     const updatedOrder = await dbStorage.tryAcceptOrderIfStillPending(id, session.driverId);
@@ -3679,57 +3786,76 @@ app.post("/api/live-activities/end", async (req, res) => {
 
   // ============ VÉHICULES DISPONIBLES (API publique pour l'app RAVE client) ============
   
-  // GET /api/vehicles/available - Retourne les modèles de véhicules avec le nombre de loueurs et le prix moyen
+  // GET /api/vehicles/available — 1 fiche = 1 véhicule loueur (pas d'agrégation par modèle)
   // ?service=rental|delivery|longterm|all (défaut: all = au moins un service actif)
   app.get("/api/vehicles/available", async (req, res) => {
     try {
       const serviceType = (req.query.service as string) || 'all';
 
-      // Partir des fiches loueurs actives (plus fiable que boucler tous les modèles)
-      const rows = await db
-        .select({
-          modelId: vehicleModels.id,
-          modelName: vehicleModels.name,
-          category: vehicleModels.category,
-          modelImageUrl: vehicleModels.imageUrl,
-          description: vehicleModels.description,
-          seats: vehicleModels.seats,
-          transmission: vehicleModels.transmission,
-          fuel: vehicleModels.fuel,
-          modelActive: vehicleModels.isActive,
-          pricePerDay: loueurVehicles.pricePerDay,
-          pricePerDayLongTerm: loueurVehicles.pricePerDayLongTerm,
-          availableForRental: loueurVehicles.availableForRental,
-          availableForDelivery: loueurVehicles.availableForDelivery,
-          availableForLongTerm: loueurVehicles.availableForLongTerm,
-          customImageUrl: loueurVehicles.customImageUrl,
-          prestataireActive: prestataires.isActive,
-        })
-        .from(loueurVehicles)
-        .innerJoin(vehicleModels, eq(loueurVehicles.vehicleModelId, vehicleModels.id))
-        .leftJoin(prestataires, eq(loueurVehicles.prestataireId, prestataires.id))
-        .where(eq(loueurVehicles.isActive, true));
+      const selectBase = {
+        loueurVehicleId: loueurVehicles.id,
+        driverId: loueurVehicles.driverId,
+        plate: loueurVehicles.plate,
+        pricePerDay: loueurVehicles.pricePerDay,
+        pricePerDayLongTerm: loueurVehicles.pricePerDayLongTerm,
+        availableForRental: loueurVehicles.availableForRental,
+        availableForDelivery: loueurVehicles.availableForDelivery,
+        availableForLongTerm: loueurVehicles.availableForLongTerm,
+        customImageUrl: loueurVehicles.customImageUrl,
+        prestataireNom: prestataires.nom,
+        prestataireActive: prestataires.isActive,
+        modelId: vehicleModels.id,
+        modelName: vehicleModels.name,
+        category: vehicleModels.category,
+        modelImageUrl: vehicleModels.imageUrl,
+        description: vehicleModels.description,
+        seats: vehicleModels.seats,
+        transmission: vehicleModels.transmission,
+        fuel: vehicleModels.fuel,
+        modelActive: vehicleModels.isActive,
+      };
 
-      const byModel = new Map<string, {
-        id: string;
-        name: string;
-        category: string;
-        imageUrl: string | null;
-        description: string | null;
-        seats: number;
-        transmission: string;
-        fuel: string;
-        prices: number[];
-        coverUrls: string[];
-        rental: boolean;
-        delivery: boolean;
-        longTerm: boolean;
-        count: number;
-      }>();
+      let rows: Array<typeof selectBase & {
+        loueurVehicleId: string;
+        customImageUrls?: string[] | null;
+        [key: string]: any;
+      }> = [];
 
+      try {
+        rows = await db
+          .select({ ...selectBase, customImageUrls: loueurVehicles.customImageUrls })
+          .from(loueurVehicles)
+          .innerJoin(vehicleModels, eq(loueurVehicles.vehicleModelId, vehicleModels.id))
+          .leftJoin(prestataires, eq(loueurVehicles.prestataireId, prestataires.id))
+          .where(eq(loueurVehicles.isActive, true));
+      } catch (selectErr: any) {
+        const msg = String(selectErr?.message || selectErr || '');
+        if (!msg.includes('custom_image_urls') && !msg.includes('does not exist')) throw selectErr;
+        console.warn('[AVAILABLE] custom_image_urls missing — fallback select without gallery');
+        rows = await db
+          .select(selectBase)
+          .from(loueurVehicles)
+          .innerJoin(vehicleModels, eq(loueurVehicles.vehicleModelId, vehicleModels.id))
+          .leftJoin(prestataires, eq(loueurVehicles.prestataireId, prestataires.id))
+          .where(eq(loueurVehicles.isActive, true));
+      }
+
+      // Résoudre les noms de loueurs en batch
+      const driverIds = Array.from(new Set(rows.map((r) => r.driverId).filter(Boolean))) as string[];
+      const driverNameById = new Map<string, string>();
+      if (driverIds.length > 0) {
+        const driverRows = await db
+          .select({ id: drivers.id, firstName: drivers.firstName, lastName: drivers.lastName })
+          .from(drivers)
+          .where(inArray(drivers.id, driverIds));
+        for (const d of driverRows) {
+          driverNameById.set(d.id, `${d.firstName} ${d.lastName}`.trim());
+        }
+      }
+
+      const result = [];
       for (const row of rows) {
         if (!row.modelId || row.modelActive === false) continue;
-        // Prestataire manquant ou désactivé → on ignore (sauf si pas de prestataire lié : on laisse passer)
         if (row.prestataireActive === false) continue;
 
         const matchesService =
@@ -3740,98 +3866,103 @@ app.post("/api/live-activities/end", async (req, res) => {
 
         if (!matchesService) continue;
 
-        let entry = byModel.get(row.modelId);
-        if (!entry) {
-          entry = {
-            id: row.modelId,
-            name: row.modelName,
-            category: row.category || 'autre',
-            imageUrl: row.modelImageUrl,
-            description: row.description,
-            seats: row.seats ?? 5,
-            transmission: row.transmission || 'auto',
-            fuel: row.fuel || 'essence',
-            prices: [],
-            coverUrls: [],
-            rental: false,
-            delivery: false,
-            longTerm: false,
-            count: 0,
-          };
-          byModel.set(row.modelId, entry);
-        }
+        const ownerName = (row.driverId && driverNameById.get(row.driverId))
+          || row.prestataireNom
+          || 'Loueur';
 
-        entry.count += 1;
-        if (typeof row.pricePerDay === 'number') entry.prices.push(row.pricePerDay);
-        if (row.customImageUrl) entry.coverUrls.push(row.customImageUrl);
-        if (row.availableForRental) entry.rental = true;
-        if (row.availableForDelivery) entry.delivery = true;
-        if (row.availableForLongTerm) entry.longTerm = true;
+        const imageUrls = normalizeVehicleImageUrls(row.customImageUrls, row.customImageUrl);
+
+        result.push({
+          id: row.loueurVehicleId,
+          loueurVehicleId: row.loueurVehicleId,
+          vehicleModelId: row.modelId,
+          name: row.modelName,
+          ownerName,
+          plate: row.plate,
+          category: row.category || 'autre',
+          imageUrl: imageUrls[0] || row.modelImageUrl || null,
+          imageUrls,
+          description: row.description,
+          seats: row.seats ?? 5,
+          transmission: row.transmission || 'auto',
+          fuel: row.fuel || 'essence',
+          pricePerDay: typeof row.pricePerDay === 'number' ? row.pricePerDay : Number(row.pricePerDay) || 0,
+          availableCount: 1,
+          services: {
+            rental: !!row.availableForRental,
+            delivery: !!row.availableForDelivery,
+            longTerm: !!row.availableForLongTerm,
+          },
+        });
       }
 
-      const result = Array.from(byModel.values())
-        .map((m) => ({
-          id: m.id,
-          name: m.name,
-          category: m.category,
-          imageUrl: m.coverUrls[0] || m.imageUrl,
-          description: m.description,
-          seats: m.seats,
-          transmission: m.transmission,
-          fuel: m.fuel,
-          pricePerDay: m.prices.length ? Math.min(...m.prices) : 0,
-          availableCount: m.count,
-          services: {
-            rental: m.rental,
-            delivery: m.delivery,
-            longTerm: m.longTerm,
-          },
-        }))
-        .sort((a, b) => a.name.localeCompare(b.name, 'fr'));
+      result.sort((a, b) => {
+        const byName = a.name.localeCompare(b.name, 'fr');
+        if (byName !== 0) return byName;
+        return (a.ownerName || '').localeCompare(b.ownerName || '', 'fr');
+      });
 
+      console.log(`[AVAILABLE] ${result.length} véhicule(s) loueur listés (service=${serviceType})`);
       return res.json(result);
     } catch (error) {
       console.error("Get available vehicles error:", error);
-      if (error instanceof Error && error.message.includes('does not exist')) {
-        return res.json([]);
-      }
       return res.status(500).json({ error: "Erreur serveur" });
     }
   });
 
-  // GET /api/vehicles/model/:modelId/loueurs - Retourne les loueurs individuels pour un modèle donné
+  // GET /api/vehicles/model/:modelId/loueurs - Offres loueurs pour un modèle (détail / finalisation)
   app.get("/api/vehicles/model/:modelId/loueurs", async (req, res) => {
     try {
       const { modelId } = req.params;
 
-      const rows = await db
-        .select({
-          loueurVehicleId: loueurVehicles.id,
-          plate: loueurVehicles.plate,
-          pricePerDay: loueurVehicles.pricePerDay,
-          pricePerDayLongTerm: loueurVehicles.pricePerDayLongTerm,
-          rentalContractMode: loueurVehicles.rentalContractMode,
-          customContractText: loueurVehicles.customContractText,
-          customImageUrl: loueurVehicles.customImageUrl,
-          prestataireNom: prestataires.nom,
-          prestataireActive: prestataires.isActive,
-          driverId: loueurVehicles.driverId,
-          transmission: vehicleModels.transmission,
-          fuel: vehicleModels.fuel,
-          seats: vehicleModels.seats,
-          modelName: vehicleModels.name,
-          modelCategory: vehicleModels.category,
-        })
-        .from(loueurVehicles)
-        .leftJoin(prestataires, eq(loueurVehicles.prestataireId, prestataires.id))
-        .innerJoin(vehicleModels, eq(loueurVehicles.vehicleModelId, vehicleModels.id))
-        .where(
-          and(
-            eq(loueurVehicles.vehicleModelId, modelId),
-            eq(loueurVehicles.isActive, true),
-            eq(loueurVehicles.availableForRental, true),
-          )
-        );
+      const loueurSelectBase = {
+        loueurVehicleId: loueurVehicles.id,
+        plate: loueurVehicles.plate,
+        pricePerDay: loueurVehicles.pricePerDay,
+        pricePerDayLongTerm: loueurVehicles.pricePerDayLongTerm,
+        rentalContractMode: loueurVehicles.rentalContractMode,
+        customContractText: loueurVehicles.customContractText,
+        customImageUrl: loueurVehicles.customImageUrl,
+        prestataireNom: prestataires.nom,
+        prestataireActive: prestataires.isActive,
+        driverId: loueurVehicles.driverId,
+        transmission: vehicleModels.transmission,
+        fuel: vehicleModels.fuel,
+        seats: vehicleModels.seats,
+        modelName: vehicleModels.name,
+        modelCategory: vehicleModels.category,
+      };
+
+      let rows: any[] = [];
+      try {
+        rows = await db
+          .select({ ...loueurSelectBase, customImageUrls: loueurVehicles.customImageUrls })
+          .from(loueurVehicles)
+          .leftJoin(prestataires, eq(loueurVehicles.prestataireId, prestataires.id))
+          .innerJoin(vehicleModels, eq(loueurVehicles.vehicleModelId, vehicleModels.id))
+          .where(
+            and(
+              eq(loueurVehicles.vehicleModelId, modelId),
+              eq(loueurVehicles.isActive, true),
+              eq(loueurVehicles.availableForRental, true),
+            )
+          );
+      } catch (selectErr: any) {
+        const msg = String(selectErr?.message || selectErr || '');
+        if (!msg.includes('custom_image_urls') && !msg.includes('does not exist')) throw selectErr;
+        rows = await db
+          .select(loueurSelectBase)
+          .from(loueurVehicles)
+          .leftJoin(prestataires, eq(loueurVehicles.prestataireId, prestataires.id))
+          .innerJoin(vehicleModels, eq(loueurVehicles.vehicleModelId, vehicleModels.id))
+          .where(
+            and(
+              eq(loueurVehicles.vehicleModelId, modelId),
+              eq(loueurVehicles.isActive, true),
+              eq(loueurVehicles.availableForRental, true),
+            )
+          );
+      }
 
       const result = [];
       for (const row of rows) {
@@ -3846,7 +3977,7 @@ app.post("/api/live-activities/end", async (req, res) => {
             ownerName = `${driver.firstName} ${driver.lastName}`;
           }
         }
-        const imageUrls = normalizeVehicleImageUrls(null, row.customImageUrl);
+        const imageUrls = normalizeVehicleImageUrls(row.customImageUrls, row.customImageUrl);
         result.push({
           loueurVehicleId: row.loueurVehicleId,
           plate: row.plate,
@@ -3857,6 +3988,7 @@ app.post("/api/live-activities/end", async (req, res) => {
           customImageUrl: imageUrls[0] || null,
           customImageUrls: imageUrls,
           ownerName,
+          driverId: row.driverId,
           transmission: row.transmission,
           fuel: row.fuel,
           seats: row.seats,
