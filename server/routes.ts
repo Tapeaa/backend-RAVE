@@ -2090,6 +2090,98 @@ app.post("/api/rental-orders/:id/cancel-reject", async (req, res) => {
   }
 });
 
+// ============================================
+// RENTAL ORDER LIFECYCLE (remise / retour)
+// ============================================
+app.post("/api/rental-orders/:id/lifecycle", async (req, res) => {
+  try {
+    const { id } = req.params;
+    const { phase, sessionId: bodySessionId } = req.body;
+
+    if (!phase || !["with_client", "returned"].includes(phase)) {
+      return res.status(400).json({ success: false, error: "Phase invalide. Valeurs acceptées: with_client, returned" });
+    }
+
+    const order = await dbStorage.getOrder(id);
+    if (!order) {
+      return res.status(404).json({ success: false, error: "Commande introuvable" });
+    }
+
+    // Authenticate: driver session (loueur) or client session
+    const driverSessionId = (req.headers["x-driver-session"] as string || bodySessionId || "").split(",")[0].trim();
+    const clientSessionId = req.cookies?.clientSessionId || req.headers["x-client-session-id"] as string;
+    let updatedBy: "driver" | "client" = "client";
+
+    if (driverSessionId) {
+      const session = await getDriverSessionWithFallback(driverSessionId);
+      if (!session) {
+        return res.status(401).json({ success: false, error: "Session loueur invalide" });
+      }
+      updatedBy = "driver";
+    } else if (clientSessionId) {
+      updatedBy = "client";
+    } else {
+      return res.status(401).json({ success: false, error: "Authentification requise" });
+    }
+
+    // Validate transition
+    const currentPhase = (order.rideOption as any)?.rentalLifecyclePhase;
+    const status = order.status;
+
+    if (phase === "with_client") {
+      const validStatus = ["accepted", "booked"].includes(status);
+      const validPhase = !currentPhase || currentPhase === "vehicle_ready" || currentPhase === "awaiting_validation";
+      if (!validStatus || !validPhase) {
+        return res.status(400).json({
+          success: false,
+          error: `Transition invalide: impossible de passer à 'with_client' depuis status='${status}', phase='${currentPhase || "none"}'`,
+        });
+      }
+    } else if (phase === "returned") {
+      if (currentPhase !== "with_client") {
+        return res.status(400).json({
+          success: false,
+          error: `Transition invalide: impossible de passer à 'returned' depuis phase='${currentPhase || "none"}'. Le véhicule doit d'abord être remis au client.`,
+        });
+      }
+    }
+
+    // Update rideOption JSONB with the new phase
+    const currentRideOption = order.rideOption as Record<string, any>;
+    const updatedRideOption = { ...currentRideOption, rentalLifecyclePhase: phase };
+
+    if (phase === "with_client") {
+      updatedRideOption.handoverAt = new Date().toISOString();
+    } else if (phase === "returned") {
+      updatedRideOption.returnedAt = new Date().toISOString();
+    }
+
+    const updateData: Record<string, any> = { rideOption: updatedRideOption };
+    if (phase === "returned") {
+      updateData.status = "completed";
+    }
+
+    await db.update(orders).set(updateData).where(eq(orders.id, id));
+
+    // Reload updated order
+    const updatedOrder = await dbStorage.getOrder(id);
+
+    // Emit socket event
+    io.to(`order:${id}`).emit("rental-order:lifecycle-changed", {
+      orderId: id,
+      phase,
+      updatedBy,
+      order: updatedOrder,
+    });
+
+    console.log(`[RENTAL] Order ${id} lifecycle → ${phase} (by ${updatedBy})`);
+    res.json({ success: true, order: updatedOrder });
+  } catch (error) {
+    console.error("[RENTAL] Error updating lifecycle:", error);
+    res.status(500).json({ success: false, error: "Erreur serveur" });
+  }
+});
+
 // Vérifier la majoration hauteur avant commande
 app.post("/api/height-surcharge-check", async (req, res) => {
   try {

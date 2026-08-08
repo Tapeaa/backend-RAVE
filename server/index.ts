@@ -1,5 +1,6 @@
 import "dotenv/config";
 import express, { type Request, Response, NextFunction } from "express";
+import cors from "cors";
 import cookieParser from "cookie-parser";
 import path from "path";
 import { registerRoutes } from "./routes";
@@ -17,6 +18,14 @@ import { ensureCustomContractTextColumn } from "./ensure-custom-contract-text";
 
 const app = express();
 app.set("trust proxy", 1);
+
+app.use(cors({
+  origin: true,
+  credentials: true,
+  methods: ["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
+  allowedHeaders: ["Content-Type", "Cookie", "X-Client-Session-Id", "X-Driver-Session-Id"],
+}));
+
 app.use(express.json());
 app.use(express.urlencoded({ extended: false }));
 app.use(cookieParser());
