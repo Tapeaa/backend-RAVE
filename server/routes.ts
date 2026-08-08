@@ -1772,6 +1772,16 @@ app.post("/api/rental-orders", async (req, res) => {
         km: body.pricing?.km,
         owner: body.owner,
         supplementsTotal: body.pricing?.supplementsTotal || 0,
+        isRentalOrder: true,
+        ...(body.signature ? {
+          clientSignatureSvg: body.signature.clientSignatureSvg,
+          clientSignedAt: body.signature.clientSignedAt,
+          clientSignatureName: body.signature.clientSignatureName,
+        } : {}),
+        ...(body.clientDocuments ? {
+          clientLicenseFront: body.clientDocuments.licenseFrontUri || null,
+          clientLicenseBack: body.clientDocuments.licenseBackUri || null,
+        } : {}),
       },
       routeInfo: undefined,
       passengers: 1,
