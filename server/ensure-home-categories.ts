@@ -34,10 +34,17 @@ export async function ensureHomeCategoriesTable() {
       image_url TEXT,
       price_range TEXT,
       model TEXT,
+      vehicle_model_id VARCHAR REFERENCES vehicle_models(id),
       position INTEGER NOT NULL DEFAULT 0,
       is_active BOOLEAN NOT NULL DEFAULT true,
       updated_at TIMESTAMP NOT NULL DEFAULT now()
     )
+  `);
+
+  // Migrations pour instances déjà créées
+  await db.execute(sql`
+    ALTER TABLE home_categories
+    ADD COLUMN IF NOT EXISTS vehicle_model_id VARCHAR
   `);
 
   for (const row of DEFAULTS) {
@@ -50,10 +57,11 @@ export async function ensureHomeCategoriesTable() {
         model: row.model,
         position: row.position,
         imageUrl: null,
+        vehicleModelId: null,
         isActive: true,
       })
       .onConflictDoNothing();
   }
 
-  console.log("[DB] home_categories ready (3 accueil options)");
+  console.log("[DB] home_categories ready (3 accueil options → modèles catalogue)");
 }

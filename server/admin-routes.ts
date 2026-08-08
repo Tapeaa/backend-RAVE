@@ -1501,15 +1501,62 @@ export function registerAdminRoutes(app: Express) {
     }
   });
 
-  // ─── Options écran d'accueil client (3 icônes) ───
+  // ─── Options écran d'accueil client (3 icônes liées aux modèles catalogue) ───
+  async function loadHomeCategoriesEnriched(activeOnly = false) {
+    const selectFields = {
+      id: homeCategories.id,
+      label: homeCategories.label,
+      priceRange: homeCategories.priceRange,
+      model: homeCategories.model,
+      imageUrl: homeCategories.imageUrl,
+      vehicleModelId: homeCategories.vehicleModelId,
+      position: homeCategories.position,
+      isActive: homeCategories.isActive,
+      updatedAt: homeCategories.updatedAt,
+      vehicleModelName: vehicleModels.name,
+      vehicleModelCategory: vehicleModels.category,
+      vehicleModelImageUrl: vehicleModels.imageUrl,
+    };
+
+    const rows = activeOnly
+      ? await db
+          .select(selectFields)
+          .from(homeCategories)
+          .leftJoin(vehicleModels, eq(homeCategories.vehicleModelId, vehicleModels.id))
+          .where(eq(homeCategories.isActive, true))
+          .orderBy(asc(homeCategories.position))
+      : await db
+          .select(selectFields)
+          .from(homeCategories)
+          .leftJoin(vehicleModels, eq(homeCategories.vehicleModelId, vehicleModels.id))
+          .orderBy(asc(homeCategories.position));
+
+    return rows.map((row) => ({
+      id: row.id,
+      label: row.label,
+      priceRange: row.priceRange,
+      // Image = photo du modèle catalogue (admin Véhicules), sinon override legacy
+      imageUrl: row.vehicleModelImageUrl || row.imageUrl || null,
+      model: row.vehicleModelName || row.model || null,
+      vehicleModelId: row.vehicleModelId,
+      position: row.position,
+      isActive: row.isActive,
+      updatedAt: row.updatedAt,
+      vehicleModel: row.vehicleModelId
+        ? {
+            id: row.vehicleModelId,
+            name: row.vehicleModelName,
+            category: row.vehicleModelCategory,
+            imageUrl: row.vehicleModelImageUrl,
+          }
+        : null,
+    }));
+  }
+
   app.get("/api/home-categories", async (_req, res) => {
     try {
-      const rows = await db
-        .select()
-        .from(homeCategories)
-        .where(eq(homeCategories.isActive, true))
-        .orderBy(asc(homeCategories.position));
-      return res.json({ categories: rows });
+      const categories = await loadHomeCategoriesEnriched(true);
+      return res.json({ categories });
     } catch (error) {
       console.error("Get home categories error:", error);
       return res.status(500).json({ error: "Erreur serveur", code: "SERVER_ERROR" });
@@ -1518,11 +1565,8 @@ export function registerAdminRoutes(app: Express) {
 
   app.get("/api/admin/home-categories", requireAdminAuth, async (_req: AuthenticatedRequest, res) => {
     try {
-      const rows = await db
-        .select()
-        .from(homeCategories)
-        .orderBy(asc(homeCategories.position));
-      return res.json({ categories: rows });
+      const categories = await loadHomeCategoriesEnriched(false);
+      return res.json({ categories });
     } catch (error) {
       console.error("Admin get home categories error:", error);
       return res.status(500).json({ error: "Erreur serveur", code: "SERVER_ERROR" });
@@ -1532,11 +1576,32 @@ export function registerAdminRoutes(app: Express) {
   app.patch("/api/admin/home-categories/:id", requireAdminAuth, async (req: AuthenticatedRequest, res) => {
     try {
       const { id } = req.params;
-      const allowed = ["label", "imageUrl", "priceRange", "model", "isActive", "position"] as const;
       const updates: Record<string, unknown> = { updatedAt: new Date() };
-      for (const key of allowed) {
-        if (req.body[key] !== undefined) updates[key] = req.body[key];
+
+      if (req.body.label !== undefined) updates.label = req.body.label;
+      if (req.body.priceRange !== undefined) updates.priceRange = req.body.priceRange;
+      if (req.body.isActive !== undefined) updates.isActive = req.body.isActive;
+      if (req.body.position !== undefined) updates.position = req.body.position;
+
+      if (req.body.vehicleModelId !== undefined) {
+        const modelId = req.body.vehicleModelId as string | null;
+        if (modelId) {
+          const [vm] = await db
+            .select()
+            .from(vehicleModels)
+            .where(eq(vehicleModels.id, modelId));
+          if (!vm) {
+            return res.status(400).json({ error: "Modèle de véhicule introuvable" });
+          }
+          updates.vehicleModelId = vm.id;
+          updates.model = vm.name;
+          // L'image affichée vient du modèle ; on nettoie l'override legacy
+          updates.imageUrl = null;
+        } else {
+          updates.vehicleModelId = null;
+        }
       }
+
       if (Object.keys(updates).length <= 1) {
         return res.status(400).json({ error: "Aucune modification fournie" });
       }
@@ -1548,8 +1613,11 @@ export function registerAdminRoutes(app: Express) {
       if (!updated) {
         return res.status(404).json({ error: "Option introuvable" });
       }
-      console.log(`[Admin] Home category updated: ${id}`);
-      return res.json(updated);
+      console.log(`[Admin] Home category updated: ${id}`, {
+        vehicleModelId: updated.vehicleModelId,
+      });
+      const [enriched] = (await loadHomeCategoriesEnriched(false)).filter((c) => c.id === id);
+      return res.json(enriched || updated);
     } catch (error) {
       console.error("Update home category error:", error);
       return res.status(500).json({ error: "Erreur serveur", code: "SERVER_ERROR" });

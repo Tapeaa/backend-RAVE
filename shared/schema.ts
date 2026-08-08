@@ -112,9 +112,10 @@ export const carouselImages = pgTable("carousel_images", {
 export const homeCategories = pgTable("home_categories", {
   id: varchar("id").primaryKey(), // classique | xl | service-plus
   label: text("label").notNull(),
-  imageUrl: text("image_url"),
+  imageUrl: text("image_url"), // legacy / override optionnel
   priceRange: text("price_range"),
-  model: text("model"),
+  model: text("model"), // libellé modèle (sync depuis vehicle_models.name)
+  vehicleModelId: varchar("vehicle_model_id").references(() => vehicleModels.id),
   position: integer("position").default(0).notNull(),
   isActive: boolean("is_active").default(true).notNull(),
   updatedAt: timestamp("updated_at").defaultNow().notNull(),
