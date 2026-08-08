@@ -6,12 +6,26 @@ import { useEffect, useState, useRef } from 'react';
 import { useLocation } from 'wouter';
 import { ArrowLeft, User, Phone, Car, Calendar, MapPin, Edit2, Upload, X, Loader2, Check, Save, Trash2, ChevronRight } from 'lucide-react';
 
+interface LoueurVehicle {
+  id: string;
+  plate: string | null;
+  pricePerDay: number | null;
+  availableForRental: boolean | null;
+  isActive: boolean | null;
+  customImageUrl: string | null;
+  modelName: string | null;
+  modelCategory: string | null;
+  vehicleModelId: string | null;
+}
+
 interface ChauffeurDetails {
   chauffeur: {
     id: string;
     firstName: string;
     lastName: string;
     phone: string;
+    code?: string | null;
+    prestataireId?: string | null;
     vehicleModel: string | null;
     vehicleColor: string | null;
     vehiclePlate: string | null;
@@ -21,6 +35,14 @@ interface ChauffeurDetails {
     totalRides: number;
     createdAt: string;
   };
+  prestataire?: {
+    id: string;
+    nom: string;
+    type: string;
+    code: string;
+    isActive: boolean;
+  } | null;
+  vehicles?: LoueurVehicle[];
   commandes: Array<{
     id: string;
     clientName: string;
@@ -106,7 +128,7 @@ export function AdminChauffeurDetails() {
     if (!file) return;
 
     if (!file.type.startsWith('image/')) {
-      alert('Veuillez sélectionner une image');
+      alert('Veuillez s?lectionner une image');
       return;
     }
 
@@ -276,7 +298,7 @@ export function AdminChauffeurDetails() {
       });
 
       if (response.ok) {
-        // Rediriger vers la liste des chauffeurs après suppression
+        // Rediriger vers la liste des chauffeurs apr?s suppression
         setLocation('/admin/chauffeurs');
       } else {
         const data = await response.json();
@@ -294,20 +316,20 @@ export function AdminChauffeurDetails() {
 
   function getAddressFromOrder(commande: { addresses: any }, type: 'pickup' | 'destination'): string {
     const addrs = commande.addresses;
-    if (!addrs) return 'Non spécifié';
+    if (!addrs) return 'Non sp?cifi?';
     const arr = Array.isArray(addrs) ? addrs : [];
     const addr = arr.find((a: any) => a.type === type);
-    return (addr?.value ?? addr?.address) || 'Non spécifié';
+    return (addr?.value ?? addr?.address) || 'Non sp?cifi?';
   }
 
   function getStatusBadge(status: string) {
     const statusConfig: Record<string, { label: string; color: string }> = {
       pending: { label: 'En attente', color: 'bg-yellow-100 text-yellow-700' },
-      accepted: { label: 'Acceptée', color: 'bg-blue-100 text-blue-700' },
+      accepted: { label: 'Accept?e', color: 'bg-blue-100 text-blue-700' },
       in_progress: { label: 'En cours', color: 'bg-orange-100 text-orange-700' },
-      completed: { label: 'Terminée', color: 'bg-green-100 text-green-700' },
-      payment_confirmed: { label: 'Paiement confirmé', color: 'bg-green-100 text-green-700' },
-      cancelled: { label: 'Annulée', color: 'bg-red-100 text-red-700' },
+      completed: { label: 'Termin?e', color: 'bg-green-100 text-green-700' },
+      payment_confirmed: { label: 'Paiement confirm?', color: 'bg-green-100 text-green-700' },
+      cancelled: { label: 'Annul?e', color: 'bg-red-100 text-red-700' },
     };
     const config = statusConfig[status] || { label: status, color: 'bg-gray-100 text-gray-700' };
     return (
@@ -333,10 +355,11 @@ export function AdminChauffeurDetails() {
     );
   }
 
-  const { chauffeur, commandes } = details;
+  const { chauffeur, commandes, prestataire, vehicles = [] } = details;
   const totalEarnings = commandes
     .filter(c => c.status === 'completed' || c.status === 'payment_confirmed')
     .reduce((sum, c) => sum + c.driverEarnings, 0);
+  const appCode = chauffeur.code || prestataire?.code || '?';
 
   return (
     <div className="space-y-6">
@@ -423,7 +446,7 @@ export function AdminChauffeurDetails() {
                 )}
               </div>
               
-              {/* Éditeur de photo */}
+              {/* ?diteur de photo */}
               {isEditingPhoto && (
                 <div className="mt-4 w-full space-y-3">
                   <input
@@ -444,7 +467,7 @@ export function AdminChauffeurDetails() {
                     </button>
                   ) : (
                     <div className="text-center text-sm text-green-600 font-medium">
-                      ✓ Photo sélectionnée
+                      Photo selectionneee
                     </div>
                   )}
                   
@@ -475,12 +498,12 @@ export function AdminChauffeurDetails() {
               )}
             </div>
 
-            {/* Mode édition du profil */}
+            {/* Mode edition du profil */}
             {isEditingProfile ? (
               <div className="space-y-4">
                 <div className="grid grid-cols-2 gap-3">
                   <div>
-                    <label className="block text-xs font-medium text-gray-500 mb-1">Prénom</label>
+                    <label className="block text-xs font-medium text-gray-500 mb-1">Prenom</label>
                     <input
                       type="text"
                       value={editForm.firstName}
@@ -500,7 +523,7 @@ export function AdminChauffeurDetails() {
                 </div>
                 
                 <div>
-                  <label className="block text-xs font-medium text-gray-500 mb-1">Téléphone</label>
+                  <label className="block text-xs font-medium text-gray-500 mb-1">Telephone</label>
                   <input
                     type="tel"
                     value={editForm.phone}
@@ -511,11 +534,11 @@ export function AdminChauffeurDetails() {
                 
                 <div className="border-t pt-4">
                   <p className="text-xs font-medium text-gray-500 mb-3 flex items-center gap-1">
-                    <Car className="h-4 w-4" /> Véhicule
+                    <Car className="h-4 w-4" /> Vehicule
                   </p>
                   <div className="space-y-3">
                     <div>
-                      <label className="block text-xs text-gray-500 mb-1">Modèle</label>
+                      <label className="block text-xs text-gray-500 mb-1">Modele</label>
                       <input
                         type="text"
                         value={editForm.vehicleModel}
@@ -589,16 +612,16 @@ export function AdminChauffeurDetails() {
                 <div className="flex items-center gap-3">
                   <Phone className="h-5 w-5 text-gray-400" />
                   <div>
-                    <p className="text-sm text-gray-500">Téléphone</p>
+                    <p className="text-sm text-gray-500">Telephone</p>
                     <p className="font-medium text-gray-900">{chauffeur.phone}</p>
                   </div>
                 </div>
                 <div className="flex items-center gap-3">
                   <Car className="h-5 w-5 text-gray-400" />
                   <div>
-                    <p className="text-sm text-gray-500">Véhicule</p>
+                    <p className="text-sm text-gray-500">Vehicule</p>
                     <p className="font-medium text-gray-900">
-                      {chauffeur.vehicleModel || 'Non renseigné'}
+                      {chauffeur.vehicleModel || 'Non renseigne'}
                       {chauffeur.vehicleColor && ` - ${chauffeur.vehicleColor}`}
                     </p>
                     {chauffeur.vehiclePlate && (
@@ -619,26 +642,83 @@ export function AdminChauffeurDetails() {
             )}
           </div>
 
+          {/* Accs app Loueur */}
+          <div className="mt-6 rounded-xl bg-amber-50 border border-amber-200 p-6 shadow-sm">
+            <h2 className="mb-2 text-lg font-semibold text-amber-900">Acces app RAVE Loueur</h2>
+            <p className="text-sm text-amber-800 mb-3">
+              Code de connexion pour l'app mobile loueur (meme compte que les vehicules publies).
+            </p>
+            <p className="text-3xl font-mono font-bold tracking-widest text-slate-900">{appCode}</p>
+            {prestataire && (
+              <p className="mt-2 text-xs text-amber-700">
+                Organisation : {prestataire.nom} ({prestataire.type})
+              </p>
+            )}
+          </div>
+
           {/* Statistiques */}
           <div className="mt-6 rounded-xl bg-white p-6 shadow-sm">
             <h2 className="mb-4 text-lg font-semibold text-gray-900">Statistiques</h2>
             <div className="grid grid-cols-2 gap-4">
-              <div className="rounded-lg bg-purple-50 p-4 text-center">
-                <p className="text-2xl font-bold text-purple-600">{chauffeur.totalRides}</p>
-                <p className="text-sm text-gray-600">Courses</p>
+              <div className="rounded-lg bg-amber-50 p-4 text-center">
+                <p className="text-2xl font-bold text-amber-700">{vehicles.length}</p>
+                <p className="text-sm text-gray-600">Vehicules</p>
               </div>
               <div className="rounded-lg bg-green-50 p-4 text-center">
                 <p className="text-2xl font-bold text-green-600">
                   {formatCurrency(totalEarnings)}
                 </p>
-                <p className="text-sm text-gray-600">Gains totaux</p>
+                <p className="text-sm text-gray-600">Gains locations</p>
               </div>
             </div>
           </div>
         </div>
 
-        {/* Historique des commandes */}
-        <div className="lg:col-span-2">
+        <div className="lg:col-span-2 space-y-6">
+          {/* Vehicules du loueur (app) */}
+          <div className="rounded-xl bg-white p-6 shadow-sm">
+            <h2 className="mb-4 text-lg font-semibold text-gray-900">
+              Vehicules publies ({vehicles.length})
+            </h2>
+            {vehicles.length === 0 ? (
+              <p className="text-center text-gray-500 py-8">
+                Aucun vehicule. Le loueur les ajoute depuis l&apos;app RAVE Loueur - ils apparaissent ensuite dans le catalogue client.
+              </p>
+            ) : (
+              <div className="space-y-3">
+                {vehicles.map((v) => (
+                  <div
+                    key={v.id}
+                    className="flex items-center gap-4 rounded-lg border border-gray-100 p-4"
+                  >
+                    {v.customImageUrl ? (
+                      <img src={v.customImageUrl} alt="" className="h-14 w-14 rounded-lg object-cover" />
+                    ) : (
+                      <div className="h-14 w-14 rounded-lg bg-gray-100 flex items-center justify-center">
+                        <Car className="h-6 w-6 text-gray-400" />
+                      </div>
+                    )}
+                    <div className="flex-1 min-w-0">
+                      <p className="font-medium text-gray-900 truncate">{v.modelName || 'Modele'}</p>
+                      <p className="text-sm text-gray-500">
+                        {(v.pricePerDay ?? 0).toLocaleString('fr-FR')} XPF / jour
+                        {v.plate ? ` · ${v.plate}` : ''}
+                      </p>
+                    </div>
+                    <div className="flex flex-col items-end gap-1">
+                      <span className={`text-xs font-medium px-2 py-0.5 rounded-full ${v.isActive && v.availableForRental ? 'bg-green-100 text-green-700' : 'bg-gray-100 text-gray-600'}`}>
+                        {v.isActive && v.availableForRental ? 'Visible catalogue' : 'Masque'}
+                      </span>
+                      {v.modelCategory && (
+                        <span className="text-xs text-gray-400">{v.modelCategory}</span>
+                      )}
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+
           <div className="rounded-xl bg-white p-6 shadow-sm">
             <h2 className="mb-4 text-lg font-semibold text-gray-900">
               Historique des reservations ({commandes.length})
@@ -687,7 +767,7 @@ export function AdminChauffeurDetails() {
                             Gains: {formatCurrency(commande.driverEarnings)}
                           </p>
                           <p className="text-xs text-gray-500">
-                            {commande.paymentMethod === 'card' ? '💳 Carte' : '💵 Espèces'}
+                            {commande.paymentMethod === 'card' ? 'Carte' : 'Especes'}
                           </p>
                         </div>
                         <ChevronRight className="h-5 w-5 text-gray-400 group-hover:text-purple-600 transition-colors" />

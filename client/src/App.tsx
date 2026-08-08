@@ -18,8 +18,6 @@ import { AdminCommandeDetails } from "@/pages/admin/AdminCommandeDetails";
 import { AdminPaiements } from "@/pages/admin/AdminPaiements";
 import { AdminCarousel } from "@/pages/admin/AdminCarousel";
 import { AdminMessages } from "@/pages/admin/AdminMessages";
-import { AdminPrestataires } from "@/pages/admin/AdminPrestataires";
-import { AdminPrestataireDetails } from "@/pages/admin/AdminPrestataireDetails";
 import { AdminVehicles } from "@/pages/admin/AdminVehicles";
 import { AdminProtectedRoute } from "@/components/AdminProtectedRoute";
 import { AdminLayout } from "@/components/admin/AdminLayout";
@@ -133,24 +131,6 @@ function Router() {
           </AdminProtectedRoute>
         )}
       </Route>
-      <Route path="/admin/prestataires">
-        {() => (
-          <AdminProtectedRoute>
-            <AdminLayout>
-              <AdminPrestataires />
-            </AdminLayout>
-          </AdminProtectedRoute>
-        )}
-      </Route>
-      <Route path="/admin/prestataires/:id">
-        {() => (
-          <AdminProtectedRoute>
-            <AdminLayout>
-              <AdminPrestataireDetails />
-            </AdminLayout>
-          </AdminProtectedRoute>
-        )}
-      </Route>
       <Route path="/admin/vehicles">
         {() => (
           <AdminProtectedRoute>
@@ -161,7 +141,9 @@ function Router() {
         )}
       </Route>
 
-      {/* Anciennes routes taxi → redirect */}
+      {/* Anciennes routes → redirect (taxi / doublon prestataire) */}
+      <Route path="/admin/prestataires">{() => <Redirect to="/admin/chauffeurs" />}</Route>
+      <Route path="/admin/prestataires/:id">{() => <Redirect to="/admin/chauffeurs" />}</Route>
       <Route path="/admin/tarifs">{() => <Redirect to="/admin" />}</Route>
       <Route path="/admin/collecte">{() => <Redirect to="/admin" />}</Route>
       <Route path="/admin/collecte/:id">{() => <Redirect to="/admin" />}</Route>

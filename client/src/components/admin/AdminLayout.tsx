@@ -15,7 +15,6 @@ import {
   LogOut,
   Menu,
   X,
-  Building2,
   CarFront,
 } from "lucide-react";
 
@@ -35,7 +34,6 @@ const navigationSections = [
     items: [
       { name: "Clients", href: "/admin/clients", icon: Users },
       { name: "Loueurs", href: "/admin/chauffeurs", icon: Car },
-      { name: "Prestataires", href: "/admin/prestataires", icon: Building2 },
     ],
   },
   {

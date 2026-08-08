@@ -765,37 +765,36 @@ export function registerAdminRoutes(app: Express) {
   // Créer un nouveau chauffeur avec mot de passe généré
   app.post("/api/admin/chauffeurs", requireAdminAuth, async (req: AuthenticatedRequest, res) => {
     try {
-      const { firstName, lastName, phone, typeChauffeur, vehicleModel, vehicleColor, vehiclePlate } = req.body;
-      
+      const { firstName, lastName, phone, vehicleModel, vehicleColor, vehiclePlate } = req.body;
+
       if (!firstName || !lastName || !phone) {
-        return res.status(400).json({ 
-          error: "Prénom, nom et téléphone requis", 
-          code: "MISSING_FIELDS" 
+        return res.status(400).json({
+          error: "Prénom, nom et téléphone requis",
+          code: "MISSING_FIELDS",
         });
       }
 
-      // Vérifier si le téléphone existe déjà
       const existingDriver = await db.select().from(drivers).where(eq(drivers.phone, phone)).limit(1);
       if (existingDriver.length > 0) {
-        return res.status(400).json({ 
-          error: "Un chauffeur avec ce numéro de téléphone existe déjà", 
-          code: "PHONE_EXISTS" 
+        return res.status(400).json({
+          error: "Un loueur avec ce numéro de téléphone existe déjà",
+          code: "PHONE_EXISTS",
         });
       }
 
-      // Générer un code à 6 chiffres unique
+      // Code unique pour l'app Loueur (drivers.code) ET le portail (prestataires.code)
       let code: string;
       let codeExists = true;
       while (codeExists) {
         code = Math.floor(100000 + Math.random() * 900000).toString();
-        const existingCode = await db.select().from(drivers).where(eq(drivers.code, code)).limit(1);
-        codeExists = existingCode.length > 0;
+        const [existingDriverCode] = await db.select().from(drivers).where(eq(drivers.code, code)).limit(1);
+        const [existingPrestataireCode] = await db.select().from(prestataires).where(eq(prestataires.code, code)).limit(1);
+        codeExists = !!existingDriverCode || !!existingPrestataireCode;
       }
 
-      // Générer un mot de passe aléatoire (8 caractères alphanumériques)
       const generatePassword = () => {
-        const chars = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789';
-        let password = '';
+        const chars = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789";
+        let password = "";
         for (let i = 0; i < 8; i++) {
           password += chars.charAt(Math.floor(Math.random() * chars.length));
         }
@@ -803,36 +802,49 @@ export function registerAdminRoutes(app: Express) {
       };
       const password = generatePassword();
 
-      // Hasher le mot de passe (utiliser bcrypt si disponible, sinon stocker en clair pour le moment)
-      // Pour l'instant, on stocke en clair car le backend n'a peut-être pas bcrypt configuré
-      // TODO: Implémenter le hachage avec bcrypt
+      // Organisation liée (requis pour loueur_vehicles.prestataireId + catalogue)
+      const [newPrestataire] = await db
+        .insert(prestataires)
+        .values({
+          nom: `${firstName} ${lastName}`.trim(),
+          type: "loueur_individuel",
+          phone,
+          code: code!,
+          isActive: true,
+        })
+        .returning();
 
-      const [newDriver] = await db.insert(drivers).values({
-        phone,
-        code: code!,
-        password, // Stocker le mot de passe (à hasher en production)
-        firstName,
-        lastName,
-        typeChauffeur: typeChauffeur || "patente",
-        vehicleModel: vehicleModel || null,
-        vehicleColor: vehicleColor || null,
-        vehiclePlate: vehiclePlate || null,
-        isActive: true,
-        cguAccepted: false,
-        privacyPolicyRead: false,
-      }).returning();
+      const [newDriver] = await db
+        .insert(drivers)
+        .values({
+          phone,
+          code: code!,
+          password,
+          firstName,
+          lastName,
+          typeChauffeur: "patente",
+          prestataireId: newPrestataire.id,
+          vehicleModel: vehicleModel || null,
+          vehicleColor: vehicleColor || null,
+          vehiclePlate: vehiclePlate || null,
+          isActive: true,
+          cguAccepted: false,
+          privacyPolicyRead: false,
+        })
+        .returning();
 
-      console.log(`[Admin] Chauffeur créé: ${firstName} ${lastName} (${phone}) - Code: ${code} - Mot de passe: ${password}`);
+      console.log(`[Admin] Loueur créé: ${firstName} ${lastName} (${phone}) — code app ${code} — prestataire ${newPrestataire.id}`);
 
-      return res.json({ 
-        success: true, 
+      return res.json({
+        success: true,
         chauffeur: newDriver,
-        code: code,
-        password: password, // Retourner le mot de passe pour l'affichage dans le dashboard
-        message: `Chauffeur créé avec succès. Code: ${code}, Mot de passe: ${password}`
+        prestataire: newPrestataire,
+        code: code!,
+        password,
+        message: `Loueur créé. Code app: ${code}, Mot de passe: ${password}`,
       });
     } catch (error) {
-      console.error("Create chauffeur error:", error);
+      console.error("Create loueur error:", error);
       return res.status(500).json({ error: "Erreur serveur", code: "SERVER_ERROR" });
     }
   });
@@ -882,29 +894,82 @@ export function registerAdminRoutes(app: Express) {
 
   app.get("/api/admin/chauffeurs/:id", requireAdminAuth, async (req: AuthenticatedRequest, res) => {
     try {
-      const driver = await dbStorage.getDriver(req.params.id);
+      let driver = await dbStorage.getDriver(req.params.id);
       if (!driver) {
-        return res.status(404).json({ error: "Chauffeur non trouvé", code: "NOT_FOUND" });
+        return res.status(404).json({ error: "Loueur introuvable", code: "NOT_FOUND" });
       }
 
-      const driverOrders = await dbStorage.getOrdersByDriver(driver.id);
+      // Réparer les loueurs sans organisation (catalogue / véhicules)
+      if (!driver.prestataireId) {
+        const repairCode = driver.code || Math.floor(100000 + Math.random() * 900000).toString();
+        const [org] = await db
+          .insert(prestataires)
+          .values({
+            nom: `${driver.firstName} ${driver.lastName}`.trim(),
+            type: "loueur_individuel",
+            phone: driver.phone,
+            code: repairCode,
+            isActive: driver.isActive !== false,
+          })
+          .returning();
+        await db.update(drivers).set({ prestataireId: org.id }).where(eq(drivers.id, driver.id));
+        driver = await dbStorage.getDriver(driver.id);
+        console.log(`[Admin] Loueur ${driver?.id} lié au prestataire ${org.id}`);
+      }
 
-      return res.json({ chauffeur: driver, commandes: driverOrders });
+      const driverOrders = await dbStorage.getOrdersByDriver(driver!.id);
+
+      let prestataire = null;
+      if (driver!.prestataireId) {
+        const [p] = await db.select().from(prestataires).where(eq(prestataires.id, driver!.prestataireId)).limit(1);
+        prestataire = p || null;
+      }
+
+      const vehicles = await db
+        .select({
+          id: loueurVehicles.id,
+          plate: loueurVehicles.plate,
+          pricePerDay: loueurVehicles.pricePerDay,
+          availableForRental: loueurVehicles.availableForRental,
+          isActive: loueurVehicles.isActive,
+          customImageUrl: loueurVehicles.customImageUrl,
+          modelName: vehicleModels.name,
+          modelCategory: vehicleModels.category,
+          vehicleModelId: loueurVehicles.vehicleModelId,
+        })
+        .from(loueurVehicles)
+        .leftJoin(vehicleModels, eq(loueurVehicles.vehicleModelId, vehicleModels.id))
+        .where(eq(loueurVehicles.driverId, driver!.id))
+        .orderBy(desc(loueurVehicles.createdAt));
+
+      return res.json({
+        chauffeur: driver,
+        prestataire,
+        vehicles,
+        commandes: driverOrders,
+      });
     } catch (error) {
-      console.error("Get chauffeur error:", error);
+      console.error("Get loueur error:", error);
       return res.status(500).json({ error: "Erreur serveur", code: "SERVER_ERROR" });
     }
   });
 
-  // Activer/Désactiver un chauffeur
+  // Activer/Désactiver un loueur (+ org liée pour le catalogue)
   app.patch("/api/admin/chauffeurs/:id/status", requireAdminAuth, async (req: AuthenticatedRequest, res) => {
     try {
       const { isActive } = req.body;
-      await db.update(drivers).set({ isActive: isActive === true }).where(eq(drivers.id, req.params.id));
+      const active = isActive === true;
+      await db.update(drivers).set({ isActive: active }).where(eq(drivers.id, req.params.id));
       const updatedDriver = await dbStorage.getDriver(req.params.id);
+      if (updatedDriver?.prestataireId) {
+        await db
+          .update(prestataires)
+          .set({ isActive: active })
+          .where(eq(prestataires.id, updatedDriver.prestataireId));
+      }
       res.json({ success: true, chauffeur: updatedDriver });
     } catch (error) {
-      console.error("Update chauffeur status error:", error);
+      console.error("Update loueur status error:", error);
       res.status(500).json({ error: "Erreur serveur", code: "SERVER_ERROR" });
     }
   });
@@ -1012,17 +1077,27 @@ export function registerAdminRoutes(app: Express) {
       
       const updatedDriver = await dbStorage.getDriver(req.params.id);
       
-      // Si le nom a changé, mettre à jour les sessions du chauffeur
+      // Si le nom a changé, mettre à jour les sessions + org liée (catalogue)
       if ((firstName !== undefined || lastName !== undefined) && updatedDriver) {
         const newName = `${updatedDriver.firstName} ${updatedDriver.lastName}`;
-        // Mettre à jour dans la base de données
         await dbStorage.updateDriverNameInDbSessions(req.params.id, newName);
-        // Mettre à jour en mémoire (import storage from ./storage)
         const { storage } = await import("./storage");
         await storage.updateDriverNameInSessions(req.params.id, newName);
+        if (updatedDriver.prestataireId) {
+          await db
+            .update(prestataires)
+            .set({ nom: newName.trim() })
+            .where(eq(prestataires.id, updatedDriver.prestataireId));
+        }
+      }
+      if (phone !== undefined && updatedDriver?.prestataireId) {
+        await db
+          .update(prestataires)
+          .set({ phone })
+          .where(eq(prestataires.id, updatedDriver.prestataireId));
       }
       
-      console.log(`[Admin] Profil chauffeur ${req.params.id} mis à jour:`, updateData);
+      console.log(`[Admin] Profil loueur ${req.params.id} mis à jour:`, updateData);
       
       res.json({ success: true, chauffeur: updatedDriver });
     } catch (error) {

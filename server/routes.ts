@@ -3840,16 +3840,23 @@ app.post("/api/live-activities/end", async (req, res) => {
           .where(eq(loueurVehicles.isActive, true));
       }
 
-      // Résoudre les noms de loueurs en batch
+      // Résoudre les noms / statut des loueurs en batch
       const driverIds = Array.from(new Set(rows.map((r) => r.driverId).filter(Boolean))) as string[];
       const driverNameById = new Map<string, string>();
+      const driverActiveById = new Map<string, boolean>();
       if (driverIds.length > 0) {
         const driverRows = await db
-          .select({ id: drivers.id, firstName: drivers.firstName, lastName: drivers.lastName })
+          .select({
+            id: drivers.id,
+            firstName: drivers.firstName,
+            lastName: drivers.lastName,
+            isActive: drivers.isActive,
+          })
           .from(drivers)
           .where(inArray(drivers.id, driverIds));
         for (const d of driverRows) {
           driverNameById.set(d.id, `${d.firstName} ${d.lastName}`.trim());
+          driverActiveById.set(d.id, d.isActive !== false);
         }
       }
 
@@ -3857,6 +3864,8 @@ app.post("/api/live-activities/end", async (req, res) => {
       for (const row of rows) {
         if (!row.modelId || row.modelActive === false) continue;
         if (row.prestataireActive === false) continue;
+        // Loueur désactivé côté admin → hors catalogue (même si org encore active)
+        if (row.driverId && driverActiveById.get(row.driverId) === false) continue;
 
         const matchesService =
           serviceType === 'rental' ? !!row.availableForRental :

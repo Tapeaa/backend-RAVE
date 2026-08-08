@@ -4,7 +4,7 @@
 
 import { useEffect, useState } from 'react';
 import { Link } from 'wouter';
-import { Car, Search, Eye, MapPin, ChevronLeft, ChevronRight, Power, Users, Plus, X, Briefcase, Building2 } from 'lucide-react';
+import { Car, Search, Eye, ChevronLeft, ChevronRight, Power, Plus, X } from 'lucide-react';
 
 interface Chauffeur {
   id: string;
@@ -20,27 +20,11 @@ interface Chauffeur {
   createdAt: string;
 }
 
-function getDriverTypeDisplay(chauffeur: Chauffeur) {
-  if (chauffeur.typeChauffeur === 'patente') {
-    return {
-      label: 'Loueur indépendant',
-      icon: Briefcase,
-      className: 'bg-amber-100 text-amber-700 border border-amber-300'
-    };
-  }
-
-  if (chauffeur.prestataireId) {
-    return {
-      label: chauffeur.prestataireName ? `Loueur — ${chauffeur.prestataireName}` : 'Loueur prestataire',
-      icon: Building2,
-      className: 'bg-blue-100 text-blue-700 border border-blue-300'
-    };
-  }
-
+function getDriverTypeDisplay(_chauffeur: Chauffeur) {
   return {
-    label: 'Loueur RAVE',
-    icon: Users,
-    className: 'bg-amber-100 text-amber-800 border border-amber-300'
+    label: 'Loueur',
+    icon: Car,
+    className: 'bg-amber-100 text-amber-800 border border-amber-300',
   };
 }
 
@@ -54,12 +38,11 @@ export function AdminChauffeurs() {
   const [isCreating, setIsCreating] = useState(false);
   const [createdDriver, setCreatedDriver] = useState<{ code: string; password: string; name: string } | null>(null);
   
-  // Formulaire de création - Seuls les salariés TAPEA peuvent être créés par l'admin
   const [formData, setFormData] = useState({
     firstName: '',
     lastName: '',
     phone: '',
-    typeChauffeur: 'salarie' as 'salarie' | 'patente', // Toujours salarié TAPEA
+    typeChauffeur: 'patente' as 'salarie' | 'patente',
     vehicleModel: '',
     vehicleColor: '',
     vehiclePlate: '',
@@ -141,7 +124,7 @@ export function AdminChauffeurs() {
           firstName: '',
           lastName: '',
           phone: '',
-          typeChauffeur: 'salarie', // Toujours salarié TAPEA
+          typeChauffeur: 'patente',
           vehicleModel: '',
           vehicleColor: '',
           vehiclePlate: '',
@@ -150,11 +133,11 @@ export function AdminChauffeurs() {
         await fetchChauffeurs();
       } else {
         const error = await response.json();
-        alert(error.error || 'Erreur lors de la création du chauffeur');
+        alert(error.error || 'Erreur lors de la création du loueur');
       }
     } catch (error) {
-      console.error('Error creating chauffeur:', error);
-      alert('Erreur lors de la création du chauffeur');
+      console.error('Error creating loueur:', error);
+      alert('Erreur lors de la création du loueur');
     } finally {
       setIsCreating(false);
     }
@@ -169,8 +152,7 @@ export function AdminChauffeurs() {
   );
 
   const activeCount = chauffeurs.filter(c => c.isActive).length;
-  const patentesCount = chauffeurs.filter(c => c.typeChauffeur === 'patente').length;
-  const salariesCount = chauffeurs.filter(c => c.typeChauffeur === 'salarie').length;
+  const inactiveCount = chauffeurs.filter(c => !c.isActive).length;
 
   return (
     <div className="space-y-6">
@@ -198,7 +180,7 @@ export function AdminChauffeurs() {
       </div>
 
       {/* Stats Cards */}
-      <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+      <div className="grid grid-cols-3 gap-3">
         <div className="rounded-xl bg-white p-4 shadow-sm border border-slate-100">
           <div className="flex items-center gap-3">
             <div className="rounded-lg bg-orange-100 p-2">
@@ -217,29 +199,18 @@ export function AdminChauffeurs() {
             </div>
             <div>
               <p className="text-2xl font-bold text-slate-900">{activeCount}</p>
-              <p className="text-xs text-slate-500">Actifs</p>
+              <p className="text-xs text-slate-500">Actifs (visibles catalogue)</p>
             </div>
           </div>
         </div>
         <div className="rounded-xl bg-white p-4 shadow-sm border border-slate-100">
           <div className="flex items-center gap-3">
-            <div className="rounded-lg bg-amber-100 p-2">
-              <Briefcase className="h-5 w-5 text-amber-600" />
+            <div className="rounded-lg bg-slate-100 p-2">
+              <Power className="h-5 w-5 text-slate-500" />
             </div>
             <div>
-              <p className="text-2xl font-bold text-slate-900">{patentesCount}</p>
-              <p className="text-xs text-slate-500">Indépendants</p>
-            </div>
-          </div>
-        </div>
-        <div className="rounded-xl bg-white p-4 shadow-sm border border-slate-100">
-          <div className="flex items-center gap-3">
-            <div className="rounded-lg bg-purple-100 p-2">
-              <Users className="h-5 w-5 text-purple-600" />
-            </div>
-            <div>
-              <p className="text-2xl font-bold text-slate-900">{salariesCount}</p>
-              <p className="text-xs text-slate-500">Loueurs liés</p>
+              <p className="text-2xl font-bold text-slate-900">{inactiveCount}</p>
+              <p className="text-xs text-slate-500">Inactifs (masqués)</p>
             </div>
           </div>
         </div>
@@ -267,7 +238,7 @@ export function AdminChauffeurs() {
         ) : filteredChauffeurs.length === 0 ? (
           <div className="rounded-2xl bg-white p-8 text-center shadow-sm border border-slate-100">
             <Car className="mx-auto h-12 w-12 text-slate-300" />
-            <p className="mt-3 text-slate-500">Aucun chauffeur trouvé</p>
+            <p className="mt-3 text-slate-500">Aucun loueur trouvé</p>
           </div>
         ) : (
           filteredChauffeurs.map((chauffeur) => {
@@ -355,7 +326,7 @@ export function AdminChauffeurs() {
                 <tr>
                   <td colSpan={7} className="px-6 py-12 text-center">
                     <Car className="mx-auto h-10 w-10 text-slate-300" />
-                    <p className="mt-2 text-slate-500">Aucun chauffeur trouvé</p>
+                    <p className="mt-2 text-slate-500">Aucun loueur trouvé</p>
                   </td>
                 </tr>
               ) : (
@@ -462,7 +433,7 @@ export function AdminChauffeurs() {
           <div className="bg-white rounded-xl shadow-xl max-w-2xl w-full mx-4 max-h-[90vh] overflow-y-auto">
             <div className="p-6">
               <div className="flex items-center justify-between mb-6">
-                <h2 className="text-2xl font-bold text-gray-900">Créer un nouveau chauffeur</h2>
+                <h2 className="text-2xl font-bold text-gray-900">Créer un loueur</h2>
                 <button
                   onClick={() => {
                     setShowCreateModal(false);
@@ -492,7 +463,7 @@ export function AdminChauffeurs() {
                       </div>
                     </div>
                     <p className="text-sm text-green-700 mt-4">
-                      ⚠️ Notez ces identifiants, ils seront nécessaires pour la première connexion du chauffeur.
+                      Notez ces identifiants pour la premiere connexion dans l&apos;app RAVE Loueur.
                     </p>
                   </div>
                   <button
@@ -555,18 +526,15 @@ export function AdminChauffeurs() {
                   </div>
 
                   <div>
-                    <label className="block text-sm font-medium text-gray-700 mb-1">Type de chauffeur</label>
-                    <div className="w-full rounded-lg border border-purple-300 bg-purple-50 px-3 py-2.5 text-purple-700 font-medium">
-                      Loueur RAVE
-                    </div>
-                    <p className="text-xs text-gray-500 mt-1">
-                      Les comptes créés ici sont des loueurs pour l&apos;app RAVE Loueur
+                    <p className="text-xs text-slate-500 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2">
+                      Un code 6 chiffres sera généré pour se connecter à l&apos;app RAVE Loueur.
+                      Ses véhicules publiés apparaîtront ensuite dans le catalogue client.
                     </p>
                   </div>
 
                   <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
                     <div>
-                      <label className="block text-sm font-medium text-gray-700 mb-1">Modèle véhicule</label>
+                      <label className="block text-sm font-medium text-gray-700 mb-1">Modèle véhicule (optionnel)</label>
                       <input
                         type="text"
                         value={formData.vehicleModel}
@@ -610,7 +578,7 @@ export function AdminChauffeurs() {
                       disabled={isCreating}
                       className="flex-1 rounded-lg bg-purple-600 px-4 py-2.5 text-white hover:bg-purple-700 disabled:opacity-50 font-medium"
                     >
-                      {isCreating ? 'Création...' : 'Créer le chauffeur'}
+                      {isCreating ? 'Création...' : 'Créer le loueur'}
                     </button>
                   </div>
                 </form>
