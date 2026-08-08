@@ -421,7 +421,7 @@ export function registerAdminRoutes(app: Express) {
           orderId,
           message,
           fromAdmin: true,
-          senderName: "Support TĀPE'A",
+          senderName: "Support RAVE",
         });
         if (order.clientId) {
           await notifyClient(order.clientId, "💬 Message du support", content.substring(0, 1000), {
@@ -436,13 +436,13 @@ export function registerAdminRoutes(app: Express) {
           orderId,
           message,
           fromAdmin: true,
-          senderName: "Support TĀPE'A",
+          senderName: "Support RAVE",
         });
         io.to(`order:${orderId}`).emit("chat:notification", {
           orderId,
           message,
           fromAdmin: true,
-          senderName: "Support TĀPE'A",
+          senderName: "Support RAVE",
         });
         if (order.assignedDriverId) {
           await notifyDriver(order.assignedDriverId, "💬 Message du support", content.substring(0, 1000), {
@@ -526,7 +526,7 @@ export function registerAdminRoutes(app: Express) {
         io.to(`driver:${recipientId}`).emit("chat:notification", {
           message: { content: content.substring(0, 1000) },
           fromAdmin: true,
-          senderName: "Support TĀPE'A",
+          senderName: "Support RAVE",
         });
         return res.json({ message });
       }

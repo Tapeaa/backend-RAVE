@@ -1,6 +1,6 @@
 /**
- * Cloudinary Integration for TAPE'A
- * Gestion de l'upload d'images (photos chauffeurs, carrousel)
+ * Cloudinary Integration for RAVE
+ * Gestion de l'upload d'images (photos loueurs, carrousel)
  */
 
 import { v2 as cloudinary } from 'cloudinary';
@@ -50,7 +50,7 @@ export const uploadDocument = multer({
  */
 export async function uploadDocumentToCloudinary(
   buffer: Buffer,
-  folder: string = 'tapea/prestataires-docs',
+  folder: string = 'rave/prestataires-docs',
   mimeType: string = 'application/pdf'
 ): Promise<{ url: string; publicId: string }> {
   const resourceType = mimeType === 'application/pdf' ? 'raw' : 'image';
@@ -83,7 +83,7 @@ export async function uploadDocumentToCloudinary(
  */
 export async function uploadToCloudinary(
   buffer: Buffer, 
-  folder: string = 'tapea'
+  folder: string = 'rave'
 ): Promise<{ url: string; publicId: string }> {
   return new Promise((resolve, reject) => {
     cloudinary.uploader.upload_stream(
@@ -137,7 +137,7 @@ export function registerUploadRoutes(app: Express) {
         return res.status(400).json({ error: 'Aucun fichier envoyé' });
       }
 
-      const folder = (req.body.folder as string) || 'tapea';
+      const folder = (req.body.folder as string) || 'rave';
       const result = await uploadToCloudinary(req.file.buffer, folder);
 
       res.json({
@@ -158,7 +158,7 @@ export function registerUploadRoutes(app: Express) {
         return res.status(400).json({ error: 'Aucun fichier envoyé' });
       }
 
-      const result = await uploadToCloudinary(req.file.buffer, 'tapea/drivers');
+      const result = await uploadToCloudinary(req.file.buffer, 'rave/drivers');
 
       res.json({
         success: true,
@@ -178,7 +178,7 @@ export function registerUploadRoutes(app: Express) {
         return res.status(400).json({ error: 'Aucun fichier envoyé' });
       }
 
-      const result = await uploadToCloudinary(req.file.buffer, 'tapea/carousel');
+      const result = await uploadToCloudinary(req.file.buffer, 'rave/carousel');
 
       res.json({
         success: true,
@@ -199,7 +199,7 @@ export function registerUploadRoutes(app: Express) {
       }
       const result = await uploadDocumentToCloudinary(
         req.file.buffer,
-        'tapea/prestataires-docs',
+        'rave/prestataires-docs',
         req.file.mimetype
       );
       res.json({ success: true, url: result.url, publicId: result.publicId });
@@ -216,7 +216,7 @@ export function registerUploadRoutes(app: Express) {
         return res.status(400).json({ error: 'Aucun fichier envoyé' });
       }
 
-      const result = await uploadToCloudinary(req.file.buffer, 'tapea/clients');
+      const result = await uploadToCloudinary(req.file.buffer, 'rave/clients');
 
       res.json({
         success: true,
@@ -226,6 +226,26 @@ export function registerUploadRoutes(app: Express) {
     } catch (error) {
       console.error('[Upload Client Photo] Error:', error);
       res.status(500).json({ error: 'Erreur lors de l\'upload de la photo' });
+    }
+  });
+
+  // Route d'upload pour photos véhicule loueur
+  app.post('/api/upload/vehicle-photo', upload.single('image'), async (req: Request, res: Response) => {
+    try {
+      if (!req.file) {
+        return res.status(400).json({ error: 'Aucun fichier envoyé' });
+      }
+
+      const result = await uploadToCloudinary(req.file.buffer, 'rave/vehicles');
+
+      res.json({
+        success: true,
+        url: result.url,
+        publicId: result.publicId
+      });
+    } catch (error) {
+      console.error('[Upload Vehicle Photo] Error:', error);
+      res.status(500).json({ error: "Erreur lors de l'upload de la photo du véhicule" });
     }
   });
 

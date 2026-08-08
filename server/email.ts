@@ -6,9 +6,9 @@
 import { Resend } from "resend";
 
 const RESEND_API_KEY = process.env.RESEND_API_KEY || process.env.MESSAGERIE_SUPPORT || process.env.Messagerie_Support;
-const rawFrom = process.env.RESEND_FROM_EMAIL || "TAPEA Support <onboarding@resend.dev>";
-const RESEND_FROM = rawFrom.includes("<") ? rawFrom : `TAPEA Support <${rawFrom}>`;
-const ADMIN_EMAIL = process.env.ADMIN_SUPPORT_EMAIL || process.env.ADMIN_EMAIL || "Tapea.pf@gmail.com";
+const rawFrom = process.env.RESEND_FROM_EMAIL || "RAVE Support <contact@rave-location.com>";
+const RESEND_FROM = rawFrom.includes("<") ? rawFrom : `RAVE Support <${rawFrom}>`;
+const ADMIN_EMAIL = process.env.ADMIN_SUPPORT_EMAIL || process.env.ADMIN_EMAIL || "contact@rave-location.com";
 
 let resend: Resend | null = null;
 if (RESEND_API_KEY) {
@@ -38,7 +38,7 @@ export async function sendSupportMessageNotification(params: {
   const { senderType, senderName, content } = params;
   console.log("[Email] Envoi notification support:", { senderType, senderName, contentLength: content.length });
   const typeLabel = senderType === "client" ? "Client" : "Chauffeur";
-  const subject = `[TAPEA Support] Nouveau message de ${senderName} (${typeLabel})`;
+  const subject = `[RAVE Support] Nouveau message de ${senderName} (${typeLabel})`;
   const preview = content.length > 200 ? content.substring(0, 200) + "..." : content;
   const html = `
     <div style="font-family: sans-serif; max-width: 600px;">

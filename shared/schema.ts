@@ -86,7 +86,9 @@ export const loueurVehicles = pgTable("loueur_vehicles", {
   availableForRental: boolean("available_for_rental").default(true).notNull(), // Louer
   availableForDelivery: boolean("available_for_delivery").default(false).notNull(), // Livraison
   availableForLongTerm: boolean("available_for_long_term").default(false).notNull(), // Long terme
-  customImageUrl: text("custom_image_url"), // Override image du modèle
+  customImageUrl: text("custom_image_url"), // Photo de couverture (1ère image)
+  /** Galerie photos du véhicule (URLs Cloudinary) */
+  customImageUrls: jsonb("custom_image_urls").$type<string[]>().default([]),
   /** app_default = contrat RAVE partagé (plusieurs loueurs même modèle peuvent recevoir la demande) ; custom = annonce liée à un seul loueur */
   rentalContractMode: text("rental_contract_mode").default("app_default").notNull(),
   customContractText: text("custom_contract_text"),
@@ -725,7 +727,7 @@ export const commissions = pgTable("commissions", {
   typeChauffeur: text("type_chauffeur").notNull().unique(), // "salarie", "patente" 
   nomAffichage: text("nom_affichage").notNull(),
   pourcentageChauffeur: real("pourcentage_chauffeur").notNull(), // % that driver keeps (e.g., 85 = 85%)
-  pourcentageCommission: real("pourcentage_commission").notNull(), // % TAPEA takes (e.g., 15 = 15%)
+  pourcentageCommission: real("pourcentage_commission").notNull(), // % RAVE takes (e.g., 15 = 15%)
   description: text("description"),
   actif: boolean("actif").default(true).notNull(),
   createdAt: timestamp("created_at").defaultNow().notNull(),
@@ -751,8 +753,8 @@ export type Commission = z.infer<typeof commissionSchema>;
 export const fraisServiceConfig = pgTable("frais_service_config", {
   id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
   fraisServicePrestataire: real("frais_service_prestataire").notNull().default(15), // % frais de service pour les prestataires (payé par le client)
-  commissionPrestataire: real("commission_prestataire").notNull().default(0), // % commission TAPEA sur le subtotal des prestataires
-  commissionSalarieTapea: real("commission_salarie_tapea").notNull().default(0), // % commission TAPEA sur les gains des salariés TAPEA
+  commissionPrestataire: real("commission_prestataire").notNull().default(0), // % commission RAVE sur le subtotal des prestataires
+  commissionSalarieTapea: real("commission_salarie_tapea").notNull().default(0), // % commission RAVE sur les gains des salariés (legacy taxi)
   updatedAt: timestamp("updated_at").defaultNow().notNull(),
 });
 
@@ -767,13 +769,13 @@ export const fraisServiceConfigSchema = z.object({
 
 export type FraisServiceConfig = z.infer<typeof fraisServiceConfigSchema>;
 
-// Collecte de frais table (commissions dues à TAPEA)
+// Collecte de frais table (commissions dues à RAVE)
 export const collecteFrais = pgTable("collecte_frais", {
   id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
   prestataireId: varchar("prestataire_id").references(() => prestataires.id),
   driverId: varchar("driver_id").references(() => drivers.id),
   periode: text("periode").notNull(), // "2026-01" (mois)
-  montantDu: real("montant_du").notNull(), // Total commission due à TAPEA (fraisService + commissionSupplementaire)
+  montantDu: real("montant_du").notNull(), // Total commission due à RAVE (fraisService + commissionSupplementaire)
   fraisService: real("frais_service").default(0), // Frais de service (ex: 25% du total courses)
   commissionSupplementaire: real("commission_supplementaire").default(0), // Commission additionnelle (ex: 10% du total)
   montantPaye: real("montant_paye").default(0),

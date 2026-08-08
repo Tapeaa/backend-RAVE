@@ -12,8 +12,8 @@ const ONESIGNAL_REST_API_KEY_DRIVER = process.env.ONESIGNAL_REST_API_KEY_DRIVER 
 const ONESIGNAL_API_URL = 'https://onesignal.com/api/v1/notifications';
 const ONESIGNAL_API_BASE = 'https://onesignal.com/api/v1';
 
-// URL du logo TAPE'A pour les notifications
-const TAPEA_LOGO_URL = 'https://back-end-tapea.onrender.com/logo.png';
+// URL du logo RAVE pour les notifications
+const RAVE_LOGO_URL = process.env.RAVE_LOGO_URL || 'https://backend-rave.onrender.com/logo.png';
 
 interface NotificationPayload {
   title: string;
@@ -208,7 +208,7 @@ export const clientNotifications = {
   
   // Course terminée
   rideCompleted: (clientId: string, amount: number, orderId: string) => 
-    notifyClient(clientId, '✅ Course terminée', `Montant: ${amount.toLocaleString()} XPF. Merci d'avoir choisi TAPE'A !`, { 
+    notifyClient(clientId, '✅ Course terminée', `Montant: ${amount.toLocaleString()} XPF. Merci d'avoir choisi RAVE !`, { 
       type: 'ride_completed', 
       orderId,
       amount 
@@ -317,6 +317,9 @@ async function sendNotification(appId: string, apiKey: string, payload: Notifica
       headings: { en: payload.title, fr: payload.title },
       contents: { en: payload.message, fr: payload.message },
       data: payload.data || {},
+      // Icône / image RAVE (clients OneSignal compatibles)
+      chrome_web_icon: RAVE_LOGO_URL,
+      large_icon: RAVE_LOGO_URL,
     };
 
     if (payload.data?.url && typeof payload.data.url === "string") {

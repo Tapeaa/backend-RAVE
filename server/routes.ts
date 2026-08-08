@@ -67,6 +67,35 @@ const HEIGHT_SURCHARGE_AMOUNT = 500;
 const HEIGHT_SURCHARGE_ID = "height_surcharge";
 const HEIGHT_SURCHARGE_NAME = "Majoration hauteur";
 
+/** Phase 3 MVP RAVE — taxi désactivé (location uniquement) */
+const TAXI_DISABLED_MESSAGE = "Fonctionnalité taxi désactivée — RAVE location uniquement";
+
+function normalizeVehicleImageUrls(urls: unknown, coverUrl?: string | null): string[] {
+  const out: string[] = [];
+  if (Array.isArray(urls)) {
+    for (const u of urls) {
+      if (typeof u === "string" && u.trim()) out.push(u.trim());
+    }
+  }
+  if (out.length === 0 && typeof coverUrl === "string" && coverUrl.trim()) {
+    out.push(coverUrl.trim());
+  }
+  // Dédupliquer en gardant l'ordre
+  return Array.from(new Set(out)).slice(0, 8);
+}
+
+function respondTaxiDisabled(res: { status: (code: number) => { json: (body: unknown) => unknown } }) {
+  return res.status(410).json({
+    error: TAXI_DISABLED_MESSAGE,
+    message: TAXI_DISABLED_MESSAGE,
+  });
+}
+
+function isRentalOrderLike(order: { rideOption?: unknown } | null | undefined): boolean {
+  const ro = order?.rideOption as { type?: string; isRentalOrder?: boolean } | undefined;
+  return ro?.type === "rental" || ro?.isRentalOrder === true;
+}
+
 type LatLng = { lat: number; lng: number };
 
 function getAddressByType(addresses: any[], type: "pickup" | "destination"): any | null {
@@ -164,7 +193,7 @@ const updateDriverProfileSchema = z.object({
 // Configure web-push with VAPID keys
 const VAPID_PUBLIC_KEY = process.env.VAPID_PUBLIC_KEY || "";
 const VAPID_PRIVATE_KEY = process.env.VAPID_PRIVATE_KEY || "";
-const VAPID_SUBJECT = process.env.VAPID_SUBJECT || "mailto:contact@tapea.pf";
+const VAPID_SUBJECT = process.env.VAPID_SUBJECT || "mailto:contact@rave-location.com";
 
 if (VAPID_PUBLIC_KEY && VAPID_PRIVATE_KEY) {
   webpush.setVapidDetails(VAPID_SUBJECT, VAPID_PUBLIC_KEY, VAPID_PRIVATE_KEY);
@@ -378,10 +407,12 @@ export async function registerRoutes(app: Express): Promise<Server> {
       }
     });
     
-    // Driver accepts an order
+    // Driver accepts an order (taxi) — disabled for RAVE location MVP
     socket.on("order:accept", async (data: { orderId: string; sessionId: string }) => {
-      console.log(`[DEBUG] order:accept received - orderId: ${data.orderId}, sessionId: ${data.sessionId}`);
-      
+      console.log(`[TAXI DISABLED] Ignoring socket event order:accept — orderId: ${data.orderId}`);
+      socket.emit("order:accept:error", { message: TAXI_DISABLED_MESSAGE });
+      return;
+
       // Use fallback to recover session from database if not in memory (after server restart)
       const session = await getDriverSessionWithFallback(data.sessionId);
       const order = await dbStorage.getOrder(data.orderId);
@@ -591,22 +622,23 @@ export async function registerRoutes(app: Express): Promise<Server> {
       }
     });
     
-    // Driver declines an order
+    // Driver declines an order (taxi) — disabled for RAVE location MVP
     socket.on("order:decline", async (data: { orderId: string; sessionId: string }) => {
-      console.log(`Driver declined order ${data.orderId}`);
-      // Just acknowledge - order stays pending for other drivers
-      socket.emit("order:decline:success", { orderId: data.orderId });
+      console.log(`[TAXI DISABLED] Ignoring socket event order:decline — orderId: ${data.orderId}`);
+      return;
     });
     
-    // Driver updates ride status (enroute, arrived, inprogress, completed)
+    // Driver updates ride status (taxi) — disabled for RAVE location MVP
     socket.on("ride:status:update", async (data: { 
       orderId: string; 
       sessionId: string; 
       status: "enroute" | "arrived" | "inprogress" | "completed";
       waitingTimeMinutes?: number;
     }) => {
-      console.log(`[DEBUG] ride:status:update - orderId: ${data.orderId}, status: ${data.status}`);
-      
+      console.log(`[TAXI DISABLED] Ignoring socket event ride:status:update — orderId: ${data.orderId}`);
+      socket.emit("ride:status:error", { message: TAXI_DISABLED_MESSAGE });
+      return;
+
       // Use fallback to recover session from database if not in memory (after server restart)
       const session = await getDriverSessionWithFallback(data.sessionId);
       const order = await dbStorage.getOrder(data.orderId);
@@ -745,10 +777,12 @@ export async function registerRoutes(app: Express): Promise<Server> {
       }
     });
     
-    // Payment confirmation - SIMPLIFIED: Driver confirmation alone completes the payment
+    // Payment confirmation (taxi) — disabled for RAVE location MVP
     socket.on("payment:confirm", async (data: { orderId: string; confirmed: boolean; role: 'driver' | 'client'; sessionId?: string; clientToken?: string; paymentMethod?: 'card' | 'cash' }) => {
-      console.log(`[DEBUG] payment:confirm - orderId: ${data.orderId}, confirmed: ${data.confirmed}, role: ${data.role}, paymentMethod: ${data.paymentMethod}`);
-      
+      console.log(`[TAXI DISABLED] Ignoring socket event payment:confirm — orderId: ${data.orderId}`);
+      socket.emit("payment:error", { message: TAXI_DISABLED_MESSAGE });
+      return;
+
       const order = await dbStorage.getOrder(data.orderId);
       if (!order) {
         socket.emit("payment:error", { message: "Commande non trouvée" });
@@ -926,10 +960,12 @@ export async function registerRoutes(app: Express): Promise<Server> {
       }
     });
     
-    // Payment retry - client requests to retry payment with their new/updated card
+    // Payment retry (taxi) — disabled for RAVE location MVP
     socket.on("payment:retry", async (data: { orderId: string; clientToken: string }) => {
-      console.log(`[DEBUG] payment:retry - orderId: ${data.orderId}`);
-      
+      console.log(`[TAXI DISABLED] Ignoring socket event payment:retry — orderId: ${data.orderId}`);
+      socket.emit("payment:retry:error", { message: TAXI_DISABLED_MESSAGE });
+      return;
+
       const order = await dbStorage.getOrder(data.orderId);
       if (!order) {
         socket.emit("payment:retry:error", { message: "Commande non trouvée" });
@@ -963,10 +999,12 @@ export async function registerRoutes(app: Express): Promise<Server> {
       console.log(`[DEBUG] Payment retry initialized for order ${data.orderId}`);
     });
     
-    // Switch to cash payment - client wants to pay in cash instead
+    // Switch to cash payment (taxi) — disabled for RAVE location MVP
     socket.on("payment:switch-cash", async (data: { orderId: string; clientToken: string }) => {
-      console.log(`[DEBUG] payment:switch-cash - orderId: ${data.orderId}`);
-      
+      console.log(`[TAXI DISABLED] Ignoring socket event payment:switch-cash — orderId: ${data.orderId}`);
+      socket.emit("payment:switch-cash:error", { message: TAXI_DISABLED_MESSAGE });
+      return;
+
       const order = await dbStorage.getOrder(data.orderId);
       if (!order) {
         socket.emit("payment:switch-cash:error", { message: "Commande non trouvée" });
@@ -1002,10 +1040,13 @@ export async function registerRoutes(app: Express): Promise<Server> {
       console.log(`[DEBUG] Payment switched to cash for order ${data.orderId}`);
     });
     
-    // Unilateral ride cancellation - either party can cancel at any time
+    // Unilateral ride cancellation (taxi) — disabled for RAVE location MVP
+    // Rental cancellations use HTTP /api/rental-orders/:id/cancel*
     socket.on("ride:cancel", async (data: { orderId: string; role: 'driver' | 'client'; reason?: string; sessionId?: string; clientToken?: string }) => {
-      console.log(`[DEBUG] ride:cancel - orderId: ${data.orderId}, role: ${data.role}, reason: ${data.reason}`);
-      
+      console.log(`[TAXI DISABLED] Ignoring socket event ride:cancel — orderId: ${data.orderId}`);
+      socket.emit("ride:cancel:error", { message: TAXI_DISABLED_MESSAGE });
+      return;
+
       const order = await dbStorage.getOrder(data.orderId);
       if (!order) {
         socket.emit("ride:cancel:error", { message: "Commande non trouvée" });
@@ -1073,7 +1114,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       console.log(`[DEBUG] Order ${data.orderId} cancelled by ${data.role}`);
     });
     
-    // Real-time location updates - Driver sends their location
+    // Real-time location updates (taxi) — disabled for RAVE location MVP
     socket.on("location:driver:update", async (data: {
       orderId: string;
       sessionId: string;
@@ -1083,6 +1124,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
       speed?: number;
       timestamp: number;
     }) => {
+      console.log(`[TAXI DISABLED] Ignoring socket event location:driver:update — orderId: ${data.orderId}`);
+      return;
+
       // Use fallback to recover session from database if not in memory (after server restart)
       const session = await getDriverSessionWithFallback(data.sessionId);
       const order = await dbStorage.getOrder(data.orderId);
@@ -1120,7 +1164,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       console.log(`[DEBUG] Driver location broadcasted for order ${data.orderId}: ${data.lat}, ${data.lng}, heading: ${data.heading}`);
     });
     
-    // Real-time location updates - Client sends their location
+    // Real-time location updates (taxi) — disabled for RAVE location MVP
     socket.on("location:client:update", async (data: {
       orderId: string;
       clientToken: string;
@@ -1128,6 +1172,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
       lng: number;
       timestamp: number;
     }) => {
+      console.log(`[TAXI DISABLED] Ignoring socket event location:client:update — orderId: ${data.orderId}`);
+      return;
+
       // Validate client token
       const tokenData = orderClientTokens.get(data.orderId);
       if (!tokenData || tokenData.token !== data.clientToken) {
@@ -1143,15 +1190,16 @@ export async function registerRoutes(app: Express): Promise<Server> {
       });
     });
     
-    // Paid stop started by driver
+    // Paid stop started by driver (taxi) — disabled for RAVE location MVP
     socket.on("paid:stop:started", async (data: {
       orderId: string;
       sessionId: string;
       startTime: number;
       accumulatedSeconds: number;
     }) => {
-      console.log(`[PAID_STOP] paid:stop:started received for order ${data.orderId}`);
-      
+      console.log(`[TAXI DISABLED] Ignoring socket event paid:stop:started — orderId: ${data.orderId}`);
+      return;
+
       // Use fallback to recover session from database if not in memory (after server restart)
       const session = await getDriverSessionWithFallback(data.sessionId);
       const order = await dbStorage.getOrder(data.orderId);
@@ -1196,7 +1244,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       console.log(`[PAID_STOP] paid:stop:started broadcasted for order ${data.orderId}`);
     });
     
-    // Paid stop ended by driver
+    // Paid stop ended by driver (taxi) — disabled for RAVE location MVP
     socket.on("paid:stop:ended", async (data: {
       orderId: string;
       sessionId: string;
@@ -1205,8 +1253,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
       newAccumulatedSeconds?: number;
       totalCost?: number;
     }) => {
-      console.log(`[PAID_STOP] paid:stop:ended received for order ${data.orderId}, cost: ${data.cost}, totalCost: ${data.totalCost}`);
-      
+      console.log(`[TAXI DISABLED] Ignoring socket event paid:stop:ended — orderId: ${data.orderId}`);
+      return;
+
       // Use fallback to recover session from database if not in memory (after server restart)
       const session = await getDriverSessionWithFallback(data.sessionId);
       const order = await dbStorage.getOrder(data.orderId);
@@ -1556,8 +1605,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
   // API Routes
   
   // Create a new order (called when client confirms booking)
- // Create a new order (called when client confirms booking)
+ // Create a new taxi order — disabled for RAVE location MVP (use POST /api/rental-orders)
 app.post("/api/orders", async (req, res) => {
+  return respondTaxiDisabled(res);
   try {
     const validatedData = insertOrderSchema.parse(req.body);
 
@@ -1935,26 +1985,24 @@ app.post("/api/rental-orders/:id/accept", async (req, res) => {
       return res.status(401).json({ success: false, error: "Session invalide" });
     }
 
-    const order = await dbStorage.getOrder(id);
-    if (!order) {
-      return res.status(404).json({ success: false, error: "Commande introuvable" });
-    }
-    if (order.status !== "pending") {
-      return res.status(409).json({ success: false, error: "Commande déjà traitée" });
-    }
-
     const loueurSignature = req.body.loueurSignature || null;
     if (loueurSignature) {
-      const currentRideOption = order.rideOption as any;
-      const newRideOption = {
-        ...currentRideOption,
-        loueurSignatureSvg: loueurSignature,
-        loueurSignedAt: new Date().toISOString(),
-      };
-      await db.update(orders).set({ rideOption: newRideOption as any }).where(eq(orders.id, id));
+      const currentOrder = await dbStorage.getOrder(id);
+      if (currentOrder) {
+        const currentRideOption = currentOrder.rideOption as any;
+        const newRideOption = {
+          ...currentRideOption,
+          loueurSignatureSvg: loueurSignature,
+          loueurSignedAt: new Date().toISOString(),
+        };
+        await db.update(orders).set({ rideOption: newRideOption as any }).where(eq(orders.id, id));
+      }
     }
 
-    const updatedOrder = await dbStorage.updateOrderStatus(id, "accepted", session.driverId);
+    const updatedOrder = await dbStorage.tryAcceptOrderIfStillPending(id, session.driverId);
+    if (!updatedOrder) {
+      return res.status(409).json({ success: false, error: "Commande déjà traitée" });
+    }
 
     // Notify the client via socket
     io.to(`order:${id}`).emit("rental-order:accepted", {
@@ -1995,7 +2043,8 @@ app.post("/api/rental-orders/:id/decline", async (req, res) => {
       return res.status(401).json({ success: false, error: "Session invalide" });
     }
 
-    console.log(`[RENTAL] Order ${id} declined by driver ${session.driverName}`);
+    await dbStorage.appendRentalBroadcastDecline(id, session.driverId);
+    console.log(`[RENTAL] Order ${id} declined by driver ${session.driverName} (${session.driverId})`);
     res.json({ success: true });
   } catch (error) {
     console.error("[RENTAL] Error declining rental order:", error);
@@ -2012,6 +2061,13 @@ app.post("/api/rental-orders/:id/cancel", async (req, res) => {
     const { id } = req.params;
     const role = req.body.role || "client";
     const reason = req.body.reason || "Annulation";
+
+    if (role === "driver") {
+      const sessionId = (req.headers["x-driver-session"] as string || req.body.sessionId || "").split(",")[0].trim();
+      if (!sessionId) return res.status(401).json({ success: false, error: "Session requise" });
+      const session = await getDriverSessionWithFallback(sessionId);
+      if (!session) return res.status(401).json({ success: false, error: "Session invalide" });
+    }
 
     const order = await dbStorage.getOrder(id);
     if (!order) {
@@ -2115,6 +2171,32 @@ app.post("/api/rental-orders/:id/cancel-reject", async (req, res) => {
 });
 
 // ============================================
+// UPDATE LOUEUR SIGNATURE ON AN ORDER
+// ============================================
+app.patch("/api/orders/:id/loueur-signature", async (req, res) => {
+  try {
+    const sessionId = (req.headers["x-driver-session"] as string || "").split(",")[0].trim();
+    if (!sessionId) return res.status(401).json({ success: false, error: "Session requise" });
+    const session = await getDriverSessionWithFallback(sessionId);
+    if (!session) return res.status(401).json({ success: false, error: "Session invalide" });
+
+    const { id } = req.params;
+    const { loueurSignature } = req.body;
+    if (!loueurSignature) return res.status(400).json({ success: false, error: "Signature requise" });
+    const order = await dbStorage.getOrder(id);
+    if (!order) return res.status(404).json({ success: false, error: "Commande introuvable" });
+    const currentRideOption = order.rideOption as any;
+    const newRideOption = { ...currentRideOption, loueurSignatureSvg: loueurSignature, loueurSignedAt: new Date().toISOString() };
+    await db.update(orders).set({ rideOption: newRideOption as any }).where(eq(orders.id, id));
+    console.log(`[RENTAL] Loueur signature updated for order ${id}`);
+    res.json({ success: true });
+  } catch (error) {
+    console.error("[RENTAL] Error updating loueur signature:", error);
+    res.status(500).json({ success: false, error: "Erreur serveur" });
+  }
+});
+
+// ============================================
 // RENTAL ORDER LIFECYCLE (remise / retour)
 // ============================================
 app.post("/api/rental-orders/:id/lifecycle", async (req, res) => {
@@ -2206,8 +2288,9 @@ app.post("/api/rental-orders/:id/lifecycle", async (req, res) => {
   }
 });
 
-// Vérifier la majoration hauteur avant commande
+// Vérifier la majoration hauteur avant commande (taxi) — disabled
 app.post("/api/height-surcharge-check", async (req, res) => {
+  return respondTaxiDisabled(res);
   try {
     const pickup = req.body?.pickup || {};
     const destination = req.body?.destination || {};
@@ -2229,15 +2312,14 @@ app.post("/api/height-surcharge-check", async (req, res) => {
   }
 });
   
-  // Get pending orders (for driver hydration)
+  // Get pending taxi orders — disabled (use GET /api/rental-orders/pending)
   app.get("/api/orders/pending", async (req, res) => {
-    const orders = await dbStorage.getPendingOrders();
-    res.json(orders);
+    return respondTaxiDisabled(res);
   });
   
-// Get active order for authenticated client
-// Get active order for authenticated client
+  // Get active taxi order for client — disabled
 app.get("/api/orders/active/client", async (req, res) => {
+  return respondTaxiDisabled(res);
   try {
     const headerSessionRaw = (req.headers["x-client-session-id"] as string | undefined) || "";
     const headerSessionId = headerSessionRaw.split(",")[0].trim() || undefined;
@@ -2311,10 +2393,11 @@ app.get("/api/orders/active/client", async (req, res) => {
   }
 });
 
-// Live Activities (Client) - démarrage / mise à jour / fin
+// Live Activities (taxi ride tracking) — disabled for RAVE location MVP
 const LIVE_ACTIVITY_TYPE = "ride_tracking";
 
 app.post("/api/live-activities/start", async (req, res) => {
+  return respondTaxiDisabled(res);
   try {
     const authClientId = await getAuthenticatedClient(req);
     if (!authClientId) {
@@ -2340,6 +2423,7 @@ app.post("/api/live-activities/start", async (req, res) => {
 });
 
 app.post("/api/live-activities/update", async (req, res) => {
+  return respondTaxiDisabled(res);
   try {
     const authClientId = await getAuthenticatedClient(req);
     if (!authClientId) {
@@ -2365,6 +2449,7 @@ app.post("/api/live-activities/update", async (req, res) => {
 });
 
 app.post("/api/live-activities/end", async (req, res) => {
+  return respondTaxiDisabled(res);
   try {
     const authClientId = await getAuthenticatedClient(req);
     if (!authClientId) {
@@ -2392,48 +2477,47 @@ app.post("/api/live-activities/end", async (req, res) => {
     
 
   
-  // Get active order for authenticated driver
+  // Get active taxi order for driver — disabled
+  // Active rental for loueur (taxi active orders disabled)
   app.get("/api/orders/active/driver", async (req, res) => {
     const sessionId = req.query.sessionId as string;
     if (!sessionId) {
       return res.json({ hasActiveOrder: false });
     }
-    
-    // First try in-memory session
+
     let driverId: string | undefined;
     const session = await storage.getDriverSession(sessionId);
     if (session) {
       driverId = session.driverId;
     } else {
-      // Fallback to database session (survives server restart)
       const dbSession = await dbStorage.getDbDriverSession(sessionId);
       if (dbSession) {
         driverId = dbSession.driverId;
-        console.log(`[Active Order] Found driver ${driverId} via DB session fallback`);
       }
     }
-    
+
     if (!driverId) {
       return res.json({ hasActiveOrder: false });
     }
-    
-    // Find active order for this driver (only truly active statuses, exclude rental orders)
-    const activeStatuses: OrderStatus[] = ["accepted", "driver_enroute", "driver_arrived", "in_progress"];
+
+    const activeStatuses: OrderStatus[] = ["pending", "accepted", "booked"];
     const orders = await dbStorage.getOrdersByDriver(driverId);
     const activeOrder = orders.find((o: Order) => {
-      const ro = o.rideOption as any;
-      if (ro?.type === "rental") return false;
-      return activeStatuses.includes(o.status as OrderStatus);
+      if (!isRentalOrderLike(o)) return false;
+      if (o.status === "completed" || o.status === "cancelled" || o.status === "payment_confirmed") return false;
+      const phase = (o.rideOption as any)?.rentalLifecyclePhase;
+      if (phase === "returned") return false;
+      return activeStatuses.includes(o.status as OrderStatus) || !!phase;
     });
-    
+
     if (!activeOrder) {
       return res.json({ hasActiveOrder: false });
     }
-    
-    console.log(`[Active Order] Found active order ${activeOrder.id} for driver ${driverId}`);
+
+    console.log(`[Active Order] Found active rental ${activeOrder.id} for loueur ${driverId}`);
     res.json({
       hasActiveOrder: true,
-      order: activeOrder
+      order: activeOrder,
     });
   });
   
@@ -2463,9 +2547,20 @@ app.post("/api/live-activities/end", async (req, res) => {
   
   // Get order by ID
   app.get("/api/orders/:id", async (req, res) => {
+    const clientId = await getAuthenticatedClient(req);
+    const driverSessionId = (req.headers["x-driver-session"] as string || "").split(",")[0].trim();
+    const driverSession = driverSessionId ? await getDriverSessionWithFallback(driverSessionId) : null;
+    if (!clientId && !driverSession) {
+      return res.status(401).json({ error: "Authentification requise" });
+    }
+
     const order = await dbStorage.getOrder(req.params.id);
     if (!order) {
       return res.status(404).json({ error: "Order not found" });
+    }
+
+    if (clientId && order.clientId !== clientId && !driverSession) {
+      return res.status(403).json({ error: "Accès non autorisé" });
     }
     
     // Enrich with current driver info if assigned
@@ -2828,9 +2923,9 @@ app.post("/api/live-activities/end", async (req, res) => {
     }
   });
 
-  // Update waiting time for an order (called by client when ride starts)
-  // Route pour gérer les arrêts (arrivée à l'arrêt, temps d'arrêt, reprise de la course)
+  // Arrêts taxi — disabled
   app.post("/api/orders/:id/stop", async (req, res) => {
+    return respondTaxiDisabled(res);
     try {
       const orderId = req.params.id;
       const { action, stopIndex, stopMinutes, driverSessionId } = req.body;
@@ -2957,6 +3052,7 @@ app.post("/api/live-activities/end", async (req, res) => {
   });
 
   app.post("/api/orders/:id/waiting-time", async (req, res) => {
+    return respondTaxiDisabled(res);
     try {
       const orderId = req.params.id;
       let { waitingTimeMinutes } = req.body;
@@ -3021,8 +3117,9 @@ app.post("/api/live-activities/end", async (req, res) => {
   // - Ajoute le coÃ»t au totalPrice existant (accumulation)
   // - VÃ©rifie la session chauffeur avant de modifier
   // â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
-  // Persist paid stop cost
+  // Persist paid stop cost (taxi) — disabled
   app.post("/api/orders/:id/paid-stop", async (req, res) => {
+    return respondTaxiDisabled(res);
     try {
       const orderId = req.params.id;
       const { cost, durationMinutes, sessionId } = req.body;
@@ -3091,8 +3188,9 @@ app.post("/api/live-activities/end", async (req, res) => {
   // âš ï¸ STABLE v1.0 - STATUS ARRÃŠT PAYANT - NE PAS MODIFIER SANS DEMANDE
   // UtilisÃ©e pour la synchronisation client aprÃ¨s reconnexion
   // â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
-  // Get paid stop status (for client polling/reconnection)
+  // Get paid stop status (taxi) — disabled
   app.get("/api/orders/:id/paid-stop/status", async (req, res) => {
+    return respondTaxiDisabled(res);
     try {
       const orderId = req.params.id;
 
@@ -3121,9 +3219,10 @@ app.post("/api/live-activities/end", async (req, res) => {
   });
 
   // ═══════════════════════════════════════════════════════════════════════════
-  // RÉSERVATION À L'AVANCE: Démarrer une course réservée
+  // RÉSERVATION À L'AVANCE taxi — disabled
   // ═══════════════════════════════════════════════════════════════════════════
   app.post("/api/orders/:id/start-booking", async (req, res) => {
+    return respondTaxiDisabled(res);
     try {
       const orderId = req.params.id;
       const sessionId = req.headers["x-driver-session"] as string;
@@ -3258,6 +3357,11 @@ app.post("/api/live-activities/end", async (req, res) => {
   // ═══════════════════════════════════════════════════════════════════════════
   app.patch("/api/orders/:id/signature", async (req, res) => {
     try {
+      const clientId = await getAuthenticatedClient(req);
+      if (!clientId) {
+        return res.status(401).json({ error: "Authentification requise" });
+      }
+
       const orderId = req.params.id;
       const { clientSignatureSvg, clientSignedAt, clientName } = req.body;
 
@@ -3268,6 +3372,10 @@ app.post("/api/live-activities/end", async (req, res) => {
       const order = await dbStorage.getOrder(orderId);
       if (!order) {
         return res.status(404).json({ error: "Order not found" });
+      }
+
+      if (order.clientId && order.clientId !== clientId) {
+        return res.status(403).json({ error: "Accès non autorisé" });
       }
 
       // Stocker la signature dans rideOption (JSONB, passthrough)
@@ -3309,12 +3417,21 @@ app.post("/api/live-activities/end", async (req, res) => {
 
   app.patch("/api/orders/:id/documents", async (req, res) => {
     try {
+      const clientId = await getAuthenticatedClient(req);
+      if (!clientId) {
+        return res.status(401).json({ error: "Authentification requise" });
+      }
+
       const orderId = req.params.id;
       const { licenseFrontUri, licenseBackUri } = req.body;
 
       const order = await dbStorage.getOrder(orderId);
       if (!order) {
         return res.status(404).json({ error: "Order not found" });
+      }
+
+      if (order.clientId && order.clientId !== clientId) {
+        return res.status(403).json({ error: "Accès non autorisé" });
       }
 
       const updatedRideOption = {
@@ -3530,8 +3647,9 @@ app.post("/api/live-activities/end", async (req, res) => {
   // ============ Push Notification Routes ============
   
   // Get VAPID public key (for client to subscribe)
-  // ============ TARIFS PUBLICS (pour l'app client) ============
+  // ============ TARIFS PUBLICS taxi — disabled ============
   app.get("/api/tarifs", async (req, res) => {
+    return respondTaxiDisabled(res);
     try {
       const allTarifs = await dbStorage.getAllTarifs();
       return res.json(allTarifs);
@@ -3546,6 +3664,7 @@ app.post("/api/live-activities/end", async (req, res) => {
   });
 
   app.get("/api/supplements", async (req, res) => {
+    return respondTaxiDisabled(res);
     try {
       const allSupplements = await dbStorage.getAllSupplements();
       return res.json(allSupplements.filter(s => s.actif));
@@ -3565,73 +3684,111 @@ app.post("/api/live-activities/end", async (req, res) => {
   app.get("/api/vehicles/available", async (req, res) => {
     try {
       const serviceType = (req.query.service as string) || 'all';
-      
-      // Récupérer tous les modèles actifs
-      const activeModels = await db
-        .select()
-        .from(vehicleModels)
-        .where(eq(vehicleModels.isActive, true));
-      
-      const result = [];
-      for (const model of activeModels) {
-        // Récupérer les véhicules actifs pour ce modèle avec des loueurs actifs
-        const vehiclesRaw = await db
-          .select({
-            pricePerDay: loueurVehicles.pricePerDay,
-            pricePerDayLongTerm: loueurVehicles.pricePerDayLongTerm,
-            availableForRental: loueurVehicles.availableForRental,
-            availableForDelivery: loueurVehicles.availableForDelivery,
-            availableForLongTerm: loueurVehicles.availableForLongTerm,
-          })
-          .from(loueurVehicles)
-          .innerJoin(prestataires, eq(loueurVehicles.prestataireId, prestataires.id))
-          .where(
-            and(
-              eq(loueurVehicles.vehicleModelId, model.id),
-              eq(loueurVehicles.isActive, true),
-              eq(prestataires.isActive, true),
-            )
-          );
-        
-        // Filtrer selon le type de service demandé
-        let filtered;
-        if (serviceType === 'rental') {
-          filtered = vehiclesRaw.filter(v => v.availableForRental);
-        } else if (serviceType === 'delivery') {
-          filtered = vehiclesRaw.filter(v => v.availableForDelivery);
-        } else if (serviceType === 'longterm') {
-          filtered = vehiclesRaw.filter(v => v.availableForLongTerm);
-        } else {
-          // "all" : au moins un service actif
-          filtered = vehiclesRaw.filter(v => v.availableForRental || v.availableForDelivery || v.availableForLongTerm);
+
+      // Partir des fiches loueurs actives (plus fiable que boucler tous les modèles)
+      const rows = await db
+        .select({
+          modelId: vehicleModels.id,
+          modelName: vehicleModels.name,
+          category: vehicleModels.category,
+          modelImageUrl: vehicleModels.imageUrl,
+          description: vehicleModels.description,
+          seats: vehicleModels.seats,
+          transmission: vehicleModels.transmission,
+          fuel: vehicleModels.fuel,
+          modelActive: vehicleModels.isActive,
+          pricePerDay: loueurVehicles.pricePerDay,
+          pricePerDayLongTerm: loueurVehicles.pricePerDayLongTerm,
+          availableForRental: loueurVehicles.availableForRental,
+          availableForDelivery: loueurVehicles.availableForDelivery,
+          availableForLongTerm: loueurVehicles.availableForLongTerm,
+          customImageUrl: loueurVehicles.customImageUrl,
+          prestataireActive: prestataires.isActive,
+        })
+        .from(loueurVehicles)
+        .innerJoin(vehicleModels, eq(loueurVehicles.vehicleModelId, vehicleModels.id))
+        .leftJoin(prestataires, eq(loueurVehicles.prestataireId, prestataires.id))
+        .where(eq(loueurVehicles.isActive, true));
+
+      const byModel = new Map<string, {
+        id: string;
+        name: string;
+        category: string;
+        imageUrl: string | null;
+        description: string | null;
+        seats: number;
+        transmission: string;
+        fuel: string;
+        prices: number[];
+        coverUrls: string[];
+        rental: boolean;
+        delivery: boolean;
+        longTerm: boolean;
+        count: number;
+      }>();
+
+      for (const row of rows) {
+        if (!row.modelId || row.modelActive === false) continue;
+        // Prestataire manquant ou désactivé → on ignore (sauf si pas de prestataire lié : on laisse passer)
+        if (row.prestataireActive === false) continue;
+
+        const matchesService =
+          serviceType === 'rental' ? !!row.availableForRental :
+          serviceType === 'delivery' ? !!row.availableForDelivery :
+          serviceType === 'longterm' ? !!row.availableForLongTerm :
+          !!(row.availableForRental || row.availableForDelivery || row.availableForLongTerm);
+
+        if (!matchesService) continue;
+
+        let entry = byModel.get(row.modelId);
+        if (!entry) {
+          entry = {
+            id: row.modelId,
+            name: row.modelName,
+            category: row.category || 'autre',
+            imageUrl: row.modelImageUrl,
+            description: row.description,
+            seats: row.seats ?? 5,
+            transmission: row.transmission || 'auto',
+            fuel: row.fuel || 'essence',
+            prices: [],
+            coverUrls: [],
+            rental: false,
+            delivery: false,
+            longTerm: false,
+            count: 0,
+          };
+          byModel.set(row.modelId, entry);
         }
-        
-        if (filtered.length > 0) {
-          const minPrice = Math.min(...filtered.map(v => v.pricePerDay));
-          const hasRental = filtered.some(v => v.availableForRental);
-          const hasDelivery = filtered.some(v => v.availableForDelivery);
-          const hasLongTerm = filtered.some(v => v.availableForLongTerm);
-          
-          result.push({
-            id: model.id,
-            name: model.name,
-            category: model.category,
-            imageUrl: model.imageUrl,
-            description: model.description,
-            seats: model.seats,
-            transmission: model.transmission,
-            fuel: model.fuel,
-            pricePerDay: minPrice,
-            availableCount: filtered.length,
-            services: {
-              rental: hasRental,
-              delivery: hasDelivery,
-              longTerm: hasLongTerm,
-            },
-          });
-        }
+
+        entry.count += 1;
+        if (typeof row.pricePerDay === 'number') entry.prices.push(row.pricePerDay);
+        if (row.customImageUrl) entry.coverUrls.push(row.customImageUrl);
+        if (row.availableForRental) entry.rental = true;
+        if (row.availableForDelivery) entry.delivery = true;
+        if (row.availableForLongTerm) entry.longTerm = true;
       }
-      
+
+      const result = Array.from(byModel.values())
+        .map((m) => ({
+          id: m.id,
+          name: m.name,
+          category: m.category,
+          imageUrl: m.coverUrls[0] || m.imageUrl,
+          description: m.description,
+          seats: m.seats,
+          transmission: m.transmission,
+          fuel: m.fuel,
+          pricePerDay: m.prices.length ? Math.min(...m.prices) : 0,
+          availableCount: m.count,
+          services: {
+            rental: m.rental,
+            delivery: m.delivery,
+            longTerm: m.longTerm,
+          },
+        }))
+        .sort((a, b) => a.name.localeCompare(b.name, 'fr'));
+
       return res.json(result);
     } catch (error) {
       console.error("Get available vehicles error:", error);
@@ -3655,7 +3812,9 @@ app.post("/api/live-activities/end", async (req, res) => {
           pricePerDayLongTerm: loueurVehicles.pricePerDayLongTerm,
           rentalContractMode: loueurVehicles.rentalContractMode,
           customContractText: loueurVehicles.customContractText,
+          customImageUrl: loueurVehicles.customImageUrl,
           prestataireNom: prestataires.nom,
+          prestataireActive: prestataires.isActive,
           driverId: loueurVehicles.driverId,
           transmission: vehicleModels.transmission,
           fuel: vehicleModels.fuel,
@@ -3664,20 +3823,20 @@ app.post("/api/live-activities/end", async (req, res) => {
           modelCategory: vehicleModels.category,
         })
         .from(loueurVehicles)
-        .innerJoin(prestataires, eq(loueurVehicles.prestataireId, prestataires.id))
+        .leftJoin(prestataires, eq(loueurVehicles.prestataireId, prestataires.id))
         .innerJoin(vehicleModels, eq(loueurVehicles.vehicleModelId, vehicleModels.id))
         .where(
           and(
             eq(loueurVehicles.vehicleModelId, modelId),
             eq(loueurVehicles.isActive, true),
-            eq(prestataires.isActive, true),
             eq(loueurVehicles.availableForRental, true),
           )
         );
 
       const result = [];
       for (const row of rows) {
-        let ownerName = row.prestataireNom;
+        if (row.prestataireActive === false) continue;
+        let ownerName = row.prestataireNom || 'Loueur';
         if (row.driverId) {
           const [driver] = await db
             .select({ firstName: drivers.firstName, lastName: drivers.lastName })
@@ -3687,6 +3846,7 @@ app.post("/api/live-activities/end", async (req, res) => {
             ownerName = `${driver.firstName} ${driver.lastName}`;
           }
         }
+        const imageUrls = normalizeVehicleImageUrls(null, row.customImageUrl);
         result.push({
           loueurVehicleId: row.loueurVehicleId,
           plate: row.plate,
@@ -3694,6 +3854,8 @@ app.post("/api/live-activities/end", async (req, res) => {
           pricePerDayLongTerm: row.pricePerDayLongTerm,
           rentalContractMode: row.rentalContractMode,
           customContractText: row.customContractText,
+          customImageUrl: imageUrls[0] || null,
+          customImageUrls: imageUrls,
           ownerName,
           transmission: row.transmission,
           fuel: row.fuel,
@@ -3766,33 +3928,80 @@ app.post("/api/live-activities/end", async (req, res) => {
       if (!driver) return res.status(403).json({ error: "Chauffeur introuvable" });
       if (!driver.prestataireId) return res.json([]);
 
-      const vehicles = await db
-        .select({
-          id: loueurVehicles.id,
-          vehicleModelId: loueurVehicles.vehicleModelId,
-          plate: loueurVehicles.plate,
-          pricePerDay: loueurVehicles.pricePerDay,
-          pricePerDayLongTerm: loueurVehicles.pricePerDayLongTerm,
-          availableForRental: loueurVehicles.availableForRental,
-          availableForDelivery: loueurVehicles.availableForDelivery,
-          availableForLongTerm: loueurVehicles.availableForLongTerm,
-          customImageUrl: loueurVehicles.customImageUrl,
-          rentalContractMode: loueurVehicles.rentalContractMode,
-          customContractText: loueurVehicles.customContractText,
-          isActive: loueurVehicles.isActive,
-          createdAt: loueurVehicles.createdAt,
-          modelName: vehicleModels.name,
-          modelCategory: vehicleModels.category,
-          modelImageUrl: vehicleModels.imageUrl,
-          modelSeats: vehicleModels.seats,
-          modelTransmission: vehicleModels.transmission,
-          modelFuel: vehicleModels.fuel,
-        })
-        .from(loueurVehicles)
-        .leftJoin(vehicleModels, eq(loueurVehicles.vehicleModelId, vehicleModels.id))
-        .where(eq(loueurVehicles.prestataireId, driver.prestataireId));
+      // Réactiver le prestataire si besoin (sinon invisible dans le catalogue client)
+      await db
+        .update(prestataires)
+        .set({ isActive: true })
+        .where(eq(prestataires.id, driver.prestataireId));
 
-      return res.json(vehicles);
+      let vehicles: any[] = [];
+      try {
+        vehicles = await db
+          .select({
+            id: loueurVehicles.id,
+            vehicleModelId: loueurVehicles.vehicleModelId,
+            plate: loueurVehicles.plate,
+            pricePerDay: loueurVehicles.pricePerDay,
+            pricePerDayLongTerm: loueurVehicles.pricePerDayLongTerm,
+            availableForRental: loueurVehicles.availableForRental,
+            availableForDelivery: loueurVehicles.availableForDelivery,
+            availableForLongTerm: loueurVehicles.availableForLongTerm,
+            customImageUrl: loueurVehicles.customImageUrl,
+            customImageUrls: loueurVehicles.customImageUrls,
+            rentalContractMode: loueurVehicles.rentalContractMode,
+            customContractText: loueurVehicles.customContractText,
+            isActive: loueurVehicles.isActive,
+            createdAt: loueurVehicles.createdAt,
+            modelName: vehicleModels.name,
+            modelCategory: vehicleModels.category,
+            modelImageUrl: vehicleModels.imageUrl,
+            modelSeats: vehicleModels.seats,
+            modelTransmission: vehicleModels.transmission,
+            modelFuel: vehicleModels.fuel,
+          })
+          .from(loueurVehicles)
+          .leftJoin(vehicleModels, eq(loueurVehicles.vehicleModelId, vehicleModels.id))
+          .where(eq(loueurVehicles.prestataireId, driver.prestataireId));
+      } catch (selectErr: any) {
+        const msg = String(selectErr?.message || selectErr || '');
+        if (!msg.includes('custom_image_urls')) throw selectErr;
+        vehicles = await db
+          .select({
+            id: loueurVehicles.id,
+            vehicleModelId: loueurVehicles.vehicleModelId,
+            plate: loueurVehicles.plate,
+            pricePerDay: loueurVehicles.pricePerDay,
+            pricePerDayLongTerm: loueurVehicles.pricePerDayLongTerm,
+            availableForRental: loueurVehicles.availableForRental,
+            availableForDelivery: loueurVehicles.availableForDelivery,
+            availableForLongTerm: loueurVehicles.availableForLongTerm,
+            customImageUrl: loueurVehicles.customImageUrl,
+            rentalContractMode: loueurVehicles.rentalContractMode,
+            customContractText: loueurVehicles.customContractText,
+            isActive: loueurVehicles.isActive,
+            createdAt: loueurVehicles.createdAt,
+            modelName: vehicleModels.name,
+            modelCategory: vehicleModels.category,
+            modelImageUrl: vehicleModels.imageUrl,
+            modelSeats: vehicleModels.seats,
+            modelTransmission: vehicleModels.transmission,
+            modelFuel: vehicleModels.fuel,
+          })
+          .from(loueurVehicles)
+          .leftJoin(vehicleModels, eq(loueurVehicles.vehicleModelId, vehicleModels.id))
+          .where(eq(loueurVehicles.prestataireId, driver.prestataireId));
+      }
+
+      const normalized = vehicles.map((v) => {
+        const urls = normalizeVehicleImageUrls(v.customImageUrls, v.customImageUrl);
+        return {
+          ...v,
+          customImageUrls: urls,
+          customImageUrl: urls[0] || v.customImageUrl || null,
+        };
+      });
+
+      return res.json(normalized);
     } catch (error) {
       console.error("Error fetching driver vehicles:", error);
       return res.status(500).json({ error: "Erreur serveur" });
@@ -3833,7 +4042,7 @@ app.post("/api/live-activities/end", async (req, res) => {
         vehicleModelId, vehicleModelName, vehicleModelCategory,
         plate, pricePerDay, pricePerDayLongTerm,
         availableForRental, availableForDelivery, availableForLongTerm,
-        customImageUrl, rentalContractMode, customContractText,
+        customImageUrl, customImageUrls, rentalContractMode, customContractText,
       } = req.body;
 
       if (!vehicleModelId || !pricePerDay) {
@@ -3856,7 +4065,7 @@ app.post("/api/live-activities/end", async (req, res) => {
         if (existingByName) {
           model = existingByName;
         } else {
-          const validCategories = ["citadine", "berline", "suv", "utilitaire", "premium", "autre"];
+          const validCategories = ["citadine", "berline", "suv", "pickup", "utilitaire", "premium", "autre"];
           const category = validCategories.includes(vehicleModelCategory || "") ? vehicleModelCategory : "autre";
           const [created] = await db
             .insert(vehicleModels)
@@ -3880,28 +4089,58 @@ app.post("/api/live-activities/end", async (req, res) => {
       }
 
       const contractMode = rentalContractMode === "custom" ? "custom" : "app_default";
+      const imageUrls = normalizeVehicleImageUrls(customImageUrls, customImageUrl);
 
-      const [newVehicle] = await db
-        .insert(loueurVehicles)
-        .values({
-          vehicleModelId: model.id,
-          prestataireId,
-          driverId: driver.id,
-          plate: plate || null,
-          pricePerDay,
-          pricePerDayLongTerm: pricePerDayLongTerm || null,
-          availableForRental: availableForRental ?? true,
-          availableForDelivery: availableForDelivery ?? false,
-          availableForLongTerm: availableForLongTerm ?? false,
-          customImageUrl: customImageUrl || null,
-          rentalContractMode: contractMode,
-          isActive: true,
-        })
-        .returning();
+      const baseVehicleValues = {
+        vehicleModelId: model.id,
+        prestataireId,
+        driverId: driver.id,
+        plate: plate || null,
+        pricePerDay,
+        pricePerDayLongTerm: pricePerDayLongTerm || null,
+        availableForRental: availableForRental ?? true,
+        availableForDelivery: availableForDelivery ?? false,
+        availableForLongTerm: availableForLongTerm ?? false,
+        customImageUrl: imageUrls[0] || null,
+        rentalContractMode: contractMode,
+        isActive: true,
+      } as const;
+
+      let newVehicle: typeof loueurVehicles.$inferSelect;
+      try {
+        const [created] = await db
+          .insert(loueurVehicles)
+          .values({
+            ...baseVehicleValues,
+            customImageUrls: imageUrls,
+          })
+          .returning();
+        newVehicle = created;
+      } catch (insertErr: any) {
+        // Compat prod : colonne custom_image_urls absente → retry sans galerie JSON
+        const msg = String(insertErr?.message || insertErr || '');
+        if (!msg.includes('custom_image_urls') && !msg.includes('customImageUrls')) {
+          throw insertErr;
+        }
+        console.warn('[Driver] custom_image_urls missing — inserting without gallery column');
+        const [created] = await db
+          .insert(loueurVehicles)
+          .values(baseVehicleValues)
+          .returning();
+        newVehicle = created;
+      }
+
+      // S'assurer que le prestataire est actif (sinon invisible côté client)
+      await db
+        .update(prestataires)
+        .set({ isActive: true })
+        .where(eq(prestataires.id, prestataireId));
 
       // Retourner avec les infos du modèle pour le frontend
       const response = {
         ...newVehicle,
+        customImageUrls: imageUrls,
+        customImageUrl: imageUrls[0] || null,
         modelName: model.name,
         modelCategory: model.category,
         modelImageUrl: model.imageUrl,
@@ -3956,6 +4195,15 @@ app.post("/api/live-activities/end", async (req, res) => {
         }
       }
 
+      if (req.body.customImageUrls !== undefined || req.body.customImageUrl !== undefined) {
+        const imageUrls = normalizeVehicleImageUrls(
+          req.body.customImageUrls !== undefined ? req.body.customImageUrls : existing.customImageUrls,
+          req.body.customImageUrl !== undefined ? req.body.customImageUrl : existing.customImageUrl
+        );
+        updates.customImageUrls = imageUrls;
+        updates.customImageUrl = imageUrls[0] || null;
+      }
+
       if (Object.keys(updates).length === 0) {
         return res.status(400).json({ error: "Aucune modification" });
       }
@@ -3972,8 +4220,12 @@ app.post("/api/live-activities/end", async (req, res) => {
         .from(vehicleModels)
         .where(eq(vehicleModels.id, updated.vehicleModelId));
 
+      const urls = normalizeVehicleImageUrls(updated.customImageUrls, updated.customImageUrl);
+
       return res.json({
         ...updated,
+        customImageUrls: urls,
+        customImageUrl: urls[0] || null,
         modelName: model?.name ?? null,
         modelCategory: model?.category ?? null,
         modelImageUrl: model?.imageUrl ?? null,
@@ -4020,10 +4272,11 @@ app.post("/api/live-activities/end", async (req, res) => {
     }
   });
 
-  // ============ COMMISSIONS API (pour l'app chauffeur) ============
+  // ============ COMMISSIONS API taxi — disabled ============
   
   // Get all commissions (public - used by driver app)
   app.get("/api/commissions", async (req, res) => {
+    return respondTaxiDisabled(res);
     try {
       // Initialize default commissions if needed
       await dbStorage.createDefaultCommissions();
@@ -4066,8 +4319,9 @@ app.post("/api/live-activities/end", async (req, res) => {
     }
   });
 
-  // Get commission for a specific driver type
+  // Get commission for a specific driver type — disabled
   app.get("/api/commissions/:typeChauffeur", async (req, res) => {
+    return respondTaxiDisabled(res);
     try {
       const { typeChauffeur } = req.params;
       const commission = await dbStorage.getCommissionByType(typeChauffeur);
@@ -4083,8 +4337,9 @@ app.post("/api/live-activities/end", async (req, res) => {
     }
   });
 
-  // Update commission (called from dashboard)
+  // Update commission (called from dashboard) — disabled (taxi)
   app.post("/api/commissions/sync", async (req, res) => {
+    return respondTaxiDisabled(res);
     try {
       const { id, pourcentageChauffeur } = req.body;
       
@@ -5802,7 +6057,7 @@ const sessionId = headerSessionId || cookieSessionId;
     res.json(orders);
   });
 
-  // Get driver earnings statistics (today, week, month)
+  // Get loueur / driver earnings statistics (rental-first for RAVE MVP)
   app.get("/api/driver/earnings/:sessionId", async (req, res) => {
     const { sessionId } = req.params;
     
@@ -5828,14 +6083,17 @@ const sessionId = headerSessionId || cookieSessionId;
     }
     
     try {
-      // Get all driver orders
       const orders = await dbStorage.getOrdersByDriver(driverId);
-      
-      // Filter completed/paid orders only
-      const paidStatuses = ['completed', 'payment_confirmed'];
-      const completedOrders = orders.filter(o => paidStatuses.includes(o.status));
-      
-      // Date calculations
+
+      // Rental earnings: accepted / booked / completed locations (totalPrice)
+      const rentalEarningStatuses = ["accepted", "booked", "completed", "payment_confirmed"];
+      const rentalOrders = orders.filter(
+        (o) => isRentalOrderLike(o) && rentalEarningStatuses.includes(o.status)
+      );
+      const completedRentals = rentalOrders.filter((o) =>
+        ["completed", "payment_confirmed"].includes(o.status)
+      );
+
       const now = new Date();
       const todayStart = new Date(now.getFullYear(), now.getMonth(), now.getDate());
       
@@ -5848,20 +6106,17 @@ const sessionId = headerSessionId || cookieSessionId;
       // Month start
       const monthStart = new Date(now.getFullYear(), now.getMonth(), 1);
       
-      // Calculate earnings
       let todayEarnings = 0;
       let weekEarnings = 0;
       let monthEarnings = 0;
       let totalEarnings = 0;
-      let totalKm = 0;
       
-      for (const order of completedOrders) {
+      for (const order of rentalOrders) {
         const orderDate = new Date(order.createdAt);
-        const earnings = order.driverEarnings || 0;
-        const distance = order.routeInfo?.distance ? parseFloat(order.routeInfo.distance) : 0;
+        // Loueur gains = prix location (totalPrice), pas driverEarnings taxi
+        const earnings = order.totalPrice || 0;
         
         totalEarnings += earnings;
-        totalKm += distance;
         
         if (orderDate >= todayStart) {
           todayEarnings += earnings;
@@ -5873,8 +6128,10 @@ const sessionId = headerSessionId || cookieSessionId;
           monthEarnings += earnings;
         }
       }
+
+      const totalLocations = rentalOrders.length;
+      const completedRentalsCount = completedRentals.length;
       
-      // Get driver profile for rating and total rides
       const driver = await dbStorage.getDriver(driverId);
       
       res.json({
@@ -5885,13 +6142,20 @@ const sessionId = headerSessionId || cookieSessionId;
           month: monthEarnings,
           total: totalEarnings,
         },
+        // Alias clairs location (backward compatible + nouveaux noms)
+        totalEarnings,
+        totalLocations,
+        completedRentals: completedRentalsCount,
         stats: {
-          totalRides: completedOrders.length,
-          totalKm: Math.round(totalKm * 10) / 10,
+          // Anciens champs (gains.tsx) mappés au sens location
+          totalRides: totalLocations,
+          totalKm: 0,
           averageRating: driver?.averageRating || null,
-          allTimeRides: driver?.totalRides || completedOrders.length,
+          allTimeRides: driver?.totalRides || totalLocations,
+          totalLocations,
+          completedRentals: completedRentalsCount,
         },
-        orders: completedOrders.slice(0, 10), // Last 10 orders for recent activity
+        orders: rentalOrders.slice(0, 10),
       });
     } catch (error) {
       console.error("Error fetching driver earnings:", error);
@@ -7015,17 +7279,17 @@ const sessionId = headerSessionId || cookieSessionId;
       minVersion: "1.0.0", // Version minimale requise pour l'app client
       currentVersion: "1.0.0", // Dernière version disponible
       forceUpdate: false, // Activer/désactiver la mise à jour forcée
-      message: "Une nouvelle version de TAPEA est disponible. Veuillez mettre à jour l'application pour continuer.",
-      iosStoreUrl: "https://apps.apple.com/app/tapea/id000000000", // À remplacer après publication
-      androidStoreUrl: "https://play.google.com/store/apps/details?id=com.tapea.client", // À remplacer après publication
+      message: "Une nouvelle version de RAVE est disponible. Veuillez mettre à jour l'application pour continuer.",
+      iosStoreUrl: "https://apps.apple.com/app/rave/id000000000", // À remplacer après publication
+      androidStoreUrl: "https://play.google.com/store/apps/details?id=com.rave.client", // À remplacer après publication
     },
     chauffeur: {
       minVersion: "1.0.0",
       currentVersion: "1.0.0",
       forceUpdate: false,
-      message: "Une nouvelle version de TAPEA Chauffeur est disponible. Veuillez mettre à jour l'application pour continuer.",
-      iosStoreUrl: "https://apps.apple.com/app/tapea-chauffeur/id000000000",
-      androidStoreUrl: "https://play.google.com/store/apps/details?id=com.tapea.chauffeur",
+      message: "Une nouvelle version de RAVE Loueur est disponible. Veuillez mettre à jour l'application pour continuer.",
+      iosStoreUrl: "https://apps.apple.com/app/rave-loueur/id000000000",
+      androidStoreUrl: "https://play.google.com/store/apps/details?id=com.rave.loueur",
     }
   };
 
@@ -7072,7 +7336,7 @@ const sessionId = headerSessionId || cookieSessionId;
   app.post("/api/admin/app-version", (req: any, res) => {
     // Vérification simple via header secret
     const adminSecret = req.headers["x-admin-secret"] as string;
-    const expectedSecret = process.env.ADMIN_SECRET || "tapea-admin-2026";
+    const expectedSecret = process.env.ADMIN_SECRET || "rave-admin-2026";
     
     if (adminSecret !== expectedSecret) {
       return res.status(401).json({ error: "Non autorisé" });

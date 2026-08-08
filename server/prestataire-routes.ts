@@ -128,7 +128,7 @@ export function registerPrestataireRoutes(app: Express) {
       }
       const result = await uploadDocumentToCloudinary(
         req.file.buffer,
-        "tapea/prestataires-docs",
+        "rave/prestataires-docs",
         req.file.mimetype
       );
       return res.json({ success: true, url: result.url, publicId: result.publicId });
