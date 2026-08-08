@@ -2350,15 +2350,22 @@ export function registerAdminRoutes(app: Express) {
     }
   });
 
-  // GET /api/admin/vehicles - Liste tous les modèles (+ sync catalogue Loueur)
+  // GET /api/admin/vehicles - Liste rapide (sans sync bloquant — utiliser POST sync-catalog)
   app.get("/api/admin/vehicles", requireAdminAuth, async (_req: AuthenticatedRequest, res) => {
     try {
-      // Assure que tous les modèles proposés dans l'app Loueur existent en base
-      // pour pouvoir leur assigner une photo par défaut.
-      try {
-        await syncTahitiVehicleCatalog();
-      } catch (syncErr) {
-        console.warn("[Admin] Catalog sync skipped:", syncErr);
+      // Compteurs loueurs en une seule requête (évite timeout Render avec ~200 modèles)
+      const countRows = await db
+        .select({
+          vehicleModelId: loueurVehicles.vehicleModelId,
+          loueurCount: sql<number>`count(*)::int`,
+        })
+        .from(loueurVehicles)
+        .where(eq(loueurVehicles.isActive, true))
+        .groupBy(loueurVehicles.vehicleModelId);
+
+      const countByModel = new Map<string, number>();
+      for (const row of countRows) {
+        if (row.vehicleModelId) countByModel.set(row.vehicleModelId, Number(row.loueurCount) || 0);
       }
 
       const models = await db
@@ -2366,19 +2373,10 @@ export function registerAdminRoutes(app: Express) {
         .from(vehicleModels)
         .orderBy(asc(vehicleModels.category), asc(vehicleModels.name));
 
-      // Pour chaque modèle, compter le nombre de véhicules loueurs actifs
-      const modelsWithCounts = await Promise.all(
-        models.map(async (model) => {
-          const [result] = await db
-            .select({ count: count() })
-            .from(loueurVehicles)
-            .where(and(
-              eq(loueurVehicles.vehicleModelId, model.id),
-              eq(loueurVehicles.isActive, true)
-            ));
-          return { ...model, loueurCount: result?.count || 0 };
-        })
-      );
+      const modelsWithCounts = models.map((model) => ({
+        ...model,
+        loueurCount: countByModel.get(model.id) || 0,
+      }));
 
       return res.json(modelsWithCounts);
     } catch (error) {

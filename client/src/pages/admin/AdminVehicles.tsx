@@ -86,12 +86,21 @@ export function AdminVehicles() {
   const [isSaving, setIsSaving] = useState(false);
   const [isUploading, setIsUploading] = useState(false);
   const [isSyncing, setIsSyncing] = useState(false);
+  const [loadError, setLoadError] = useState<string | null>(null);
   const [quickUploadId, setQuickUploadId] = useState<string | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const quickFileInputRef = useRef<HTMLInputElement>(null);
+  const autoSyncedRef = useRef(false);
 
   useEffect(() => {
-    fetchVehicles();
+    (async () => {
+      const list = await fetchVehicles();
+      // Première visite / base vide → sync auto une fois
+      if (Array.isArray(list) && list.length === 0 && !autoSyncedRef.current) {
+        autoSyncedRef.current = true;
+        await handleSyncCatalog(true);
+      }
+    })();
   }, []);
 
   function extractBrand(name: string): string {
@@ -103,26 +112,37 @@ export function AdminVehicles() {
     return n.split(/\s+/)[0] || 'Autre';
   }
 
-  async function fetchVehicles() {
+  async function fetchVehicles(): Promise<VehicleModel[]> {
     setIsLoading(true);
+    setLoadError(null);
     try {
       const token = localStorage.getItem('admin_token');
       const response = await fetch('/api/admin/vehicles', {
         headers: { Authorization: `Bearer ${token}` },
       });
-      if (response.ok) {
-        const data = await response.json();
-        setVehicles(data);
+      if (!response.ok) {
+        const err = await response.json().catch(() => ({}));
+        setLoadError(err.error || `Erreur ${response.status} au chargement`);
+        setVehicles([]);
+        return [];
       }
+      const data = await response.json();
+      const list = Array.isArray(data) ? data : [];
+      setVehicles(list);
+      return list;
     } catch (error) {
       console.error('Error fetching vehicles:', error);
+      setLoadError('Impossible de charger les modèles (réseau / timeout)');
+      setVehicles([]);
+      return [];
     } finally {
       setIsLoading(false);
     }
   }
 
-  async function handleSyncCatalog() {
+  async function handleSyncCatalog(silent = false) {
     setIsSyncing(true);
+    setLoadError(null);
     try {
       const token = localStorage.getItem('admin_token');
       const response = await fetch('/api/admin/vehicles/sync-catalog', {
@@ -131,14 +151,23 @@ export function AdminVehicles() {
       });
       const data = await response.json().catch(() => ({}));
       if (response.ok) {
-        alert(data.message || 'Catalogue synchronisé');
+        if (!silent) alert(data.message || 'Catalogue synchronisé');
+        // Reset filtres pour voir tout le catalogue
+        setSearchTerm('');
+        setFilterCategory('all');
+        setFilterBrand('all');
+        setFilterNoPhoto(false);
         await fetchVehicles();
       } else {
-        alert(data.error || 'Erreur de synchronisation');
+        const msg = data.error || 'Erreur de synchronisation';
+        setLoadError(msg);
+        if (!silent) alert(msg);
       }
     } catch (error) {
       console.error('Sync catalog error:', error);
-      alert('Erreur de synchronisation');
+      const msg = 'Erreur de synchronisation (timeout serveur). Réessayez.';
+      setLoadError(msg);
+      if (!silent) alert(msg);
     } finally {
       setIsSyncing(false);
     }
@@ -365,13 +394,13 @@ export function AdminVehicles() {
         </div>
         <div className="flex flex-wrap gap-2">
           <button
-            onClick={handleSyncCatalog}
+            onClick={() => handleSyncCatalog()}
             disabled={isSyncing || isLoading}
             className="flex items-center gap-2 px-4 py-2 border border-gray-300 bg-white text-gray-800 rounded-lg hover:bg-gray-50 transition-colors disabled:opacity-50"
             type="button"
           >
             <RefreshCw className={`w-4 h-4 ${isSyncing ? 'animate-spin' : ''}`} />
-            Importer catalogue Loueur
+            {isSyncing ? 'Import…' : 'Importer catalogue Loueur'}
           </button>
           <button
             onClick={openCreateModal}
@@ -386,11 +415,11 @@ export function AdminVehicles() {
 
       <div className="rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-900 space-y-1">
         <p>
-          Tous les modèles proposés dans l’app <strong>RAVE Loueur</strong> (~200) apparaissent ici après sync.
-          Cliquez sur <strong>Ajouter photo</strong> sur une carte, puis Enregistrer n’est plus nécessaire.
+          Cliquez <strong>Importer catalogue Loueur</strong> pour charger les ~200 modèles de l’app.
+          Ensuite <strong>Ajouter photo</strong> sur chaque carte (sauvegarde immédiate).
         </p>
         <p>
-          Cette photo s’affiche dans l’app Loueur et le catalogue Client si le loueur n’upload pas la sienne.
+          Remettez les filtres sur « Toutes catégories » si la liste paraît vide.
         </p>
       </div>
 
@@ -401,6 +430,19 @@ export function AdminVehicles() {
         className="hidden"
         onChange={handleQuickPhotoChange}
       />
+
+      {loadError && (
+        <div className="rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-800 flex flex-wrap items-center justify-between gap-3">
+          <span>{loadError}</span>
+          <button
+            type="button"
+            onClick={() => handleSyncCatalog()}
+            className="rounded-lg bg-red-700 px-3 py-1.5 text-white text-xs font-medium hover:bg-red-800"
+          >
+            Réessayer sync
+          </button>
+        </div>
+      )}
 
       <div className="grid grid-cols-3 gap-3">
         <div className="p-3 rounded-xl border bg-gray-50 border-gray-200">
@@ -479,7 +521,7 @@ export function AdminVehicles() {
           </p>
           {!searchTerm && filterCategory === 'all' && filterBrand === 'all' && !filterNoPhoto && (
             <button
-              onClick={handleSyncCatalog}
+              onClick={() => handleSyncCatalog()}
               className="mt-3 text-sm text-black underline hover:no-underline"
               type="button"
             >
