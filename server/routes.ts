@@ -1813,7 +1813,10 @@ app.post("/api/rental-orders", async (req, res) => {
     const clientToken = generateClientToken();
     orderClientTokens.set(order.id, { token: clientToken, socketId: null });
 
-    console.log(`[RENTAL] New rental order created: ${order.id} — ${orderData.rideOption.title} (${orderData.rideOption.days}j)`);
+    const sigPresent = !!(body.signature?.clientSignatureSvg);
+    const docFront = !!(body.clientDocuments?.licenseFrontUri);
+    const docBack = !!(body.clientDocuments?.licenseBackUri);
+    console.log(`[RENTAL] New rental order created: ${order.id} — ${orderData.rideOption.title} (${orderData.rideOption.days}j) | signature: ${sigPresent}, licenseFront: ${docFront}, licenseBack: ${docBack}`);
 
     // Notify all online drivers/loueurs via Socket.IO
     const rentalPayload = {
