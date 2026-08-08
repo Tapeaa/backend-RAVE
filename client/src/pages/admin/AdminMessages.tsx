@@ -1,6 +1,5 @@
 /**
- * Tape'ā Back Office - Page Messages
- * Vue des conversations client/chauffeur
+ * RAVE Back Office - Messages client / loueur
  */
 
 import { useEffect, useMemo, useRef, useState } from "react";
@@ -473,12 +472,12 @@ export function AdminMessages() {
     if (!content) return;
 
     if (recipientType === "client" && !selectedConversation.driverId) {
-      alert("Aucun chauffeur assigné pour cette commande.");
+      alert("Aucun Loueur assigné pour cette commande.");
       return;
     }
 
     if (recipientType === "driver" && !selectedConversation.driverId) {
-      alert("Aucun chauffeur assigné pour cette commande.");
+      alert("Aucun Loueur assigné pour cette commande.");
       return;
     }
 
@@ -679,7 +678,7 @@ export function AdminMessages() {
           </div>
           <div>
             <h1 className="text-2xl font-bold text-slate-900">Messages</h1>
-            <p className="text-slate-500">Suivi des conversations client/chauffeur</p>
+            <p className="text-slate-500">Suivi des conversations client / loueur</p>
           </div>
         </div>
         <div className="flex flex-wrap gap-2">
@@ -762,7 +761,7 @@ export function AdminMessages() {
           <Search className="absolute left-4 top-1/2 h-5 w-5 -translate-y-1/2 text-slate-400" />
           <input
             type="text"
-            placeholder="Rechercher client, chauffeur, message..."
+            placeholder="Rechercher client, loueur, message..."
             value={searchTerm}
             onChange={(e) => setSearchTerm(e.target.value)}
             className="w-full rounded-xl border border-slate-200 bg-white py-3 pl-12 pr-4 text-slate-900 placeholder-slate-400 shadow-sm focus:border-purple-500 focus:outline-none focus:ring-2 focus:ring-purple-500/20 transition-all"
@@ -788,7 +787,7 @@ export function AdminMessages() {
             </div>
             <div>
               <h2 className="text-base font-semibold text-slate-900">Support direct</h2>
-              <p className="text-sm text-slate-500">Messages envoyés par les clients/chauffeurs</p>
+              <p className="text-sm text-slate-500">Messages envoyés par les clients / loueurs</p>
             </div>
           </div>
         </div>
@@ -807,7 +806,7 @@ export function AdminMessages() {
                     <span className={`inline-block rounded-full px-2 py-0.5 text-xs font-medium ${
                       conversation.recipientType === "client" ? "bg-blue-100 text-blue-700" : "bg-orange-100 text-orange-700"
                     }`}>
-                      {conversation.recipientType === "client" ? "Client" : "Chauffeur"}
+                      {conversation.recipientType === "client" ? "Client" : "Loueur"}
                     </span>
                     <p className="font-medium text-gray-900 mt-1">{conversation.recipientName || "Utilisateur"}</p>
                   </div>
@@ -856,7 +855,7 @@ export function AdminMessages() {
                 filteredSupportConversations.map((conversation) => (
                   <tr key={conversation.id} className="border-t">
                     <td className="px-6 py-4 text-gray-700">
-                      {conversation.recipientType === "client" ? "Client" : "Chauffeur"}
+                      {conversation.recipientType === "client" ? "Client" : "Loueur"}
                     </td>
                     <td className="px-6 py-4">
                       <div className="font-medium text-gray-900">
@@ -887,7 +886,7 @@ export function AdminMessages() {
         </div>
       </div>
 
-      {/* Conversations Client/Chauffeur */}
+      {/* Conversations Client/Loueur */}
       <div className="overflow-hidden rounded-xl bg-white shadow-sm">
         {/* Vue Mobile - Cartes */}
         <div className="md:hidden p-4 space-y-3">
@@ -901,7 +900,7 @@ export function AdminMessages() {
                 <div className="flex items-start justify-between gap-2 mb-2">
                   <div>
                     <p className="font-medium text-gray-900">{conversation.clientName || "Client"}</p>
-                    <p className="text-sm text-gray-500">{conversation.driverName || "Chauffeur"}</p>
+                    <p className="text-sm text-gray-500">{conversation.driverName || "Loueur"}</p>
                   </div>
                   <div className="flex items-center gap-2">
                     {conversation.unreadCount ? (
@@ -932,7 +931,7 @@ export function AdminMessages() {
             <thead className="bg-gray-50 text-xs uppercase text-gray-500">
               <tr>
                 <th className="px-6 py-4">Client</th>
-                <th className="px-6 py-4">Chauffeur</th>
+                <th className="px-6 py-4">Loueur</th>
                 <th className="px-6 py-4">Dernier message</th>
                 <th className="px-6 py-4">Commande</th>
                 <th className="px-6 py-4 text-right">Non lus</th>
@@ -966,7 +965,7 @@ export function AdminMessages() {
                       </div>
                     </td>
                     <td className="px-6 py-4 text-gray-700">
-                      {conversation.driverName || "Chauffeur"}
+                      {conversation.driverName || "Loueur"}
                     </td>
                     <td className="px-6 py-4 text-gray-700">
                       {conversation.lastMessage || "—"}
@@ -1008,7 +1007,7 @@ export function AdminMessages() {
                 Support direct • {selectedSupportConversation.recipientName || "Utilisateur"}
               </h2>
               <p className="text-sm text-gray-500">
-                Type : {selectedSupportConversation.recipientType === "client" ? "Client" : "Chauffeur"}
+                Type : {selectedSupportConversation.recipientType === "client" ? "Client" : "Loueur"}
               </p>
             </div>
           </div>
@@ -1037,7 +1036,7 @@ export function AdminMessages() {
                               ? "Support"
                               : message.senderType === "client"
                               ? "Client"
-                              : "Chauffeur"}
+                              : "Loueur"}
                           </span>
                           <span>{new Date(message.createdAt).toLocaleString("fr-FR")}</span>
                         </div>
@@ -1076,7 +1075,7 @@ export function AdminMessages() {
                 </div>
                 <div>
                   <span className="font-medium text-gray-700">Type :</span>{" "}
-                  {selectedSupportConversation.recipientType === "client" ? "Client" : "Chauffeur"}
+                  {selectedSupportConversation.recipientType === "client" ? "Client" : "Loueur"}
                 </div>
                 {selectedSupportConversation.lastMessageAt && (
                   <div>
@@ -1104,7 +1103,7 @@ export function AdminMessages() {
             <div>
               <h2 className="text-lg font-semibold text-gray-900">
                 Conversation • {selectedConversation.clientName || "Client"} ↔{" "}
-                {selectedConversation.driverName || "Chauffeur"}
+                {selectedConversation.driverName || "Loueur"}
               </h2>
               <p className="text-sm text-gray-500">Commande : {selectedConversation.orderId}</p>
             </div>
@@ -1130,7 +1129,7 @@ export function AdminMessages() {
                       >
                         <div className="flex items-center justify-between text-xs text-gray-500">
                           <span>
-                            {message.senderType === "client" ? "Client" : "Chauffeur"}
+                            {message.senderType === "client" ? "Client" : "Loueur"}
                           </span>
                           <span>{new Date(message.createdAt).toLocaleString("fr-FR")}</span>
                         </div>
@@ -1184,7 +1183,7 @@ export function AdminMessages() {
                           : "border-gray-200 text-gray-600 hover:bg-gray-50"
                       }`}
                     >
-                      Chauffeur
+                      Loueur
                     </button>
                   </div>
                 </div>
@@ -1196,7 +1195,7 @@ export function AdminMessages() {
                   <div className="font-medium text-gray-700">Participants</div>
                   <div className="mt-1 text-gray-500">
                     {selectedConversation.clientName || "Client"} •{" "}
-                    {selectedConversation.driverName || "Chauffeur"}
+                    {selectedConversation.driverName || "Loueur"}
                   </div>
                 </div>
               </div>
@@ -1255,7 +1254,7 @@ export function AdminMessages() {
                       : "border-gray-200 text-gray-600 hover:bg-gray-50"
                   }`}
                 >
-                  Chauffeur
+                  Loueur
                 </button>
               </div>
 
@@ -1314,7 +1313,7 @@ export function AdminMessages() {
                     onChange={(e) => setDirectMessage(e.target.value)}
                     placeholder={
                       newRecipientType === "driver"
-                        ? "Écrire un message direct au chauffeur..."
+                        ? "Écrire un message direct au Loueur..."
                         : "Écrire un message direct au client..."
                     }
                     rows={4}
@@ -1353,7 +1352,7 @@ export function AdminMessages() {
                       >
                         <div>
                           <div className="font-medium text-gray-900">
-                            {order.clientName || "Client"} • {order.driverName || "Chauffeur"}
+                            {order.clientName || "Client"} • {order.driverName || "Loueur"}
                           </div>
                           <div className="text-xs text-gray-500">
                             {order.createdAt

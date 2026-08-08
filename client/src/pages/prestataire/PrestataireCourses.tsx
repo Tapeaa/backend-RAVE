@@ -1,5 +1,5 @@
 /**
- * Tape'a Back Office - Historique des Courses (Prestataire)
+ * RAVE — Réservations du prestataire / loueur
  */
 
 import { useEffect, useState } from 'react';
@@ -113,15 +113,15 @@ export function PrestataireCourses() {
     <div className="space-y-6">
       {/* Header */}
       <div>
-        <h1 className="text-2xl font-bold text-gray-900">Historique des courses</h1>
-        <p className="text-gray-600">Courses effectuées par vos chauffeurs</p>
+        <h1 className="text-2xl font-bold text-gray-900">Réservations</h1>
+        <p className="text-gray-600">Réservations de location liées à votre compte</p>
       </div>
 
       {/* Stats */}
       <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-5">
         <div className="rounded-2xl bg-white p-5 shadow-sm">
           <div className="text-3xl font-bold text-gray-900">{courses.length}</div>
-          <div className="text-sm text-gray-500">Total courses</div>
+          <div className="text-sm text-gray-500">Total réservations</div>
         </div>
         <div className="rounded-2xl bg-white p-5 shadow-sm">
           <div className="text-3xl font-bold text-green-600">{completedCourses.length}</div>
@@ -131,7 +131,7 @@ export function PrestataireCourses() {
           <div className="text-3xl font-bold text-purple-600">
             {totalRevenu.toLocaleString()} XPF
           </div>
-          <div className="text-sm text-gray-500">Revenus chauffeurs</div>
+          <div className="text-sm text-gray-500">Revenus locations</div>
         </div>
         <div className="rounded-2xl bg-white p-5 shadow-sm border-2 border-purple-200">
           <div className="text-3xl font-bold text-purple-600">

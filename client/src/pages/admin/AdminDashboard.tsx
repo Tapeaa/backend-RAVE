@@ -1,18 +1,16 @@
 /**
- * Tape'ā Back Office - Page Dashboard Admin
- * Vue d'ensemble avec statistiques et activités en temps réel
+ * RAVE Back Office — Tableau de bord location
  */
 
 import { useEffect, useState } from 'react';
-import { 
-  Users, Car, ClipboardList, DollarSign, 
+import {
+  Users, Car, ClipboardList,
   TrendingUp, Clock, CheckCircle, XCircle,
-  CreditCard, Activity, LayoutDashboard
+  CreditCard, Activity, LayoutDashboard, CarFront,
 } from 'lucide-react';
 import { StatsCard } from '@/components/admin/StatsCard';
 import { ActivityFeed } from '@/components/admin/ActivityFeed';
 import { PaymentTable } from '@/components/admin/PaymentTable';
-import { MapTracker } from '@/components/admin/MapTracker';
 import { CourseDetailsModal } from '@/components/admin/CourseDetailsModal';
 
 interface DashboardStats {
@@ -55,33 +53,42 @@ interface StripePayment {
   isNew?: boolean;
 }
 
-interface OnlineChauffeur {
-  id: string;
-  firstName: string;
-  lastName: string;
-  latitude: number | null;
-  longitude: number | null;
-  vehicleModel?: string | null;
-  vehiclePlate?: string | null;
+function isRentalActivity(activity: StripeActivity): boolean {
+  const desc = (activity.description || '').toLowerCase();
+  const type = (activity.eventType || '').toLowerCase();
+  return (
+    desc.includes('location') ||
+    desc.includes('rental') ||
+    desc.includes('réservation') ||
+    desc.includes('reservation') ||
+    type.includes('rental') ||
+    type === 'order_in_progress' ||
+    type === 'advance_booking' ||
+    type === 'order_pending' ||
+    type === 'order_accepted' ||
+    type === 'order_completed'
+  );
 }
 
 export function AdminDashboard() {
   const [stats, setStats] = useState<DashboardStats | null>(null);
   const [activities, setActivities] = useState<StripeActivity[]>([]);
   const [payments, setPayments] = useState<StripePayment[]>([]);
-  const [onlineChauffeurs, setOnlineChauffeurs] = useState<OnlineChauffeur[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [selectedOrderId, setSelectedOrderId] = useState<string | null>(null);
   const [isModalOpen, setIsModalOpen] = useState(false);
-
-  const googleMapsApiKey = import.meta.env.VITE_GOOGLE_MAPS_API_KEY || '';
 
   const handlePaymentClick = (paymentId: string) => {
     window.location.href = `/admin/commandes/${paymentId}`;
   };
 
   const handleActivityClick = (activity: StripeActivity) => {
-    if (activity.eventType === 'order_in_progress' || activity.eventType === 'advance_booking') {
+    if (
+      activity.eventType === 'order_in_progress' ||
+      activity.eventType === 'advance_booking' ||
+      activity.eventType === 'order_pending' ||
+      activity.eventType === 'order_accepted'
+    ) {
       setSelectedOrderId(activity.id);
       setIsModalOpen(true);
     }
@@ -94,14 +101,14 @@ export function AdminDashboard() {
 
   useEffect(() => {
     fetchDashboardData();
-    const interval = setInterval(fetchRealTimeData, 10000); // Refresh every 10s
+    const interval = setInterval(fetchRealTimeData, 15000);
     return () => clearInterval(interval);
   }, []);
 
   async function fetchDashboardData() {
     try {
       const token = localStorage.getItem('admin_token');
-      const [statsRes, paymentsRes, activitiesRes, chauffeursRes] = await Promise.all([
+      const [statsRes, paymentsRes, activitiesRes] = await Promise.all([
         fetch('/api/admin/dashboard/stats', {
           headers: { Authorization: `Bearer ${token}` },
         }),
@@ -109,9 +116,6 @@ export function AdminDashboard() {
           headers: { Authorization: `Bearer ${token}` },
         }),
         fetch('/api/admin/dashboard/activities', {
-          headers: { Authorization: `Bearer ${token}` },
-        }),
-        fetch('/api/admin/chauffeurs/locations', {
           headers: { Authorization: `Bearer ${token}` },
         }),
       ]);
@@ -130,19 +134,16 @@ export function AdminDashboard() {
           currency: p.currency,
           status: p.status,
           created: new Date(p.createdAt).getTime() / 1000,
-          description: p.paymentMethod === 'card' ? 'Paiement carte' : 'Paiement espèces',
+          description: p.paymentMethod === 'card' ? 'Paiement carte' : 'Paiement au loueur',
           receiptUrl: p.pdfUrl || undefined,
         })));
       }
 
       if (activitiesRes.ok) {
         const data = await activitiesRes.json();
-        setActivities(data.activities || []);
-      }
-
-      if (chauffeursRes.ok) {
-        const data = await chauffeursRes.json();
-        setOnlineChauffeurs(data.chauffeurs || []);
+        const list = (data.activities || []) as StripeActivity[];
+        const rentalOnly = list.filter(isRentalActivity);
+        setActivities(rentalOnly.length > 0 ? rentalOnly : list.slice(0, 20));
       }
     } catch (error) {
       console.error('Error fetching dashboard data:', error);
@@ -154,14 +155,11 @@ export function AdminDashboard() {
   async function fetchRealTimeData() {
     try {
       const token = localStorage.getItem('admin_token');
-      const [paymentsRes, activitiesRes, chauffeursRes] = await Promise.all([
+      const [paymentsRes, activitiesRes] = await Promise.all([
         fetch('/api/admin/stripe/payments', {
           headers: { Authorization: `Bearer ${token}` },
         }),
         fetch('/api/admin/dashboard/activities', {
-          headers: { Authorization: `Bearer ${token}` },
-        }),
-        fetch('/api/admin/chauffeurs/locations', {
           headers: { Authorization: `Bearer ${token}` },
         }),
       ]);
@@ -175,19 +173,16 @@ export function AdminDashboard() {
           currency: p.currency,
           status: p.status,
           created: new Date(p.createdAt).getTime() / 1000,
-          description: p.paymentMethod === 'card' ? 'Paiement carte' : 'Paiement espèces',
+          description: p.paymentMethod === 'card' ? 'Paiement carte' : 'Paiement au loueur',
           receiptUrl: p.pdfUrl || undefined,
         })));
       }
 
       if (activitiesRes.ok) {
         const data = await activitiesRes.json();
-        setActivities(data.activities || []);
-      }
-
-      if (chauffeursRes.ok) {
-        const data = await chauffeursRes.json();
-        setOnlineChauffeurs(data.chauffeurs || []);
+        const list = (data.activities || []) as StripeActivity[];
+        const rentalOnly = list.filter(isRentalActivity);
+        setActivities(rentalOnly.length > 0 ? rentalOnly : list.slice(0, 20));
       }
     } catch (error) {
       console.error('Error fetching real-time data:', error);
@@ -201,7 +196,7 @@ export function AdminDashboard() {
   if (isLoading) {
     return (
       <div className="flex h-64 items-center justify-center">
-        <div className="h-8 w-8 animate-spin rounded-full border-4 border-purple-600 border-t-transparent" />
+        <div className="h-8 w-8 animate-spin rounded-full border-4 border-amber-500 border-t-transparent" />
       </div>
     );
   }
@@ -212,56 +207,53 @@ export function AdminDashboard() {
 
   return (
     <div className="space-y-6">
-      {/* Header */}
       <div className="flex items-center gap-4">
-        <div className="flex h-14 w-14 items-center justify-center rounded-2xl bg-gradient-to-br from-purple-600 to-pink-600 shadow-lg shadow-purple-500/30">
-          <LayoutDashboard className="h-7 w-7 text-white" />
+        <div className="flex h-14 w-14 items-center justify-center rounded-2xl bg-gradient-to-br from-amber-400 to-yellow-500 shadow-lg shadow-amber-500/30">
+          <LayoutDashboard className="h-7 w-7 text-slate-900" />
         </div>
         <div>
           <h1 className="text-2xl font-bold text-slate-900">Tableau de Bord</h1>
-          <p className="text-slate-500">Vue d'ensemble et supervision du système Tape'ā</p>
+          <p className="text-slate-500">Vue d&apos;ensemble de la plateforme de location RAVE</p>
         </div>
       </div>
 
-      {/* Stats Grid */}
       <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
         <StatsCard
-          title="Revenus totaux"
+          title="Volume locations"
           value={formatCurrency(stats.revenusTotaux)}
           icon={<TrendingUp className="h-6 w-6" />}
           gradient="purple"
         />
         <StatsCard
-          title="Total commandes"
+          title="Réservations"
           value={stats.totalCommandes}
           icon={<ClipboardList className="h-6 w-6" />}
           gradient="green"
         />
         <StatsCard
-          title="Clients inscrits"
+          title="Clients"
           value={stats.totalClients}
           icon={<Users className="h-6 w-6" />}
           gradient="blue"
         />
         <StatsCard
-          title="Chauffeurs actifs"
-          value={stats.chauffeursActifs}
-          icon={<Car className="h-6 w-6" />}
+          title="Loueurs"
+          value={stats.totalChauffeurs}
+          icon={<CarFront className="h-6 w-6" />}
           gradient="orange"
-          subtitle={`${stats.chauffeursEnLigne || 0} en ligne`}
+          subtitle={`${stats.chauffeursActifs || 0} actifs`}
         />
       </div>
 
-      {/* Second Row Stats */}
       <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
         <StatsCard
-          title="Commandes terminées"
+          title="Terminées"
           value={stats.commandesTerminees}
           icon={<CheckCircle className="h-6 w-6" />}
           gradient="green"
         />
         <StatsCard
-          title="Commandes en cours"
+          title="En cours"
           value={stats.commandesEnCours}
           icon={<Clock className="h-6 w-6" />}
           gradient="blue"
@@ -280,54 +272,42 @@ export function AdminDashboard() {
         />
       </div>
 
-      {/* Main Content Grid */}
       <div className="grid gap-6 lg:grid-cols-2">
-        {/* Commandes terminées */}
         <div className="rounded-xl bg-white p-6 shadow-sm">
           <div className="mb-4 flex items-center gap-2">
-            <div className="rounded-lg bg-gradient-to-r from-purple-500 to-purple-700 p-2">
-              <CreditCard className="h-5 w-5 text-white" />
+            <div className="rounded-lg bg-gradient-to-r from-amber-400 to-yellow-500 p-2">
+              <CreditCard className="h-5 w-5 text-slate-900" />
             </div>
-            <h2 className="text-lg font-semibold text-gray-900">Commandes terminées</h2>
+            <h2 className="text-lg font-semibold text-gray-900">Dernières réservations payées</h2>
           </div>
           <PaymentTable payments={payments} onRowClick={handlePaymentClick} />
         </div>
 
-        {/* Client Activities */}
         <div className="rounded-xl bg-white p-6 shadow-sm">
           <div className="mb-4 flex items-center justify-between">
             <div className="flex items-center gap-2">
-              <div className="rounded-lg bg-gradient-to-r from-blue-500 to-blue-700 p-2">
+              <div className="rounded-lg bg-gradient-to-r from-slate-600 to-slate-800 p-2">
                 <Activity className="h-5 w-5 text-white" />
               </div>
-              <h2 className="text-lg font-semibold text-gray-900">Activités en direct</h2>
+              <h2 className="text-lg font-semibold text-gray-900">Activité récente</h2>
             </div>
-            <span className="rounded-full bg-blue-100 px-2 py-1 text-xs font-medium text-blue-700">
-              {activities.length} activité(s)
+            <span className="rounded-full bg-amber-100 px-2 py-1 text-xs font-medium text-amber-800">
+              {activities.length} événement(s)
             </span>
           </div>
           <ActivityFeed activities={activities} onActivityClick={handleActivityClick} />
         </div>
       </div>
 
-      {/* Map */}
-      {googleMapsApiKey && (
-        <div className="rounded-xl bg-white p-6 shadow-sm">
-          <div className="mb-4 flex items-center gap-2">
-            <div className="rounded-lg bg-gradient-to-r from-green-500 to-green-700 p-2">
-              <Car className="h-5 w-5 text-white" />
-            </div>
-            <h2 className="text-lg font-semibold text-gray-900">Chauffeurs en ligne</h2>
-          </div>
-          <MapTracker
-            chauffeurs={onlineChauffeurs}
-            apiKey={googleMapsApiKey}
-            heightClass="h-[420px]"
-          />
+      <div className="rounded-xl bg-white p-6 shadow-sm border border-amber-100">
+        <div className="flex items-center gap-3">
+          <Car className="h-5 w-5 text-amber-600" />
+          <p className="text-sm text-slate-600">
+            Plateforme location RAVE — paiement au loueur. Gérez les véhicules, loueurs et réservations depuis le menu.
+          </p>
         </div>
-      )}
+      </div>
 
-      {/* Modal de détails de course */}
       <CourseDetailsModal
         orderId={selectedOrderId}
         isOpen={isModalOpen}

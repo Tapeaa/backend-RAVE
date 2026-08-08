@@ -6,7 +6,7 @@ import { TooltipProvider } from "@/components/ui/tooltip";
 import NotFound from "@/pages/not-found";
 import { AuthProvider } from "@/lib/AuthContext";
 
-// Admin pages (back office uniquement)
+// Admin pages (back office location RAVE)
 import { AdminLogin } from "@/pages/admin/AdminLogin";
 import { AdminDashboard } from "@/pages/admin/AdminDashboard";
 import { AdminClients } from "@/pages/admin/AdminClients";
@@ -15,33 +15,33 @@ import { AdminChauffeurs } from "@/pages/admin/AdminChauffeurs";
 import { AdminChauffeurDetails } from "@/pages/admin/AdminChauffeurDetails";
 import { AdminCommandes } from "@/pages/admin/AdminCommandes";
 import { AdminCommandeDetails } from "@/pages/admin/AdminCommandeDetails";
-import { AdminTarifs } from "@/pages/admin/AdminTarifs";
 import { AdminPaiements } from "@/pages/admin/AdminPaiements";
 import { AdminCarousel } from "@/pages/admin/AdminCarousel";
 import { AdminMessages } from "@/pages/admin/AdminMessages";
 import { AdminPrestataires } from "@/pages/admin/AdminPrestataires";
 import { AdminPrestataireDetails } from "@/pages/admin/AdminPrestataireDetails";
-import { AdminCollecte } from "@/pages/admin/AdminCollecte";
-import { AdminCollecteDetails } from "@/pages/admin/AdminCollecteDetails";
-import { AdminAWS2023 } from "@/pages/admin/AdminAWS2023";
 import { AdminVehicles } from "@/pages/admin/AdminVehicles";
 import { AdminProtectedRoute } from "@/components/AdminProtectedRoute";
 import { AdminLayout } from "@/components/admin/AdminLayout";
 
 // Prestataire pages
-import { PrestataireDashboard, PrestataireProfil, PrestataireChauffeurs, PrestataireCourses, PrestataireCourseDetails, PrestataireCollecte, PrestataireCollecteDetails, PrestataireMesVehicules } from "@/pages/prestataire";
+import {
+  PrestataireDashboard,
+  PrestataireProfil,
+  PrestataireCourses,
+  PrestataireCourseDetails,
+  PrestataireMesVehicules,
+} from "@/pages/prestataire";
 import { PrestataireLayout } from "@/pages/prestataire/PrestataireLayout";
 import { PrestataireProtectedRoute } from "@/components/PrestataireProtectedRoute";
 
 function Router() {
   return (
     <Switch>
-      {/* Rediriger la racine vers le dashboard admin */}
       <Route path="/">
         {() => <Redirect to="/admin" />}
       </Route>
-      
-      {/* Admin routes (back office uniquement) */}
+
       <Route path="/admin/login" component={AdminLogin} />
       <Route path="/admin">
         {() => (
@@ -66,15 +66,6 @@ function Router() {
           <AdminProtectedRoute>
             <AdminLayout>
               <AdminChauffeurs />
-            </AdminLayout>
-          </AdminProtectedRoute>
-        )}
-      </Route>
-      <Route path="/admin/tarifs">
-        {() => (
-          <AdminProtectedRoute>
-            <AdminLayout>
-              <AdminTarifs />
             </AdminLayout>
           </AdminProtectedRoute>
         )}
@@ -160,24 +151,6 @@ function Router() {
           </AdminProtectedRoute>
         )}
       </Route>
-      <Route path="/admin/collecte">
-        {() => (
-          <AdminProtectedRoute>
-            <AdminLayout>
-              <AdminCollecte />
-            </AdminLayout>
-          </AdminProtectedRoute>
-        )}
-      </Route>
-      <Route path="/admin/collecte/:id">
-        {() => (
-          <AdminProtectedRoute>
-            <AdminLayout>
-              <AdminCollecteDetails />
-            </AdminLayout>
-          </AdminProtectedRoute>
-        )}
-      </Route>
       <Route path="/admin/vehicles">
         {() => (
           <AdminProtectedRoute>
@@ -187,17 +160,14 @@ function Router() {
           </AdminProtectedRoute>
         )}
       </Route>
-      <Route path="/admin/aws-2023">
-        {() => (
-          <AdminProtectedRoute>
-            <AdminLayout>
-              <AdminAWS2023 />
-            </AdminLayout>
-          </AdminProtectedRoute>
-        )}
-      </Route>
-      
-      {/* Prestataire routes */}
+
+      {/* Anciennes routes taxi → redirect */}
+      <Route path="/admin/tarifs">{() => <Redirect to="/admin" />}</Route>
+      <Route path="/admin/collecte">{() => <Redirect to="/admin" />}</Route>
+      <Route path="/admin/collecte/:id">{() => <Redirect to="/admin" />}</Route>
+      <Route path="/admin/aws-2023">{() => <Redirect to="/admin" />}</Route>
+
+      {/* Prestataire (loueur) */}
       <Route path="/prestataire">
         {() => (
           <PrestataireProtectedRoute>
@@ -207,11 +177,11 @@ function Router() {
           </PrestataireProtectedRoute>
         )}
       </Route>
-      <Route path="/prestataire/chauffeurs">
+      <Route path="/prestataire/profil">
         {() => (
           <PrestataireProtectedRoute>
             <PrestataireLayout>
-              <PrestataireChauffeurs />
+              <PrestataireProfil />
             </PrestataireLayout>
           </PrestataireProtectedRoute>
         )}
@@ -243,25 +213,10 @@ function Router() {
           </PrestataireProtectedRoute>
         )}
       </Route>
-      <Route path="/prestataire/collecte">
-        {() => (
-          <PrestataireProtectedRoute>
-            <PrestataireLayout>
-              <PrestataireCollecte />
-            </PrestataireLayout>
-          </PrestataireProtectedRoute>
-        )}
-      </Route>
-      <Route path="/prestataire/collecte/:id">
-        {() => (
-          <PrestataireProtectedRoute>
-            <PrestataireLayout>
-              <PrestataireCollecteDetails />
-            </PrestataireLayout>
-          </PrestataireProtectedRoute>
-        )}
-      </Route>
-      
+      <Route path="/prestataire/chauffeurs">{() => <Redirect to="/prestataire" />}</Route>
+      <Route path="/prestataire/collecte">{() => <Redirect to="/prestataire" />}</Route>
+      <Route path="/prestataire/collecte/:id">{() => <Redirect to="/prestataire" />}</Route>
+
       <Route component={NotFound} />
     </Switch>
   );

@@ -1,6 +1,5 @@
 /**
- * Tape'a Back Office - Dashboard Prestataire
- * Vue d'ensemble pour les prestataires (sociétés et patentés)
+ * RAVE — Dashboard prestataire / loueur
  */
 
 import { useEffect, useState } from 'react';
@@ -117,10 +116,13 @@ export function PrestataireDashboard() {
             <div>
               <h1 className="text-2xl font-bold text-white">{prestataire?.nom}</h1>
               <p className="text-purple-200">
-                {prestataire?.isSociete 
-                  ? `Société de transport`
-                  : 'Chauffeur indépendant'
-                }
+                {prestataire?.type === 'agence_location'
+                  ? 'Agence de location'
+                  : prestataire?.type === 'loueur_individuel'
+                    ? 'Loueur individuel'
+                    : prestataire?.isSociete
+                      ? 'Agence'
+                      : 'Loueur'}
               </p>
             </div>
           </div>
@@ -129,21 +131,15 @@ export function PrestataireDashboard() {
           <div className="mt-6 grid grid-cols-2 gap-4 sm:grid-cols-4">
             <div className="rounded-xl bg-white/10 p-4 backdrop-blur-sm">
               <div className="text-2xl font-bold text-white">{stats?.totalCourses || 0}</div>
-              <div className="text-sm text-purple-200">Total courses</div>
+              <div className="text-sm text-purple-200">Réservations</div>
             </div>
             <div className="rounded-xl bg-white/10 p-4 backdrop-blur-sm">
               <div className="text-2xl font-bold text-white">{stats?.revenusGlobal?.toLocaleString() || 0}</div>
-              <div className="text-sm text-purple-200">XPF gagnés</div>
+              <div className="text-sm text-purple-200">XPF locations</div>
             </div>
-            {prestataire?.isSociete && (
-              <div className="rounded-xl bg-white/10 p-4 backdrop-blur-sm">
-                <div className="text-2xl font-bold text-white">{stats?.totalChauffeurs || 0}</div>
-                <div className="text-sm text-purple-200">Chauffeurs</div>
-              </div>
-            )}
             <div className="rounded-xl bg-white/10 p-4 backdrop-blur-sm">
               <div className="text-2xl font-bold text-yellow-300">{stats?.commissionsDues?.toLocaleString() || 0}</div>
-              <div className="text-sm text-purple-200">XPF à payer</div>
+              <div className="text-sm text-purple-200">XPF commissions</div>
             </div>
           </div>
         </div>
@@ -186,7 +182,7 @@ export function PrestataireDashboard() {
             <div className="text-3xl font-bold text-gray-900">
               {stats?.coursesMois || 0}
             </div>
-            <div className="text-sm font-medium text-gray-500">Courses ce mois</div>
+            <div className="text-sm font-medium text-gray-500">Locations ce mois</div>
           </div>
         </div>
 
@@ -206,42 +202,40 @@ export function PrestataireDashboard() {
 
       {/* Quick Links */}
       <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3">
-        {prestataire?.isSociete && (
-          <Link href="/prestataire/chauffeurs">
-            <div className="group flex cursor-pointer items-center gap-4 rounded-2xl bg-white p-5 shadow-sm transition-all hover:shadow-lg hover:ring-2 hover:ring-purple-500/20">
-              <div className="flex h-14 w-14 items-center justify-center rounded-xl bg-gradient-to-br from-blue-500 to-blue-600 shadow-lg shadow-blue-500/30">
-                <Users className="h-7 w-7 text-white" />
-              </div>
-              <div className="flex-1">
-                <div className="font-semibold text-gray-900">Mes chauffeurs</div>
-                <div className="text-sm text-gray-500">{stats?.totalChauffeurs || 0} chauffeurs actifs</div>
-              </div>
-              <ArrowRight className="h-5 w-5 text-gray-400 transition-transform group-hover:translate-x-1" />
-            </div>
-          </Link>
-        )}
-
-        <Link href="/prestataire/collecte">
-          <div className="group flex cursor-pointer items-center gap-4 rounded-2xl bg-white p-5 shadow-sm transition-all hover:shadow-lg hover:ring-2 hover:ring-purple-500/20">
-            <div className="flex h-14 w-14 items-center justify-center rounded-xl bg-gradient-to-br from-orange-500 to-orange-600 shadow-lg shadow-orange-500/30">
-              <Wallet className="h-7 w-7 text-white" />
+        <Link href="/prestataire/vehicles">
+          <div className="group flex cursor-pointer items-center gap-4 rounded-2xl bg-white p-5 shadow-sm transition-all hover:shadow-lg hover:ring-2 hover:ring-amber-500/20">
+            <div className="flex h-14 w-14 items-center justify-center rounded-xl bg-gradient-to-br from-amber-400 to-yellow-500 shadow-lg shadow-amber-500/30">
+              <Car className="h-7 w-7 text-slate-900" />
             </div>
             <div className="flex-1">
-              <div className="font-semibold text-gray-900">Frais de commission</div>
-              <div className="text-sm text-gray-500">{stats?.commissionsDues?.toLocaleString() || 0} XPF à payer</div>
+              <div className="font-semibold text-gray-900">Mes véhicules</div>
+              <div className="text-sm text-gray-500">Gérer mon parc location</div>
             </div>
             <ArrowRight className="h-5 w-5 text-gray-400 transition-transform group-hover:translate-x-1" />
           </div>
         </Link>
 
         <Link href="/prestataire/courses">
-          <div className="group flex cursor-pointer items-center gap-4 rounded-2xl bg-white p-5 shadow-sm transition-all hover:shadow-lg hover:ring-2 hover:ring-purple-500/20">
+          <div className="group flex cursor-pointer items-center gap-4 rounded-2xl bg-white p-5 shadow-sm transition-all hover:shadow-lg hover:ring-2 hover:ring-amber-500/20">
             <div className="flex h-14 w-14 items-center justify-center rounded-xl bg-gradient-to-br from-green-500 to-green-600 shadow-lg shadow-green-500/30">
               <Car className="h-7 w-7 text-white" />
             </div>
             <div className="flex-1">
-              <div className="font-semibold text-gray-900">Historique complet</div>
-              <div className="text-sm text-gray-500">Voir toutes les courses</div>
+              <div className="font-semibold text-gray-900">Réservations</div>
+              <div className="text-sm text-gray-500">Voir toutes les locations</div>
+            </div>
+            <ArrowRight className="h-5 w-5 text-gray-400 transition-transform group-hover:translate-x-1" />
+          </div>
+        </Link>
+
+        <Link href="/prestataire/profil">
+          <div className="group flex cursor-pointer items-center gap-4 rounded-2xl bg-white p-5 shadow-sm transition-all hover:shadow-lg hover:ring-2 hover:ring-amber-500/20">
+            <div className="flex h-14 w-14 items-center justify-center rounded-xl bg-gradient-to-br from-slate-600 to-slate-800 shadow-lg">
+              <Users className="h-7 w-7 text-white" />
+            </div>
+            <div className="flex-1">
+              <div className="font-semibold text-gray-900">Mon profil</div>
+              <div className="text-sm text-gray-500">Infos prestataire RAVE</div>
             </div>
             <ArrowRight className="h-5 w-5 text-gray-400 transition-transform group-hover:translate-x-1" />
           </div>
@@ -252,8 +246,8 @@ export function PrestataireDashboard() {
       <div className="rounded-2xl bg-white shadow-sm">
         <div className="flex items-center justify-between border-b border-gray-100 px-6 py-4">
           <div>
-            <h2 className="text-lg font-semibold text-gray-900">Dernières courses</h2>
-            <p className="text-sm text-gray-500">Historique des courses récentes</p>
+            <h2 className="text-lg font-semibold text-gray-900">Dernières réservations</h2>
+            <p className="text-sm text-gray-500">Locations récentes</p>
           </div>
           <Link href="/prestataire/courses">
             <button className="text-sm font-medium text-purple-600 hover:text-purple-700">
@@ -265,8 +259,8 @@ export function PrestataireDashboard() {
         {recentCourses.length === 0 ? (
           <div className="flex flex-col items-center justify-center py-12 text-gray-500">
             <Car className="mb-3 h-12 w-12 text-gray-300" />
-            <p className="font-medium">Aucune course</p>
-            <p className="text-sm">Les courses apparaîtront ici</p>
+            <p className="font-medium">Aucune réservation</p>
+            <p className="text-sm">Les locations apparaîtront ici</p>
           </div>
         ) : (
           <>

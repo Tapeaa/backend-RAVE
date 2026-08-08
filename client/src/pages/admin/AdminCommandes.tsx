@@ -1,6 +1,5 @@
 /**
- * Tape'ā Back Office - Page Commandes
- * Liste de toutes les commandes avec tri et filtres
+ * RAVE Back Office - Réservations location
  */
 
 import { useEffect, useState } from 'react';
@@ -74,8 +73,8 @@ export function AdminCommandes() {
     const statusConfig: Record<string, { label: string; color: string }> = {
       pending: { label: 'En attente', color: 'bg-amber-100 text-amber-700 border-amber-200' },
       accepted: { label: 'Acceptée', color: 'bg-blue-100 text-blue-700 border-blue-200' },
-      driver_enroute: { label: 'Chauffeur en route', color: 'bg-purple-100 text-purple-700 border-purple-200' },
-      driver_arrived: { label: 'Chauffeur arrivé', color: 'bg-indigo-100 text-indigo-700 border-indigo-200' },
+      driver_enroute: { label: 'Loueur en route', color: 'bg-purple-100 text-purple-700 border-purple-200' },
+      driver_arrived: { label: 'Loueur arrivé', color: 'bg-indigo-100 text-indigo-700 border-indigo-200' },
       in_progress: { label: 'En cours', color: 'bg-orange-100 text-orange-700 border-orange-200' },
       completed: { label: 'Terminée', color: 'bg-green-100 text-green-700 border-green-200' },
       payment_pending: { label: 'Paiement en attente', color: 'bg-amber-100 text-amber-700 border-amber-200' },
@@ -108,15 +107,17 @@ export function AdminCommandes() {
     });
   }
 
-  // Filtrage et tri
+  // Filtrage : locations en priorité (RAVE), puis recherche / paiement
   let filteredCommandes = commandes.filter((c) => {
-    const matchesSearch = 
+    if (!isRentalOrder(c)) return false;
+
+    const matchesSearch =
       c.clientName.toLowerCase().includes(searchTerm.toLowerCase()) ||
       c.clientPhone.includes(searchTerm) ||
       c.id.toLowerCase().includes(searchTerm.toLowerCase());
-    
+
     const matchesPayment = !paymentFilter || c.paymentMethod === paymentFilter;
-    
+
     return matchesSearch && matchesPayment;
   });
 
@@ -168,8 +169,8 @@ export function AdminCommandes() {
           <ClipboardList className="h-6 w-6 sm:h-7 sm:w-7 text-white" />
         </div>
         <div>
-          <h1 className="text-xl sm:text-2xl font-bold text-slate-900">Commandes</h1>
-          <p className="text-sm sm:text-base text-slate-500">Gestion de toutes les courses</p>
+          <h1 className="text-xl sm:text-2xl font-bold text-slate-900">Réservations</h1>
+          <p className="text-sm sm:text-base text-slate-500">Locations de véhicules RAVE</p>
         </div>
       </div>
 

@@ -1,5 +1,5 @@
 /**
- * Tape'a Back Office - Page Gestion des Prestataires
+ * RAVE Back Office - Prestataires (loueurs / agences)
  * Liste et gestion des sociétés de transport et patentés
  */
 
@@ -49,7 +49,7 @@ export function AdminPrestataires() {
 
   const [formData, setFormData] = useState({
     nom: '',
-    type: 'societe_taxi' as Prestataire['type'],
+    type: 'loueur_individuel' as Prestataire['type'],
     numeroTahiti: '',
     email: '',
     phone: '',
@@ -125,7 +125,7 @@ export function AdminPrestataires() {
         await fetchPrestataires();
         setFormData({
           nom: '',
-          type: 'societe_taxi',
+          type: 'loueur_individuel',
           numeroTahiti: '',
           email: '',
           phone: '',
@@ -165,7 +165,7 @@ export function AdminPrestataires() {
           </div>
           <div>
             <h1 className="text-2xl font-bold text-slate-900">Prestataires</h1>
-            <p className="text-slate-500">Gérez les sociétés de transport et patentés</p>
+            <p className="text-slate-500">Agences de location et loueurs individuels RAVE</p>
           </div>
         </div>
         <button
@@ -471,16 +471,8 @@ export function AdminPrestataires() {
                       onChange={(e) => setFormData({ ...formData, type: e.target.value as Prestataire['type'] })}
                       className="w-full rounded-lg border border-gray-300 px-3 py-2 focus:border-purple-500 focus:outline-none"
                     >
-                      <optgroup label="Transport">
-                        <option value="societe_taxi">Société Taxi</option>
-                        <option value="societe_tourisme">Société Transport Touristique</option>
-                        <option value="patente_taxi">Taxi Patenté</option>
-                        <option value="patente_tourisme">Transport Touristique Patenté</option>
-                      </optgroup>
-                      <optgroup label="Location RAVE">
-                        <option value="agence_location">Agence de Location</option>
-                        <option value="loueur_individuel">Loueur Individuel</option>
-                      </optgroup>
+                      <option value="loueur_individuel">Loueur Individuel</option>
+                      <option value="agence_location">Agence de Location</option>
                     </select>
                   </div>
 

@@ -1,5 +1,5 @@
 /**
- * Tape'ā Back Office - Détails d'une commande
+ * RAVE Back Office - Détails d'une réservation
  */
 
 import { useEffect, useState } from 'react';
@@ -156,8 +156,8 @@ export function AdminCommandeDetails() {
     const statusConfig: Record<string, { label: string; color: string }> = {
       pending: { label: 'En attente', color: 'bg-yellow-100 text-yellow-700' },
       accepted: { label: 'Acceptée', color: 'bg-blue-100 text-blue-700' },
-      driver_enroute: { label: 'Chauffeur en route', color: 'bg-purple-100 text-purple-700' },
-      driver_arrived: { label: 'Chauffeur arrivé', color: 'bg-indigo-100 text-indigo-700' },
+      driver_enroute: { label: 'Loueur en route', color: 'bg-purple-100 text-purple-700' },
+      driver_arrived: { label: 'Loueur arrivé', color: 'bg-indigo-100 text-indigo-700' },
       in_progress: { label: 'En cours', color: 'bg-orange-100 text-orange-700' },
       completed: { label: 'Terminée', color: 'bg-green-100 text-green-700' },
       payment_pending: { label: 'Paiement en attente', color: 'bg-yellow-100 text-yellow-700' },
@@ -200,7 +200,7 @@ export function AdminCommandeDetails() {
   if (!details || !details.commande) {
     return (
       <div className="text-center text-red-600">
-        Commande non trouvée
+        Réservation introuvable
       </div>
     );
   }
@@ -238,7 +238,7 @@ export function AdminCommandeDetails() {
           </button>
           <div>
             <nav className="flex items-center gap-2 text-sm text-gray-500">
-              <button onClick={() => setLocation('/admin/commandes')} className="hover:text-purple-600">Commandes</button>
+              <button onClick={() => setLocation('/admin/commandes')} className="hover:text-purple-600">Réservations</button>
               <span>/</span>
               <span className="font-medium text-gray-900 truncate max-w-[180px]" title={commande.id}>
                 {commande.id.slice(0, 8).toUpperCase()}…
@@ -279,7 +279,7 @@ export function AdminCommandeDetails() {
         </div>
         <div className="rounded-xl border border-gray-200/80 bg-white p-3 sm:p-4 shadow-sm">
           <p className="text-xs font-medium uppercase tracking-wider text-gray-500">
-            {isRental ? 'Véhicule' : 'Chauffeur'}
+            {isRental ? 'Véhicule' : 'Loueur'}
           </p>
           <p className="mt-1 text-xs sm:text-sm font-semibold text-gray-900 truncate" title={isRental ? commande.rideOption?.title : (chauffeur ? `${chauffeur.firstName} ${chauffeur.lastName}` : '—')}>
             {isRental ? commande.rideOption?.title : (chauffeur ? `${chauffeur.firstName} ${chauffeur.lastName}` : '—')}
@@ -457,7 +457,7 @@ export function AdminCommandeDetails() {
                 <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-violet-100">
                   <Car className="h-4 w-4 text-violet-600" />
                 </div>
-                Chauffeur
+                Loueur
               </h2>
               {chauffeur ? (
                 <div className="space-y-1.5 sm:space-y-2">
@@ -489,7 +489,7 @@ export function AdminCommandeDetails() {
             </h2>
             <div className="grid gap-3 sm:gap-4 grid-cols-1 sm:grid-cols-2">
               <div className="rounded-lg border border-gray-100 p-3 sm:p-4">
-                <h3 className="text-xs font-medium text-gray-500 mb-2">Client → Chauffeur</h3>
+                <h3 className="text-xs font-medium text-gray-500 mb-2">Client → Loueur</h3>
                 {ratings?.client ? (
                   <>
                     <div className="flex items-center gap-2">
@@ -505,7 +505,7 @@ export function AdminCommandeDetails() {
                 )}
               </div>
               <div className="rounded-lg border border-gray-100 p-3 sm:p-4">
-                <h3 className="text-xs font-medium text-gray-500 mb-2">Chauffeur → Client</h3>
+                <h3 className="text-xs font-medium text-gray-500 mb-2">Loueur → Client</h3>
                 {ratings?.chauffeur ? (
                   <>
                     <div className="flex items-center gap-2">
@@ -722,7 +722,7 @@ export function AdminCommandeDetails() {
                         </div>
                         {isSalarieTapea && (
                           <div className="rounded-lg bg-gray-50 p-3 text-sm text-gray-600 mt-3">
-                            Chauffeur salarié TAPEA — Pas de frais de service ni commission prestataire appliqués.
+                            Loueur RAVE — Pas de frais de service ni commission prestataire appliqués.
                           </div>
                         )}
                       </div>

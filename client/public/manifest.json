@@ -1,11 +1,11 @@
 {
-  "name": "TĀPE'A - VTC Polynésie",
-  "short_name": "TĀPE'A",
-  "description": "Application de réservation de VTC en Polynésie française",
+  "name": "RAVE — Back Office Location",
+  "short_name": "RAVE",
+  "description": "Back office RAVE — location de véhicules en Polynésie française",
   "start_url": "/",
   "display": "standalone",
   "orientation": "portrait",
   "background_color": "#ffffff",
-  "theme_color": "#ffdf6d",
-  "categories": ["transportation", "travel"]
+  "theme_color": "#F5C400",
+  "categories": ["travel", "business"]
 }

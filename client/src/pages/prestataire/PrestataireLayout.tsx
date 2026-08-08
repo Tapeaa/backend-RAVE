@@ -1,16 +1,13 @@
 /**
- * Tape'a Back Office - Layout Prestataire
- * Navigation et structure pour les prestataires
+ * RAVE — Layout Prestataire / Loueur
  */
 
 import { useEffect, useState } from 'react';
-import { Link, useLocation, useRoute } from 'wouter';
+import { Link, useLocation } from 'wouter';
 import {
-  Car,
   CarFront,
   LayoutDashboard,
-  Users,
-  Wallet,
+  ClipboardList,
   LogOut,
   Menu,
   X,
@@ -69,19 +66,11 @@ export function PrestataireLayout({ children }: Props) {
     setLocation('/admin/login');
   }
 
-  const isLoueurType = prestataire?.type === 'agence_location' || prestataire?.type === 'loueur_individuel';
-
   const navItems = [
     { href: '/prestataire', icon: LayoutDashboard, label: 'Dashboard', exact: true },
     { href: '/prestataire/profil', icon: User, label: 'Profil', exact: false },
-    ...(prestataire?.isSociete
-      ? [{ href: '/prestataire/chauffeurs', icon: Users, label: 'Chauffeurs', exact: false }]
-      : []),
-    ...(isLoueurType
-      ? [{ href: '/prestataire/vehicles', icon: CarFront, label: 'Mes Véhicules', exact: false }]
-      : []),
-    { href: '/prestataire/courses', icon: Car, label: isLoueurType ? 'Réservations' : 'Courses', exact: false },
-    { href: '/prestataire/collecte', icon: Wallet, label: 'Frais', exact: false },
+    { href: '/prestataire/vehicles', icon: CarFront, label: 'Mes Véhicules', exact: false },
+    { href: '/prestataire/courses', icon: ClipboardList, label: 'Réservations', exact: false },
   ];
 
   const isActive = (href: string, exact: boolean) => {
@@ -89,42 +78,45 @@ export function PrestataireLayout({ children }: Props) {
     return location.startsWith(href);
   };
 
+  const typeLabel =
+    prestataire?.type === 'agence_location'
+      ? 'Agence de location'
+      : prestataire?.type === 'loueur_individuel'
+        ? 'Loueur individuel'
+        : prestataire?.isSociete
+          ? 'Société'
+          : 'Indépendant';
+
   return (
     <div className="flex min-h-screen bg-gray-100">
-      {/* Sidebar Desktop */}
       <aside className="hidden w-64 flex-shrink-0 bg-white shadow-lg lg:block">
         <div className="flex h-full flex-col">
-          {/* Logo */}
           <div className="flex h-16 items-center justify-center border-b px-4">
             <div className="flex items-center gap-2">
-              <div className="flex h-10 w-10 items-center justify-center rounded-lg bg-gradient-to-br from-purple-600 to-purple-800">
-                <Building2 className="h-5 w-5 text-white" />
+              <div className="flex h-10 w-10 items-center justify-center rounded-lg bg-gradient-to-br from-amber-400 to-yellow-500">
+                <Building2 className="h-5 w-5 text-slate-900" />
               </div>
               <div>
-                <span className="text-lg font-bold text-gray-900">Tape'a</span>
-                <span className="ml-1 text-xs text-purple-600">PRO</span>
+                <span className="text-lg font-bold text-gray-900">RAVE</span>
+                <span className="ml-1 text-xs text-amber-600">Loueur</span>
               </div>
             </div>
           </div>
 
-          {/* Prestataire Info */}
           <div className="border-b p-4">
             <div className="text-sm font-medium text-gray-900 truncate">
               {prestataire?.nom || 'Chargement...'}
             </div>
-            <div className="text-xs text-gray-500">
-              {prestataire?.isSociete ? 'Société' : 'Indépendant'}
-            </div>
+            <div className="text-xs text-gray-500">{typeLabel}</div>
           </div>
 
-          {/* Navigation */}
           <nav className="flex-1 p-4 space-y-1">
             {navItems.map((item) => (
               <Link key={item.href} href={item.href}>
                 <div
                   className={`flex items-center gap-3 rounded-lg px-3 py-2 transition-colors cursor-pointer ${
                     isActive(item.href, item.exact)
-                      ? 'bg-purple-100 text-purple-700'
+                      ? 'bg-amber-100 text-amber-800'
                       : 'text-gray-600 hover:bg-gray-100'
                   }`}
                 >
@@ -135,7 +127,6 @@ export function PrestataireLayout({ children }: Props) {
             ))}
           </nav>
 
-          {/* Logout */}
           <div className="border-t p-4">
             <button
               onClick={handleLogout}
@@ -148,15 +139,13 @@ export function PrestataireLayout({ children }: Props) {
         </div>
       </aside>
 
-      {/* Main Content */}
       <div className="flex flex-1 flex-col">
-        {/* Mobile Header */}
         <header className="flex h-16 items-center justify-between bg-white px-4 shadow-sm lg:hidden">
           <div className="flex items-center gap-2">
-            <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-gradient-to-br from-purple-600 to-purple-800">
-              <Building2 className="h-4 w-4 text-white" />
+            <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-gradient-to-br from-amber-400 to-yellow-500">
+              <Building2 className="h-4 w-4 text-slate-900" />
             </div>
-            <span className="font-bold text-gray-900">Tape'a PRO</span>
+            <span className="font-bold text-gray-900">RAVE Loueur</span>
           </div>
           <button
             onClick={() => setIsMobileMenuOpen(!isMobileMenuOpen)}
@@ -166,16 +155,11 @@ export function PrestataireLayout({ children }: Props) {
           </button>
         </header>
 
-        {/* Mobile Menu */}
         {isMobileMenuOpen && (
           <div className="absolute inset-x-0 top-16 z-50 bg-white shadow-lg lg:hidden">
             <div className="p-4 border-b">
-              <div className="text-sm font-medium text-gray-900">
-                {prestataire?.nom}
-              </div>
-              <div className="text-xs text-gray-500">
-                {prestataire?.isSociete ? 'Société' : 'Indépendant'}
-              </div>
+              <div className="text-sm font-medium text-gray-900">{prestataire?.nom}</div>
+              <div className="text-xs text-gray-500">{typeLabel}</div>
             </div>
             <nav className="p-4 space-y-1">
               {navItems.map((item) => (
@@ -184,7 +168,7 @@ export function PrestataireLayout({ children }: Props) {
                     onClick={() => setIsMobileMenuOpen(false)}
                     className={`flex items-center gap-3 rounded-lg px-3 py-2 cursor-pointer ${
                       isActive(item.href, item.exact)
-                        ? 'bg-purple-100 text-purple-700'
+                        ? 'bg-amber-100 text-amber-800'
                         : 'text-gray-600'
                     }`}
                   >
@@ -206,10 +190,7 @@ export function PrestataireLayout({ children }: Props) {
           </div>
         )}
 
-        {/* Page Content */}
-        <main className="flex-1 overflow-auto p-4 lg:p-6">
-          {children}
-        </main>
+        <main className="flex-1 overflow-auto p-4 lg:p-6">{children}</main>
       </div>
     </div>
   );

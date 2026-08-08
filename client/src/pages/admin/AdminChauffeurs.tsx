@@ -1,5 +1,5 @@
 /**
- * Tape'ā Back Office - Liste des chauffeurs
+ * RAVE Back Office - Liste des loueurs
  */
 
 import { useEffect, useState } from 'react';
@@ -20,31 +20,27 @@ interface Chauffeur {
   createdAt: string;
 }
 
-// Fonction pour déterminer le type d'affichage du chauffeur
 function getDriverTypeDisplay(chauffeur: Chauffeur) {
-  // Si c'est un patenté, afficher "Patenté"
   if (chauffeur.typeChauffeur === 'patente') {
     return {
-      label: 'Patenté',
+      label: 'Loueur indépendant',
       icon: Briefcase,
       className: 'bg-amber-100 text-amber-700 border border-amber-300'
     };
   }
-  
-  // Si c'est un salarié avec un prestataire, afficher "Salarié prestataire" ou le nom
+
   if (chauffeur.prestataireId) {
     return {
-      label: chauffeur.prestataireName ? `Salarié ${chauffeur.prestataireName}` : 'Salarié prestataire',
+      label: chauffeur.prestataireName ? `Loueur — ${chauffeur.prestataireName}` : 'Loueur prestataire',
       icon: Building2,
       className: 'bg-blue-100 text-blue-700 border border-blue-300'
     };
   }
-  
-  // Sinon c'est un salarié TAPEA (créé par l'admin, sans prestataire)
+
   return {
-    label: 'Salarié TAPEA',
+    label: 'Loueur RAVE',
     icon: Users,
-    className: 'bg-purple-100 text-purple-700 border border-purple-300'
+    className: 'bg-amber-100 text-amber-800 border border-amber-300'
   };
 }
 
@@ -185,20 +181,19 @@ export function AdminChauffeurs() {
             <Car className="h-7 w-7 text-white" />
           </div>
           <div>
-            <h1 className="text-2xl font-bold text-slate-900">Chauffeurs</h1>
-            <p className="text-slate-500">Gestion de la flotte de chauffeurs</p>
+            <h1 className="text-2xl font-bold text-slate-900">Loueurs</h1>
+            <p className="text-slate-500">Comptes loueurs de la plateforme RAVE</p>
           </div>
         </div>
         <button
           onClick={() => {
-            console.log('Bouton créer chauffeur cliqué');
             setShowCreateModal(true);
           }}
-          className="flex items-center gap-2 rounded-xl bg-gradient-to-r from-purple-600 to-purple-700 px-5 py-2.5 text-white shadow-lg shadow-purple-500/30 hover:shadow-xl transition-all"
+          className="flex items-center gap-2 rounded-xl bg-gradient-to-r from-amber-400 to-yellow-500 px-5 py-2.5 text-slate-900 shadow-lg shadow-amber-500/30 hover:shadow-xl transition-all"
           type="button"
         >
           <Plus className="h-5 w-5" />
-          Créer un chauffeur
+          Créer un loueur
         </button>
       </div>
 
@@ -233,7 +228,7 @@ export function AdminChauffeurs() {
             </div>
             <div>
               <p className="text-2xl font-bold text-slate-900">{patentesCount}</p>
-              <p className="text-xs text-slate-500">Patentés</p>
+              <p className="text-xs text-slate-500">Indépendants</p>
             </div>
           </div>
         </div>
@@ -244,7 +239,7 @@ export function AdminChauffeurs() {
             </div>
             <div>
               <p className="text-2xl font-bold text-slate-900">{salariesCount}</p>
-              <p className="text-xs text-slate-500">Salariés</p>
+              <p className="text-xs text-slate-500">Loueurs liés</p>
             </div>
           </div>
         </div>
@@ -255,7 +250,7 @@ export function AdminChauffeurs() {
         <Search className="absolute left-4 top-1/2 h-5 w-5 -translate-y-1/2 text-slate-400" />
         <input
           type="text"
-          placeholder="Rechercher un chauffeur..."
+          placeholder="Rechercher un loueur..."
           value={searchTerm}
           onChange={(e) => setSearchTerm(e.target.value)}
           className="w-full rounded-xl border border-slate-200 bg-white py-3 pl-12 pr-4 text-slate-900 placeholder-slate-400 shadow-sm focus:border-purple-500 focus:outline-none focus:ring-2 focus:ring-purple-500/20 transition-all"
@@ -339,7 +334,7 @@ export function AdminChauffeurs() {
           <table className="w-full">
             <thead>
               <tr className="border-b border-slate-100 bg-slate-50/50 text-left text-sm text-slate-600">
-                <th className="px-6 py-4 font-semibold">Chauffeur</th>
+                <th className="px-6 py-4 font-semibold">Loueur</th>
                 <th className="px-6 py-4 font-semibold">Type</th>
                 <th className="px-6 py-4 font-semibold">Véhicule</th>
                 <th className="px-6 py-4 font-semibold">Contact</th>
@@ -482,7 +477,7 @@ export function AdminChauffeurs() {
               {createdDriver ? (
                 <div className="space-y-4">
                   <div className="bg-green-50 border border-green-200 rounded-lg p-4">
-                    <h3 className="font-semibold text-green-900 mb-2">✅ Chauffeur créé avec succès !</h3>
+                    <h3 className="font-semibold text-green-900 mb-2">Loueur créé avec succès</h3>
                     <p className="text-green-800 mb-4">
                       <strong>{createdDriver.name}</strong> a été créé avec les identifiants suivants :
                     </p>
@@ -562,10 +557,10 @@ export function AdminChauffeurs() {
                   <div>
                     <label className="block text-sm font-medium text-gray-700 mb-1">Type de chauffeur</label>
                     <div className="w-full rounded-lg border border-purple-300 bg-purple-50 px-3 py-2.5 text-purple-700 font-medium">
-                      Salarié TAPEA
+                      Loueur RAVE
                     </div>
                     <p className="text-xs text-gray-500 mt-1">
-                      Les chauffeurs créés par l'admin sont automatiquement des salariés TAPEA
+                      Les comptes créés ici sont des loueurs pour l&apos;app RAVE Loueur
                     </p>
                   </div>
 

@@ -1,11 +1,10 @@
 /**
- * Tape'ā Back Office - Page Login Admin/Prestataire
- * Supporte la connexion admin (mot de passe) et prestataire (code 6 chiffres)
+ * RAVE Back Office - Login Admin / Prestataire (loueur)
  */
 
 import { useState } from "react";
 import { useLocation } from "wouter";
-import { Car, Lock, AlertCircle, Hash, Building2, User } from "lucide-react";
+import { CarFront, Lock, AlertCircle, Hash, Building2, User } from "lucide-react";
 
 type LoginMode = "admin" | "prestataire";
 
@@ -23,9 +22,7 @@ export function AdminLogin() {
     setIsLoading(true);
 
     try {
-      const body = mode === "admin" 
-        ? { password } 
-        : { code };
+      const body = mode === "admin" ? { password } : { code };
 
       const response = await fetch("/api/auth/admin/login", {
         method: "POST",
@@ -38,19 +35,17 @@ export function AdminLogin() {
       if (response.ok && data.success) {
         localStorage.setItem("admin_token", data.token);
         localStorage.setItem("user_type", data.userType);
-        
+
         if (data.userType === "prestataire" && data.prestataire) {
           localStorage.setItem("prestataire_info", JSON.stringify(data.prestataire));
-          // Rediriger vers le dashboard prestataire
           setLocation("/prestataire");
         } else {
-          // Rediriger vers le dashboard admin
           setLocation("/admin");
         }
       } else {
         setError(data.error || "Identifiants incorrects");
       }
-    } catch (err) {
+    } catch {
       setError("Erreur de connexion au serveur");
     } finally {
       setIsLoading(false);
@@ -58,26 +53,24 @@ export function AdminLogin() {
   }
 
   return (
-    <div className="flex min-h-screen items-center justify-center bg-gradient-to-br from-purple-900 to-purple-700 p-4">
+    <div className="flex min-h-screen items-center justify-center bg-gradient-to-br from-slate-900 to-slate-700 p-4">
       <div className="w-full max-w-md">
         <div className="rounded-2xl bg-white p-8 shadow-2xl">
-          {/* Logo */}
           <div className="mb-6 text-center">
-            <div className="mx-auto mb-4 flex h-16 w-16 items-center justify-center rounded-2xl bg-gradient-to-br from-purple-600 to-purple-800">
-              <Car className="h-8 w-8 text-white" />
+            <div className="mx-auto mb-4 flex h-16 w-16 items-center justify-center rounded-2xl bg-gradient-to-br from-amber-400 to-yellow-500">
+              <CarFront className="h-8 w-8 text-slate-900" />
             </div>
-            <h1 className="text-2xl font-bold text-gray-900">Tape'a</h1>
-            <p className="text-gray-600">Back Office</p>
+            <h1 className="text-2xl font-bold text-gray-900">RAVE</h1>
+            <p className="text-gray-600">Back Office Location</p>
           </div>
 
-          {/* Mode Toggle */}
           <div className="mb-6 flex rounded-lg bg-gray-100 p-1">
             <button
               type="button"
               onClick={() => { setMode("admin"); setError(""); }}
               className={`flex flex-1 items-center justify-center gap-2 rounded-md py-2 text-sm font-medium transition-all ${
                 mode === "admin"
-                  ? "bg-white text-purple-700 shadow"
+                  ? "bg-white text-amber-700 shadow"
                   : "text-gray-600 hover:text-gray-900"
               }`}
             >
@@ -89,7 +82,7 @@ export function AdminLogin() {
               onClick={() => { setMode("prestataire"); setError(""); }}
               className={`flex flex-1 items-center justify-center gap-2 rounded-md py-2 text-sm font-medium transition-all ${
                 mode === "prestataire"
-                  ? "bg-white text-purple-700 shadow"
+                  ? "bg-white text-amber-700 shadow"
                   : "text-gray-600 hover:text-gray-900"
               }`}
             >
@@ -98,7 +91,6 @@ export function AdminLogin() {
             </button>
           </div>
 
-          {/* Error message */}
           {error && (
             <div className="mb-6 flex items-center gap-2 rounded-lg bg-red-50 p-4 text-red-700">
               <AlertCircle className="h-5 w-5 flex-shrink-0" />
@@ -106,7 +98,6 @@ export function AdminLogin() {
             </div>
           )}
 
-          {/* Login form */}
           <form onSubmit={handleSubmit}>
             {mode === "admin" ? (
               <div className="mb-6">
@@ -120,7 +111,7 @@ export function AdminLogin() {
                     id="password"
                     value={password}
                     onChange={(e) => setPassword(e.target.value)}
-                    className="w-full rounded-lg border border-gray-300 py-3 pl-10 pr-4 focus:border-purple-500 focus:outline-none focus:ring-2 focus:ring-purple-500/20"
+                    className="w-full rounded-lg border border-gray-300 py-3 pl-10 pr-4 focus:border-amber-500 focus:outline-none focus:ring-2 focus:ring-amber-500/20"
                     placeholder="Entrez le mot de passe"
                     required
                     autoFocus
@@ -142,7 +133,7 @@ export function AdminLogin() {
                       const value = e.target.value.replace(/\D/g, "").slice(0, 6);
                       setCode(value);
                     }}
-                    className="w-full rounded-lg border border-gray-300 py-3 pl-10 pr-4 text-center text-2xl tracking-widest focus:border-purple-500 focus:outline-none focus:ring-2 focus:ring-purple-500/20"
+                    className="w-full rounded-lg border border-gray-300 py-3 pl-10 pr-4 text-center text-2xl tracking-widest focus:border-amber-500 focus:outline-none focus:ring-2 focus:ring-amber-500/20"
                     placeholder="000000"
                     maxLength={6}
                     required
@@ -150,7 +141,7 @@ export function AdminLogin() {
                   />
                 </div>
                 <p className="mt-2 text-xs text-gray-500">
-                  Entrez le code fourni par l'administrateur TAPEA
+                  Code fourni par l&apos;administrateur RAVE
                 </p>
               </div>
             )}
@@ -158,11 +149,11 @@ export function AdminLogin() {
             <button
               type="submit"
               disabled={isLoading || (mode === "admin" ? !password : code.length !== 6)}
-              className="w-full rounded-lg bg-gradient-to-r from-purple-600 to-purple-800 py-3 font-medium text-white transition-all hover:from-purple-700 hover:to-purple-900 disabled:opacity-50"
+              className="w-full rounded-lg bg-gradient-to-r from-amber-400 to-yellow-500 py-3 font-medium text-slate-900 transition-all hover:from-amber-500 hover:to-yellow-600 disabled:opacity-50"
             >
               {isLoading ? (
                 <span className="flex items-center justify-center gap-2">
-                  <span className="h-4 w-4 animate-spin rounded-full border-2 border-white border-t-transparent" />
+                  <span className="h-4 w-4 animate-spin rounded-full border-2 border-slate-900 border-t-transparent" />
                   Connexion...
                 </span>
               ) : (
@@ -172,10 +163,9 @@ export function AdminLogin() {
           </form>
 
           <div className="mt-6 text-center text-sm text-gray-500">
-            {mode === "admin" 
-              ? "Accès administrateur TAPEA" 
-              : "Accès prestataires de transport"
-            }
+            {mode === "admin"
+              ? "Accès administrateur RAVE"
+              : "Accès agences et loueurs"}
           </div>
         </div>
       </div>

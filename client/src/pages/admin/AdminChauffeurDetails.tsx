@@ -1,5 +1,5 @@
 /**
- * Tape'ā Back Office - Détails d'un chauffeur
+ * RAVE Back Office - Details d'un loueur
  */
 
 import { useEffect, useState, useRef } from 'react';
@@ -328,7 +328,7 @@ export function AdminChauffeurDetails() {
   if (!details || !details.chauffeur) {
     return (
       <div className="text-center text-red-600">
-        Chauffeur non trouvé
+        Loueur introuvable
       </div>
     );
   }
@@ -641,11 +641,11 @@ export function AdminChauffeurDetails() {
         <div className="lg:col-span-2">
           <div className="rounded-xl bg-white p-6 shadow-sm">
             <h2 className="mb-4 text-lg font-semibold text-gray-900">
-              Historique des courses ({commandes.length})
+              Historique des reservations ({commandes.length})
             </h2>
             {commandes.length === 0 ? (
               <p className="text-center text-gray-500 py-8">
-                Aucune course pour le moment
+                Aucune reservation pour le moment
               </p>
             ) : (
               <div className="space-y-3">
