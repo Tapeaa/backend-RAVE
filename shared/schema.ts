@@ -108,6 +108,18 @@ export const carouselImages = pgTable("carousel_images", {
   updatedAt: timestamp("updated_at").defaultNow().notNull(),
 });
 
+/** 3 options du bas de l'écran d'accueil client (Classique / XL / Service +) */
+export const homeCategories = pgTable("home_categories", {
+  id: varchar("id").primaryKey(), // classique | xl | service-plus
+  label: text("label").notNull(),
+  imageUrl: text("image_url"),
+  priceRange: text("price_range"),
+  model: text("model"),
+  position: integer("position").default(0).notNull(),
+  isActive: boolean("is_active").default(true).notNull(),
+  updatedAt: timestamp("updated_at").defaultNow().notNull(),
+});
+
 export const insertUserSchema = createInsertSchema(users).pick({
   username: true,
   password: true,

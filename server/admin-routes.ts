@@ -11,7 +11,7 @@ import { requireAdminAuth, requirePrestataireAuth, requireDashboardAuth, Authent
 import { db } from "./db";
 import { getIO } from "./routes";
 import { notifyClient, notifyDriver } from "./onesignal";
-import { clients, drivers, orders, invoices, tarifs, supplements, carouselImages, messages, prestataires, collecteFrais, vehicleModels, loueurVehicles } from "@shared/schema";
+import { clients, drivers, orders, invoices, tarifs, supplements, carouselImages, homeCategories, messages, prestataires, collecteFrais, vehicleModels, loueurVehicles } from "@shared/schema";
 import { eq, desc, asc, count, sql, and, gte, inArray, isNotNull, or } from "drizzle-orm";
 import { syncTahitiVehicleCatalog } from "./sync-vehicle-catalog";
 
@@ -1497,6 +1497,61 @@ export function registerAdminRoutes(app: Express) {
       return res.json({ images });
     } catch (error) {
       console.error("Get public carousel images error:", error);
+      return res.status(500).json({ error: "Erreur serveur", code: "SERVER_ERROR" });
+    }
+  });
+
+  // ─── Options écran d'accueil client (3 icônes) ───
+  app.get("/api/home-categories", async (_req, res) => {
+    try {
+      const rows = await db
+        .select()
+        .from(homeCategories)
+        .where(eq(homeCategories.isActive, true))
+        .orderBy(asc(homeCategories.position));
+      return res.json({ categories: rows });
+    } catch (error) {
+      console.error("Get home categories error:", error);
+      return res.status(500).json({ error: "Erreur serveur", code: "SERVER_ERROR" });
+    }
+  });
+
+  app.get("/api/admin/home-categories", requireAdminAuth, async (_req: AuthenticatedRequest, res) => {
+    try {
+      const rows = await db
+        .select()
+        .from(homeCategories)
+        .orderBy(asc(homeCategories.position));
+      return res.json({ categories: rows });
+    } catch (error) {
+      console.error("Admin get home categories error:", error);
+      return res.status(500).json({ error: "Erreur serveur", code: "SERVER_ERROR" });
+    }
+  });
+
+  app.patch("/api/admin/home-categories/:id", requireAdminAuth, async (req: AuthenticatedRequest, res) => {
+    try {
+      const { id } = req.params;
+      const allowed = ["label", "imageUrl", "priceRange", "model", "isActive", "position"] as const;
+      const updates: Record<string, unknown> = { updatedAt: new Date() };
+      for (const key of allowed) {
+        if (req.body[key] !== undefined) updates[key] = req.body[key];
+      }
+      if (Object.keys(updates).length <= 1) {
+        return res.status(400).json({ error: "Aucune modification fournie" });
+      }
+      const [updated] = await db
+        .update(homeCategories)
+        .set(updates)
+        .where(eq(homeCategories.id, id))
+        .returning();
+      if (!updated) {
+        return res.status(404).json({ error: "Option introuvable" });
+      }
+      console.log(`[Admin] Home category updated: ${id}`);
+      return res.json(updated);
+    } catch (error) {
+      console.error("Update home category error:", error);
       return res.status(500).json({ error: "Erreur serveur", code: "SERVER_ERROR" });
     }
   });

@@ -16,6 +16,7 @@ import {
   Menu,
   X,
   CarFront,
+  Home,
 } from "lucide-react";
 
 interface AdminLayoutProps {
@@ -46,6 +47,7 @@ const navigationSections = [
   {
     title: "App",
     items: [
+      { name: "Accueil (icônes)", href: "/admin/home-categories", icon: Home },
       { name: "Carrousel PUB", href: "/admin/carousel", icon: Image },
       { name: "Messages", href: "/admin/messages", icon: MessageCircle },
     ],

@@ -17,6 +17,7 @@ import { AdminCommandes } from "@/pages/admin/AdminCommandes";
 import { AdminCommandeDetails } from "@/pages/admin/AdminCommandeDetails";
 import { AdminPaiements } from "@/pages/admin/AdminPaiements";
 import { AdminCarousel } from "@/pages/admin/AdminCarousel";
+import { AdminHomeCategories } from "@/pages/admin/AdminHomeCategories";
 import { AdminMessages } from "@/pages/admin/AdminMessages";
 import { AdminVehicles } from "@/pages/admin/AdminVehicles";
 import { AdminProtectedRoute } from "@/components/AdminProtectedRoute";
@@ -82,6 +83,15 @@ function Router() {
           <AdminProtectedRoute>
             <AdminLayout>
               <AdminCarousel />
+            </AdminLayout>
+          </AdminProtectedRoute>
+        )}
+      </Route>
+      <Route path="/admin/home-categories">
+        {() => (
+          <AdminProtectedRoute>
+            <AdminLayout>
+              <AdminHomeCategories />
             </AdminLayout>
           </AdminProtectedRoute>
         )}

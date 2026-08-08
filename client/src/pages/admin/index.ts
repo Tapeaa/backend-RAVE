@@ -9,6 +9,7 @@ export { AdminCommandeDetails } from './AdminCommandeDetails';
 export { AdminTarifs } from './AdminTarifs';
 export { AdminPaiements } from './AdminPaiements';
 export { AdminCarousel } from './AdminCarousel';
+export { AdminHomeCategories } from './AdminHomeCategories';
 export { AdminMessages } from './AdminMessages';
 export { AdminPrestataires } from './AdminPrestataires';
 export { AdminPrestataireDetails } from './AdminPrestataireDetails';

@@ -15,6 +15,7 @@ import { ensureFraisServiceConfigTable } from "./ensure-frais-service-config";
 import { ensureCollecteFraisColumns } from "./ensure-collecte-frais-columns";
 import { ensureDriverCommissionColumn } from "./ensure-driver-commission-column";
 import { ensureCustomContractTextColumn } from "./ensure-custom-contract-text";
+import { ensureHomeCategoriesTable } from "./ensure-home-categories";
 import { syncTahitiVehicleCatalog } from "./sync-vehicle-catalog";
 
 const app = express();
@@ -92,6 +93,9 @@ app.use((req, res, next) => {
     
     // S'assurer que la colonne custom_contract_text existe dans loueur_vehicles
     await ensureCustomContractTextColumn();
+
+    // Options écran d'accueil client (3 icônes)
+    await ensureHomeCategoriesTable();
     
     const server = await registerRoutes(app);
 
