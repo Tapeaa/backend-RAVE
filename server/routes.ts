@@ -1943,6 +1943,17 @@ app.post("/api/rental-orders/:id/accept", async (req, res) => {
       return res.status(409).json({ success: false, error: "Commande déjà traitée" });
     }
 
+    const loueurSignature = req.body.loueurSignature || null;
+    if (loueurSignature) {
+      const currentRideOption = order.rideOption as any;
+      const newRideOption = {
+        ...currentRideOption,
+        loueurSignatureSvg: loueurSignature,
+        loueurSignedAt: new Date().toISOString(),
+      };
+      await db.update(orders).set({ rideOption: newRideOption as any }).where(eq(orders.id, id));
+    }
+
     const updatedOrder = await dbStorage.updateOrderStatus(id, "accepted", session.driverId);
 
     // Notify the client via socket
