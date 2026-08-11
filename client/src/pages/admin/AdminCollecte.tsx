@@ -329,7 +329,7 @@ export function AdminCollecte() {
           <table className="w-full">
             <thead className="bg-gray-50">
               <tr>
-                <th className="px-4 py-3 text-left text-sm font-medium text-gray-700">Prestataire / Chauffeur</th>
+                <th className="px-4 py-3 text-left text-sm font-medium text-gray-700">Loueur</th>
                 <th className="px-4 py-3 text-left text-sm font-medium text-gray-700">Période</th>
                 <th className="px-4 py-3 text-right text-sm font-medium text-gray-700">Total dû</th>
                 <th className="px-4 py-3 text-right text-sm font-medium text-gray-700">Déjà payé</th>

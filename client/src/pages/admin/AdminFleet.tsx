@@ -94,7 +94,7 @@ export function AdminFleet() {
         <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-slate-400" />
         <input
           className="w-full rounded-xl border border-slate-200 bg-white py-2.5 pl-10 pr-4 text-sm"
-          placeholder="Plaque, modèle, prestataire…"
+          placeholder="Plaque, modèle, loueur…"
           value={search}
           onChange={(e) => setSearch(e.target.value)}
         />
@@ -111,7 +111,7 @@ export function AdminFleet() {
               <tr>
                 <th className="px-4 py-3">Modèle</th>
                 <th className="px-4 py-3">Plaque</th>
-                <th className="px-4 py-3">Prestataire</th>
+                <th className="px-4 py-3">Loueur</th>
                 <th className="px-4 py-3">Prix/j</th>
                 <th className="px-4 py-3">Contrat</th>
                 <th className="px-4 py-3">Location</th>
