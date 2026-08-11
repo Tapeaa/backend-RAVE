@@ -526,9 +526,9 @@ export function AdminTarifs() {
           </div>
         </div>
         
-        {/* Frais de service prestataires */}
+        {/* Frais de service loueurs */}
         <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3 mb-6">
-          {/* Frais de service pour prestataires */}
+          {/* Frais de service pour loueurs */}
           <div className="rounded-xl bg-white p-6 shadow-sm border-2 border-purple-300">
             <div className="mb-4 flex items-start justify-between">
               <div className="flex items-center gap-3">
@@ -536,7 +536,7 @@ export function AdminTarifs() {
                   <DollarSign className="h-5 w-5" />
                 </div>
                 <div>
-                  <h3 className="font-semibold text-gray-900">Frais de Service Prestataires</h3>
+                  <h3 className="font-semibold text-gray-900">Frais de Service Loueurs</h3>
                   <p className="text-xs text-gray-500 mt-1">% ajouté au prix client (facturé au client)</p>
                 </div>
               </div>
@@ -563,7 +563,7 @@ export function AdminTarifs() {
             </div>
           </div>
 
-          {/* Commission prestataire (sur subtotal) */}
+          {/* Commission loueur (sur subtotal) */}
           <div className="rounded-xl bg-white p-6 shadow-sm border-2 border-orange-300">
             <div className="mb-4 flex items-start justify-between">
               <div className="flex items-center gap-3">
@@ -571,7 +571,7 @@ export function AdminTarifs() {
                   <Percent className="h-5 w-5" />
                 </div>
                 <div>
-                  <h3 className="font-semibold text-gray-900">Commission Prestataire</h3>
+                  <h3 className="font-semibold text-gray-900">Commission Loueur</h3>
                   <p className="text-xs text-gray-500 mt-1">% prélevé sur le subtotal (hors frais service)</p>
                 </div>
               </div>
@@ -902,7 +902,7 @@ export function AdminTarifs() {
             <div className="mb-4 flex items-center justify-between">
               <h2 className="text-xl font-bold text-gray-900">
                 {editingFraisServiceType === 'fraisService' && 'Modifier les Frais de Service'}
-                {editingFraisServiceType === 'commissionPrestataire' && 'Modifier la Commission Prestataire'}
+                {editingFraisServiceType === 'commissionPrestataire' && 'Modifier la Commission Loueur'}
                 {editingFraisServiceType === 'commissionSalarie' && 'Modifier la Commission Salarié TAPEA'}
               </h2>
               <button onClick={closeForms} className="rounded p-1 hover:bg-gray-100">

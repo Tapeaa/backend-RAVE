@@ -20,8 +20,6 @@ import { AdminCarousel } from "@/pages/admin/AdminCarousel";
 import { AdminHomeCategories } from "@/pages/admin/AdminHomeCategories";
 import { AdminMessages } from "@/pages/admin/AdminMessages";
 import { AdminVehicles } from "@/pages/admin/AdminVehicles";
-import { AdminPrestataires } from "@/pages/admin/AdminPrestataires";
-import { AdminPrestataireDetails } from "@/pages/admin/AdminPrestataireDetails";
 import { AdminTarifs } from "@/pages/admin/AdminTarifs";
 import { AdminCollecte } from "@/pages/admin/AdminCollecte";
 import { AdminCollecteDetails } from "@/pages/admin/AdminCollecteDetails";
@@ -69,8 +67,9 @@ function Router() {
       <Route path="/admin/clients/:id">{() => <AdminPage><AdminClientDetails /></AdminPage>}</Route>
       <Route path="/admin/chauffeurs">{() => <AdminPage><AdminChauffeurs /></AdminPage>}</Route>
       <Route path="/admin/chauffeurs/:id">{() => <AdminPage><AdminChauffeurDetails /></AdminPage>}</Route>
-      <Route path="/admin/prestataires">{() => <AdminPage><AdminPrestataires /></AdminPage>}</Route>
-      <Route path="/admin/prestataires/:id">{() => <AdminPage><AdminPrestataireDetails /></AdminPage>}</Route>
+      {/* Prestataires = même entité que Loueurs (compte org lié au loueur) */}
+      <Route path="/admin/prestataires">{() => <Redirect to="/admin/chauffeurs" />}</Route>
+      <Route path="/admin/prestataires/:id">{() => <Redirect to="/admin/chauffeurs" />}</Route>
       <Route path="/admin/paiements">{() => <AdminPage><AdminPaiements /></AdminPage>}</Route>
       <Route path="/admin/collecte">{() => <AdminPage><AdminCollecte /></AdminPage>}</Route>
       <Route path="/admin/collecte/:id">{() => <AdminPage><AdminCollecteDetails /></AdminPage>}</Route>

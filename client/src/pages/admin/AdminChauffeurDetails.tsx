@@ -651,7 +651,12 @@ export function AdminChauffeurDetails() {
             <p className="text-3xl font-mono font-bold tracking-widest text-slate-900">{appCode}</p>
             {prestataire && (
               <p className="mt-2 text-xs text-amber-700">
-                Organisation : {prestataire.nom} ({prestataire.type})
+                Compte loueur : {prestataire.nom}
+                {prestataire.type === "agence_location"
+                  ? " (agence)"
+                  : prestataire.type === "loueur_individuel"
+                    ? " (individuel)"
+                    : ""}
               </p>
             )}
           </div>
