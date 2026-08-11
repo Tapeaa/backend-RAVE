@@ -526,9 +526,9 @@ export function AdminTarifs() {
           </div>
         </div>
         
-        {/* Frais de service prestataires */}
+        {/* Frais de service loueurs */}
         <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3 mb-6">
-          {/* Frais de service pour prestataires */}
+          {/* Frais de service pour loueurs */}
           <div className="rounded-xl bg-white p-6 shadow-sm border-2 border-purple-300">
             <div className="mb-4 flex items-start justify-between">
               <div className="flex items-center gap-3">
