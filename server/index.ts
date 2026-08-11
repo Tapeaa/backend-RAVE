@@ -16,6 +16,7 @@ import { ensureCollecteFraisColumns } from "./ensure-collecte-frais-columns";
 import { ensureDriverCommissionColumn } from "./ensure-driver-commission-column";
 import { ensureCustomContractTextColumn } from "./ensure-custom-contract-text";
 import { ensureHomeCategoriesTable } from "./ensure-home-categories";
+import { ensureBackofficeTables } from "./ensure-backoffice-tables";
 import { syncTahitiVehicleCatalog } from "./sync-vehicle-catalog";
 
 const app = express();
@@ -25,7 +26,7 @@ app.use(cors({
   origin: true,
   credentials: true,
   methods: ["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
-  allowedHeaders: ["Content-Type", "Cookie", "X-Client-Session-Id", "X-Driver-Session-Id"],
+  allowedHeaders: ["Content-Type", "Cookie", "Authorization", "X-Client-Session-Id", "X-Driver-Session-Id", "X-Admin-Secret"],
 }));
 
 app.use(express.json({ limit: '50mb' }));
@@ -96,6 +97,9 @@ app.use((req, res, next) => {
 
     // Options écran d'accueil client (3 icônes)
     await ensureHomeCategoriesTable();
+
+    // Tables BO location (promos, wallet ledger, calendrier, admins, litiges)
+    await ensureBackofficeTables();
     
     const server = await registerRoutes(app);
 

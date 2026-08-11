@@ -12,6 +12,8 @@ export function AdminLogin() {
   const [, setLocation] = useLocation();
   const [mode, setMode] = useState<LoginMode>("admin");
   const [password, setPassword] = useState("");
+  const [email, setEmail] = useState("");
+  const [useEmailLogin, setUseEmailLogin] = useState(false);
   const [code, setCode] = useState("");
   const [error, setError] = useState("");
   const [isLoading, setIsLoading] = useState(false);
@@ -22,6 +24,24 @@ export function AdminLogin() {
     setIsLoading(true);
 
     try {
+      if (mode === "admin" && useEmailLogin) {
+        const response = await fetch("/api/auth/admin/login-user", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ email, password }),
+        });
+        const data = await response.json();
+        if (response.ok && data.success) {
+          localStorage.setItem("admin_token", data.token);
+          localStorage.setItem("user_type", "admin");
+          if (data.user) localStorage.setItem("admin_user", JSON.stringify(data.user));
+          setLocation("/admin");
+        } else {
+          setError(data.error || "Identifiants incorrects");
+        }
+        return;
+      }
+
       const body = mode === "admin" ? { password } : { code };
 
       const response = await fetch("/api/auth/admin/login", {
@@ -100,22 +120,48 @@ export function AdminLogin() {
 
           <form onSubmit={handleSubmit}>
             {mode === "admin" ? (
-              <div className="mb-6">
-                <label htmlFor="password" className="mb-2 block text-sm font-medium text-gray-700">
-                  Mot de passe administrateur
-                </label>
-                <div className="relative">
-                  <Lock className="absolute left-3 top-1/2 h-5 w-5 -translate-y-1/2 text-gray-400" />
+              <div className="mb-6 space-y-4">
+                <label className="flex items-center gap-2 text-xs text-slate-600">
                   <input
-                    type="password"
-                    id="password"
-                    value={password}
-                    onChange={(e) => setPassword(e.target.value)}
-                    className="w-full rounded-lg border border-gray-300 py-3 pl-10 pr-4 focus:border-amber-500 focus:outline-none focus:ring-2 focus:ring-amber-500/20"
-                    placeholder="Entrez le mot de passe"
-                    required
-                    autoFocus
+                    type="checkbox"
+                    checked={useEmailLogin}
+                    onChange={(e) => setUseEmailLogin(e.target.checked)}
                   />
+                  Connexion compte admin (email)
+                </label>
+                {useEmailLogin && (
+                  <div>
+                    <label htmlFor="email" className="mb-2 block text-sm font-medium text-gray-700">
+                      Email
+                    </label>
+                    <input
+                      type="email"
+                      id="email"
+                      value={email}
+                      onChange={(e) => setEmail(e.target.value)}
+                      className="w-full rounded-lg border border-gray-300 py-3 px-4 focus:border-amber-500 focus:outline-none focus:ring-2 focus:ring-amber-500/20"
+                      placeholder="admin@rave.pf"
+                      required
+                    />
+                  </div>
+                )}
+                <div>
+                  <label htmlFor="password" className="mb-2 block text-sm font-medium text-gray-700">
+                    Mot de passe administrateur
+                  </label>
+                  <div className="relative">
+                    <Lock className="absolute left-3 top-1/2 h-5 w-5 -translate-y-1/2 text-gray-400" />
+                    <input
+                      type="password"
+                      id="password"
+                      value={password}
+                      onChange={(e) => setPassword(e.target.value)}
+                      className="w-full rounded-lg border border-gray-300 py-3 pl-10 pr-4 focus:border-amber-500 focus:outline-none focus:ring-2 focus:ring-amber-500/20"
+                      placeholder="Entrez le mot de passe"
+                      required
+                      autoFocus
+                    />
+                  </div>
                 </div>
               </div>
             ) : (
@@ -148,7 +194,7 @@ export function AdminLogin() {
 
             <button
               type="submit"
-              disabled={isLoading || (mode === "admin" ? !password : code.length !== 6)}
+              disabled={isLoading || (mode === "admin" ? (!password || (useEmailLogin && !email)) : code.length !== 6)}
               className="w-full rounded-lg bg-gradient-to-r from-amber-400 to-yellow-500 py-3 font-medium text-slate-900 transition-all hover:from-amber-500 hover:to-yellow-600 disabled:opacity-50"
             >
               {isLoading ? (

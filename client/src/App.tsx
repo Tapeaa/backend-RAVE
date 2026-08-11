@@ -20,6 +20,20 @@ import { AdminCarousel } from "@/pages/admin/AdminCarousel";
 import { AdminHomeCategories } from "@/pages/admin/AdminHomeCategories";
 import { AdminMessages } from "@/pages/admin/AdminMessages";
 import { AdminVehicles } from "@/pages/admin/AdminVehicles";
+import { AdminPrestataires } from "@/pages/admin/AdminPrestataires";
+import { AdminPrestataireDetails } from "@/pages/admin/AdminPrestataireDetails";
+import { AdminTarifs } from "@/pages/admin/AdminTarifs";
+import { AdminCollecte } from "@/pages/admin/AdminCollecte";
+import { AdminCollecteDetails } from "@/pages/admin/AdminCollecteDetails";
+import { AdminFleet } from "@/pages/admin/AdminFleet";
+import { AdminSettings } from "@/pages/admin/AdminSettings";
+import { AdminPromos } from "@/pages/admin/AdminPromos";
+import { AdminReconciliation } from "@/pages/admin/AdminReconciliation";
+import { AdminCalendar } from "@/pages/admin/AdminCalendar";
+import { AdminMap } from "@/pages/admin/AdminMap";
+import { AdminRatings } from "@/pages/admin/AdminRatings";
+import { AdminDisputes } from "@/pages/admin/AdminDisputes";
+import { AdminUsers } from "@/pages/admin/AdminUsers";
 import { AdminProtectedRoute } from "@/components/AdminProtectedRoute";
 import { AdminLayout } from "@/components/admin/AdminLayout";
 
@@ -34,6 +48,14 @@ import {
 import { PrestataireLayout } from "@/pages/prestataire/PrestataireLayout";
 import { PrestataireProtectedRoute } from "@/components/PrestataireProtectedRoute";
 
+function AdminPage({ children }: { children: React.ReactNode }) {
+  return (
+    <AdminProtectedRoute>
+      <AdminLayout>{children}</AdminLayout>
+    </AdminProtectedRoute>
+  );
+}
+
 function Router() {
   return (
     <Switch>
@@ -42,121 +64,32 @@ function Router() {
       </Route>
 
       <Route path="/admin/login" component={AdminLogin} />
-      <Route path="/admin">
-        {() => (
-          <AdminProtectedRoute>
-            <AdminLayout>
-              <AdminDashboard />
-            </AdminLayout>
-          </AdminProtectedRoute>
-        )}
-      </Route>
-      <Route path="/admin/clients">
-        {() => (
-          <AdminProtectedRoute>
-            <AdminLayout>
-              <AdminClients />
-            </AdminLayout>
-          </AdminProtectedRoute>
-        )}
-      </Route>
-      <Route path="/admin/chauffeurs">
-        {() => (
-          <AdminProtectedRoute>
-            <AdminLayout>
-              <AdminChauffeurs />
-            </AdminLayout>
-          </AdminProtectedRoute>
-        )}
-      </Route>
-      <Route path="/admin/paiements">
-        {() => (
-          <AdminProtectedRoute>
-            <AdminLayout>
-              <AdminPaiements />
-            </AdminLayout>
-          </AdminProtectedRoute>
-        )}
-      </Route>
-      <Route path="/admin/carousel">
-        {() => (
-          <AdminProtectedRoute>
-            <AdminLayout>
-              <AdminCarousel />
-            </AdminLayout>
-          </AdminProtectedRoute>
-        )}
-      </Route>
-      <Route path="/admin/home-categories">
-        {() => (
-          <AdminProtectedRoute>
-            <AdminLayout>
-              <AdminHomeCategories />
-            </AdminLayout>
-          </AdminProtectedRoute>
-        )}
-      </Route>
-      <Route path="/admin/messages">
-        {() => (
-          <AdminProtectedRoute>
-            <AdminLayout>
-              <AdminMessages />
-            </AdminLayout>
-          </AdminProtectedRoute>
-        )}
-      </Route>
-      <Route path="/admin/commandes">
-        {() => (
-          <AdminProtectedRoute>
-            <AdminLayout>
-              <AdminCommandes />
-            </AdminLayout>
-          </AdminProtectedRoute>
-        )}
-      </Route>
-      <Route path="/admin/commandes/:id">
-        {() => (
-          <AdminProtectedRoute>
-            <AdminLayout>
-              <AdminCommandeDetails />
-            </AdminLayout>
-          </AdminProtectedRoute>
-        )}
-      </Route>
-      <Route path="/admin/clients/:id">
-        {() => (
-          <AdminProtectedRoute>
-            <AdminLayout>
-              <AdminClientDetails />
-            </AdminLayout>
-          </AdminProtectedRoute>
-        )}
-      </Route>
-      <Route path="/admin/chauffeurs/:id">
-        {() => (
-          <AdminProtectedRoute>
-            <AdminLayout>
-              <AdminChauffeurDetails />
-            </AdminLayout>
-          </AdminProtectedRoute>
-        )}
-      </Route>
-      <Route path="/admin/vehicles">
-        {() => (
-          <AdminProtectedRoute>
-            <AdminLayout>
-              <AdminVehicles />
-            </AdminLayout>
-          </AdminProtectedRoute>
-        )}
-      </Route>
-
-      {/* Anciennes routes → redirect (taxi / doublon prestataire) */}
-      <Route path="/admin/prestataires">{() => <Redirect to="/admin/chauffeurs" />}</Route>
-      <Route path="/admin/prestataires/:id">{() => <Redirect to="/admin/chauffeurs" />}</Route>
-      <Route path="/admin/tarifs">{() => <Redirect to="/admin" />}</Route>
-      <Route path="/admin/collecte">{() => <Redirect to="/admin" />}</Route>
-      <Route path="/admin/collecte/:id">{() => <Redirect to="/admin" />}</Route>
+      <Route path="/admin">{() => <AdminPage><AdminDashboard /></AdminPage>}</Route>
+      <Route path="/admin/clients">{() => <AdminPage><AdminClients /></AdminPage>}</Route>
+      <Route path="/admin/clients/:id">{() => <AdminPage><AdminClientDetails /></AdminPage>}</Route>
+      <Route path="/admin/chauffeurs">{() => <AdminPage><AdminChauffeurs /></AdminPage>}</Route>
+      <Route path="/admin/chauffeurs/:id">{() => <AdminPage><AdminChauffeurDetails /></AdminPage>}</Route>
+      <Route path="/admin/prestataires">{() => <AdminPage><AdminPrestataires /></AdminPage>}</Route>
+      <Route path="/admin/prestataires/:id">{() => <AdminPage><AdminPrestataireDetails /></AdminPage>}</Route>
+      <Route path="/admin/paiements">{() => <AdminPage><AdminPaiements /></AdminPage>}</Route>
+      <Route path="/admin/collecte">{() => <AdminPage><AdminCollecte /></AdminPage>}</Route>
+      <Route path="/admin/collecte/:id">{() => <AdminPage><AdminCollecteDetails /></AdminPage>}</Route>
+      <Route path="/admin/tarifs">{() => <AdminPage><AdminTarifs /></AdminPage>}</Route>
+      <Route path="/admin/carousel">{() => <AdminPage><AdminCarousel /></AdminPage>}</Route>
+      <Route path="/admin/home-categories">{() => <AdminPage><AdminHomeCategories /></AdminPage>}</Route>
+      <Route path="/admin/messages">{() => <AdminPage><AdminMessages /></AdminPage>}</Route>
+      <Route path="/admin/commandes">{() => <AdminPage><AdminCommandes /></AdminPage>}</Route>
+      <Route path="/admin/commandes/:id">{() => <AdminPage><AdminCommandeDetails /></AdminPage>}</Route>
+      <Route path="/admin/vehicles">{() => <AdminPage><AdminVehicles /></AdminPage>}</Route>
+      <Route path="/admin/fleet">{() => <AdminPage><AdminFleet /></AdminPage>}</Route>
+      <Route path="/admin/calendar">{() => <AdminPage><AdminCalendar /></AdminPage>}</Route>
+      <Route path="/admin/map">{() => <AdminPage><AdminMap /></AdminPage>}</Route>
+      <Route path="/admin/ratings">{() => <AdminPage><AdminRatings /></AdminPage>}</Route>
+      <Route path="/admin/disputes">{() => <AdminPage><AdminDisputes /></AdminPage>}</Route>
+      <Route path="/admin/promos">{() => <AdminPage><AdminPromos /></AdminPage>}</Route>
+      <Route path="/admin/reconciliation">{() => <AdminPage><AdminReconciliation /></AdminPage>}</Route>
+      <Route path="/admin/settings">{() => <AdminPage><AdminSettings /></AdminPage>}</Route>
+      <Route path="/admin/users">{() => <AdminPage><AdminUsers /></AdminPage>}</Route>
       <Route path="/admin/aws-2023">{() => <Redirect to="/admin" />}</Route>
 
       {/* Prestataire (loueur) */}

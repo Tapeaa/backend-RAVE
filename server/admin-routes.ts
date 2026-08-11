@@ -11,7 +11,7 @@ import { requireAdminAuth, requirePrestataireAuth, requireDashboardAuth, Authent
 import { db } from "./db";
 import { getIO } from "./routes";
 import { notifyClient, notifyDriver } from "./onesignal";
-import { clients, drivers, orders, invoices, tarifs, supplements, carouselImages, homeCategories, messages, prestataires, collecteFrais, vehicleModels, loueurVehicles } from "@shared/schema";
+import { clients, drivers, orders, invoices, tarifs, supplements, carouselImages, homeCategories, messages, prestataires, collecteFrais, vehicleModels, loueurVehicles, driverSessions } from "@shared/schema";
 import { eq, desc, asc, count, sql, and, gte, inArray, isNotNull, or } from "drizzle-orm";
 import { syncTahitiVehicleCatalog } from "./sync-vehicle-catalog";
 
@@ -165,12 +165,17 @@ export function registerAdminRoutes(app: Express) {
         .filter((o) => o.status === "completed" || o.status === "payment_confirmed")
         .reduce((sum, o) => sum + Number(o.totalPrice), 0);
 
+      const [onlineResult] = await db
+        .select({ count: count() })
+        .from(driverSessions)
+        .where(and(eq(driverSessions.isOnline, true), gte(driverSessions.expiresAt, new Date())));
+
       return res.json({
         totalClients: totalClientsResult[0]?.count || 0,
         totalChauffeurs: totalDriversResult[0]?.count || 0,
         totalCommandes: totalOrdersResult[0]?.count || 0,
         chauffeursActifs: allDrivers.filter((d) => d.isActive).length,
-        chauffeursEnLigne: 0, // À implémenter avec les sessions
+        chauffeursEnLigne: onlineResult?.count || 0,
         clientsActifs: allClients.filter((c) => c.isVerified).length,
         commandesTerminees: completedOrders.length,
         commandesEnCours: allOrders.filter((o) => o.status === "in_progress").length,
@@ -1216,6 +1221,8 @@ export function registerAdminRoutes(app: Express) {
         "payment_pending",
         "payment_confirmed",
         "cancelled",
+        "booked",
+        "contract_signed",
       ];
 
       if (!validStatuses.includes(status)) {
