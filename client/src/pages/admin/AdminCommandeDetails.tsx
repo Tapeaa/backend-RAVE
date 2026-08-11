@@ -745,7 +745,7 @@ export function AdminCommandeDetails() {
                           <div className="border-t border-gray-200 pt-3 mt-3 space-y-2">
                             <div className="flex flex-wrap justify-between gap-x-2 text-sm bg-gray-50 p-2 rounded"><span className="font-medium text-xs sm:text-sm">Subtotal (hors frais)</span><span className="font-medium">{subtotal.toLocaleString()} XPF</span></div>
                             <div className="flex flex-wrap justify-between gap-x-2 text-sm"><span className="text-green-600 text-xs sm:text-sm">Chauffeur ({commissionChauffeur}%)</span><span className="font-medium text-green-600">{revenusChauffeur.toLocaleString()} XPF</span></div>
-                            <div className="flex flex-wrap justify-between gap-x-2 text-sm"><span className="text-blue-600 text-xs sm:text-sm">Prestataire ({100 - commissionChauffeur}%)</span><span className="font-medium text-blue-600">{revenusPrestataire.toLocaleString()} XPF</span></div>
+                            <div className="flex flex-wrap justify-between gap-x-2 text-sm"><span className="text-blue-600 text-xs sm:text-sm">Loueur ({100 - commissionChauffeur}%)</span><span className="font-medium text-blue-600">{revenusPrestataire.toLocaleString()} XPF</span></div>
 
                             <div className="relative overflow-hidden rounded-xl border border-emerald-200/80 bg-gradient-to-br from-emerald-50 via-teal-50/30 to-emerald-50 p-4 shadow-sm ring-1 ring-emerald-500/20 mt-3">
                               <div className="absolute top-0 right-0 w-24 h-24 -translate-y-1/2 translate-x-1/2 rounded-full bg-emerald-400/10" />

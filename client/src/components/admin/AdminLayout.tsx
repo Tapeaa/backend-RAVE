@@ -17,7 +17,6 @@ import {
   X,
   CarFront,
   Home,
-  Building2,
   Tag,
   Wallet,
   Settings,
@@ -45,7 +44,6 @@ const navigationSections = [
     items: [
       { name: "Clients", href: "/admin/clients", icon: Users },
       { name: "Loueurs", href: "/admin/chauffeurs", icon: Car },
-      { name: "Prestataires", href: "/admin/prestataires", icon: Building2 },
     ],
   },
   {

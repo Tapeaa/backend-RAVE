@@ -83,7 +83,7 @@ export function AdminSettings() {
         <h2 className="font-semibold text-slate-900">Frais & commissions (%)</h2>
         {([
           ["fraisServicePrestataire", "Frais service client"],
-          ["commissionPrestataire", "Commission prestataire"],
+          ["commissionPrestataire", "Commission loueur"],
           ["commissionSalarieTapea", "Commission salarié"],
         ] as const).map(([key, label]) => (
           <label key={key} className="block text-sm">
