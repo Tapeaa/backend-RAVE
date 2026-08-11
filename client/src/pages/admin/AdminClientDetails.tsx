@@ -180,6 +180,58 @@ export function AdminClientDetails() {
         </button>
       </div>
 
+      <div className="flex flex-wrap gap-2">
+        <button
+          className="rounded-lg border border-slate-200 bg-white px-3 py-1.5 text-sm"
+          onClick={async () => {
+            const token = localStorage.getItem('admin_token');
+            const isActive = (client as any).isActive !== false;
+            await fetch(`/api/admin/clients/${clientId}/status`, {
+              method: 'PATCH',
+              headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+              body: JSON.stringify({ isActive: !isActive }),
+            });
+            fetchDetails();
+          }}
+        >
+          {(client as any).isActive === false ? 'Réactiver' : 'Suspendre'}
+        </button>
+        <button
+          className="rounded-lg border border-green-200 bg-green-50 px-3 py-1.5 text-sm text-green-800"
+          onClick={async () => {
+            const amount = prompt('Montant crédit wallet (XPF)');
+            if (!amount) return;
+            const token = localStorage.getItem('admin_token');
+            const res = await fetch(`/api/admin/clients/${clientId}/wallet`, {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+              body: JSON.stringify({ type: 'credit', amount: Number(amount), description: 'Crédit admin' }),
+            });
+            if (!res.ok) alert((await res.json()).error || 'Erreur');
+            fetchDetails();
+          }}
+        >
+          Créditer wallet
+        </button>
+        <button
+          className="rounded-lg border border-orange-200 bg-orange-50 px-3 py-1.5 text-sm text-orange-800"
+          onClick={async () => {
+            const amount = prompt('Montant débit wallet (XPF)');
+            if (!amount) return;
+            const token = localStorage.getItem('admin_token');
+            const res = await fetch(`/api/admin/clients/${clientId}/wallet`, {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+              body: JSON.stringify({ type: 'debit', amount: Number(amount), description: 'Débit admin' }),
+            });
+            if (!res.ok) alert((await res.json()).error || 'Erreur');
+            fetchDetails();
+          }}
+        >
+          Débiter wallet
+        </button>
+      </div>
+
       {showDeleteConfirm && (
         <div className="rounded-lg bg-red-50 border border-red-200 p-4">
           <p className="text-sm text-red-800">

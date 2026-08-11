@@ -17,6 +17,16 @@ import {
   X,
   CarFront,
   Home,
+  Building2,
+  Tag,
+  Wallet,
+  Settings,
+  Map,
+  Star,
+  CalendarDays,
+  Percent,
+  Scale,
+  UserCog,
 } from "lucide-react";
 
 interface AdminLayoutProps {
@@ -35,13 +45,17 @@ const navigationSections = [
     items: [
       { name: "Clients", href: "/admin/clients", icon: Users },
       { name: "Loueurs", href: "/admin/chauffeurs", icon: Car },
+      { name: "Prestataires", href: "/admin/prestataires", icon: Building2 },
     ],
   },
   {
     title: "Location",
     items: [
-      { name: "Véhicules", href: "/admin/vehicles", icon: CarFront },
+      { name: "Modèles", href: "/admin/vehicles", icon: CarFront },
+      { name: "Flotte", href: "/admin/fleet", icon: Car },
       { name: "Réservations", href: "/admin/commandes", icon: ClipboardList },
+      { name: "Calendrier", href: "/admin/calendar", icon: CalendarDays },
+      { name: "Carte live", href: "/admin/map", icon: Map },
     ],
   },
   {
@@ -50,12 +64,25 @@ const navigationSections = [
       { name: "Accueil (icônes)", href: "/admin/home-categories", icon: Home },
       { name: "Carrousel PUB", href: "/admin/carousel", icon: Image },
       { name: "Messages", href: "/admin/messages", icon: MessageCircle },
+      { name: "Avis", href: "/admin/ratings", icon: Star },
+      { name: "Litiges", href: "/admin/disputes", icon: Scale },
     ],
   },
   {
     title: "Fonds",
     items: [
       { name: "Paiements", href: "/admin/paiements", icon: CreditCard },
+      { name: "Collecte", href: "/admin/collecte", icon: Wallet },
+      { name: "Tarifs", href: "/admin/tarifs", icon: Tag },
+      { name: "Promos", href: "/admin/promos", icon: Percent },
+      { name: "Reconciliation", href: "/admin/reconciliation", icon: CreditCard },
+    ],
+  },
+  {
+    title: "Système",
+    items: [
+      { name: "Paramètres", href: "/admin/settings", icon: Settings },
+      { name: "Admins", href: "/admin/users", icon: UserCog },
     ],
   },
 ];

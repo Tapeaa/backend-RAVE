@@ -201,6 +201,7 @@ export const clients = pgTable("clients", {
   email: text("email"),
   photoUrl: text("photo_url"), // Photo de profil du client
   isVerified: boolean("is_verified").default(false).notNull(),
+  isActive: boolean("is_active").default(true).notNull(),
   walletBalance: real("wallet_balance").default(0).notNull(),
   averageRating: real("average_rating"),
   totalRides: integer("total_rides").default(0).notNull(),
@@ -365,6 +366,7 @@ export const clientSchema = z.object({
   email: z.string().nullable(),
   photoUrl: z.string().nullable(),
   isVerified: z.boolean(),
+  isActive: z.boolean().optional(),
   walletBalance: z.number(),
   averageRating: z.number().nullable(),
   totalRides: z.number(),
@@ -910,3 +912,82 @@ export const collecteFraisSchema = z.object({
 });
 
 export type CollecteFrais = z.infer<typeof collecteFraisSchema>;
+
+// ═══ BACK-OFFICE EXTENSIONS (location Turp-style) ═══
+
+/** Codes promo gérés depuis le BO */
+export const promoCodes = pgTable("promo_codes", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  code: text("code").notNull().unique(),
+  description: text("description"),
+  discountType: text("discount_type").notNull(), // percent | fixed
+  discountValue: real("discount_value").notNull(),
+  maxUses: integer("max_uses"),
+  usedCount: integer("used_count").default(0).notNull(),
+  minOrderAmount: real("min_order_amount").default(0),
+  startsAt: timestamp("starts_at"),
+  endsAt: timestamp("ends_at"),
+  isActive: boolean("is_active").default(true).notNull(),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+});
+
+/** Ledger wallet client (crédits / débits admin ou système) */
+export const walletTransactions = pgTable("wallet_transactions", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  clientId: varchar("client_id").notNull().references(() => clients.id),
+  type: text("type").notNull(), // credit | debit
+  amount: real("amount").notNull(),
+  balanceAfter: real("balance_after").notNull(),
+  description: text("description").notNull(),
+  orderId: varchar("order_id"),
+  createdByAdmin: boolean("created_by_admin").default(false).notNull(),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+});
+
+/** Périodes bloquées / indisponibles sur un véhicule loueur */
+export const vehicleAvailabilityBlocks = pgTable("vehicle_availability_blocks", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  loueurVehicleId: varchar("loueur_vehicle_id").notNull().references(() => loueurVehicles.id),
+  startDate: timestamp("start_date").notNull(),
+  endDate: timestamp("end_date").notNull(),
+  reason: text("reason"),
+  createdBy: text("created_by").default("admin").notNull(),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+});
+
+/** Comptes admin multi-utilisateurs */
+export const adminUsers = pgTable("admin_users", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  email: text("email").notNull().unique(),
+  name: text("name").notNull(),
+  hashedPassword: text("hashed_password").notNull(),
+  role: text("role").default("ops").notNull(), // ops | finance | content | super
+  isActive: boolean("is_active").default(true).notNull(),
+  lastLoginAt: timestamp("last_login_at"),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+});
+
+/** Litiges / disputes liés à une réservation */
+export const disputes = pgTable("disputes", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  orderId: varchar("order_id").notNull().references(() => orders.id),
+  openedBy: text("opened_by").notNull(), // admin | client | loueur
+  reason: text("reason").notNull(),
+  status: text("status").default("open").notNull(), // open | in_review | resolved | rejected
+  resolution: text("resolution"),
+  refundAmount: real("refund_amount"),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+  resolvedAt: timestamp("resolved_at"),
+});
+
+/** Audit log actions admin sensibles */
+export const adminAuditLogs = pgTable("admin_audit_logs", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  adminId: varchar("admin_id"),
+  adminEmail: text("admin_email"),
+  action: text("action").notNull(),
+  entityType: text("entity_type"),
+  entityId: text("entity_id"),
+  details: jsonb("details").$type<Record<string, unknown>>(),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+});

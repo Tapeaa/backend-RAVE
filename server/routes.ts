@@ -4567,8 +4567,9 @@ app.post("/api/live-activities/end", async (req, res) => {
     }
   });
 
-  // Update frais de service configuration (admin only)
-  app.post("/api/frais-service-config", async (req, res) => {
+  // Update frais de service configuration (admin JWT only)
+  const { requireAdminAuth: requireAdminForFrais } = await import("./admin-auth");
+  app.post("/api/frais-service-config", requireAdminForFrais, async (req, res) => {
     try {
       const { fraisServicePrestataire, commissionPrestataire, commissionSalarieTapea } = req.body;
       
@@ -7382,6 +7383,9 @@ const sessionId = headerSessionId || cookieSessionId;
   const { registerAdminRoutes } = await import("./admin-routes");
   registerAdminRoutes(app);
 
+  const { registerAdminBoExtensions } = await import("./admin-bo-extensions");
+  registerAdminBoExtensions(app);
+
   // Importer et enregistrer les routes prestataires
   const { registerPrestataireRoutes } = await import("./prestataire-routes");
   registerPrestataireRoutes(app);
@@ -7505,13 +7509,21 @@ const sessionId = headerSessionId || cookieSessionId;
     });
   });
 
-  // Route admin pour mettre à jour la configuration des versions (protégée par secret)
-  app.post("/api/admin/app-version", (req: any, res) => {
-    // Vérification simple via header secret
+  // Route admin pour mettre à jour la configuration des versions (JWT admin ou secret)
+  app.post("/api/admin/app-version", async (req: any, res) => {
     const adminSecret = req.headers["x-admin-secret"] as string;
     const expectedSecret = process.env.ADMIN_SECRET || "rave-admin-2026";
-    
-    if (adminSecret !== expectedSecret) {
+    const authHeader = req.headers.authorization;
+    const token = authHeader?.replace("Bearer ", "") || req.cookies?.admin_token;
+
+    let authorized = adminSecret === expectedSecret;
+    if (!authorized && token) {
+      const { verifyToken } = await import("./admin-auth");
+      const payload = verifyToken<{ type: string }>(token);
+      authorized = !!payload && payload.type === "admin";
+    }
+
+    if (!authorized) {
       return res.status(401).json({ error: "Non autorisé" });
     }
     

@@ -249,10 +249,141 @@ export function AdminCommandeDetails() {
             </h1>
           </div>
         </div>
-        <div className="flex items-center gap-3">
+        <div className="flex items-center gap-3 flex-wrap">
           {getStatusBadge(commande.status)}
+          <select
+            className="rounded-lg border border-slate-200 bg-white px-2 py-1.5 text-sm"
+            value={commande.status}
+            onChange={async (e) => {
+              const status = e.target.value;
+              const token = localStorage.getItem('admin_token');
+              const res = await fetch(`/api/admin/commandes/${commandeId}/statut`, {
+                method: 'PATCH',
+                headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+                body: JSON.stringify({ status }),
+              });
+              if (res.ok) fetchDetails();
+              else alert('Erreur mise à jour statut');
+            }}
+          >
+            {['pending','accepted','booked','in_progress','completed','payment_pending','payment_confirmed','cancelled'].map((s) => (
+              <option key={s} value={s}>{s}</option>
+            ))}
+          </select>
         </div>
       </div>
+
+      {isRental && (
+        <div className="rounded-xl border border-amber-200 bg-amber-50/60 p-4 space-y-3">
+          <h3 className="font-semibold text-amber-900">Pipeline location</h3>
+          <div className="text-sm text-amber-800">
+            Phase : <strong>{(commande.rideOption as any)?.rentalPhase || (commande.rideOption as any)?.rentalDispatch?.phase || '—'}</strong>
+            {(commande.rideOption as any)?.clientSignatureSvg || (commande.rideOption as any)?.clientSignedAt ? (
+              <span className="ml-3 text-green-700">Signature client OK</span>
+            ) : (
+              <span className="ml-3 text-slate-500">Signature client manquante</span>
+            )}
+            {(commande.rideOption as any)?.loueurSignatureSvg || (commande.rideOption as any)?.loueurSignedAt ? (
+              <span className="ml-3 text-green-700">Signature loueur OK</span>
+            ) : null}
+            {(commande.rideOption as any)?.cancelRequest?.status === 'pending' && (
+              <span className="ml-3 text-red-700">Demande d&apos;annulation en attente</span>
+            )}
+          </div>
+          <div className="flex flex-wrap gap-2">
+            <button
+              className="rounded-lg bg-blue-600 px-3 py-1.5 text-xs text-white"
+              onClick={async () => {
+                const token = localStorage.getItem('admin_token');
+                await fetch(`/api/admin/commandes/${commandeId}/lifecycle`, {
+                  method: 'POST',
+                  headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+                  body: JSON.stringify({ phase: 'with_client' }),
+                });
+                fetchDetails();
+              }}
+            >
+              Remise client
+            </button>
+            <button
+              className="rounded-lg bg-green-600 px-3 py-1.5 text-xs text-white"
+              onClick={async () => {
+                const token = localStorage.getItem('admin_token');
+                await fetch(`/api/admin/commandes/${commandeId}/lifecycle`, {
+                  method: 'POST',
+                  headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+                  body: JSON.stringify({ phase: 'returned' }),
+                });
+                fetchDetails();
+              }}
+            >
+              Retour véhicule
+            </button>
+            <button
+              className="rounded-lg bg-red-600 px-3 py-1.5 text-xs text-white"
+              onClick={async () => {
+                const token = localStorage.getItem('admin_token');
+                await fetch(`/api/admin/commandes/${commandeId}/cancel-approve`, {
+                  method: 'POST',
+                  headers: { Authorization: `Bearer ${token}` },
+                });
+                fetchDetails();
+              }}
+            >
+              Approuver annulation
+            </button>
+            <button
+              className="rounded-lg bg-slate-600 px-3 py-1.5 text-xs text-white"
+              onClick={async () => {
+                const token = localStorage.getItem('admin_token');
+                await fetch(`/api/admin/commandes/${commandeId}/cancel-reject`, {
+                  method: 'POST',
+                  headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+                  body: JSON.stringify({ reason: 'rejected_by_admin' }),
+                });
+                fetchDetails();
+              }}
+            >
+              Rejeter annulation
+            </button>
+            <button
+              className="rounded-lg border border-red-300 bg-white px-3 py-1.5 text-xs text-red-700"
+              onClick={async () => {
+                const amount = prompt('Montant remboursement (XPF)', String(commande.totalPrice));
+                if (!amount) return;
+                const reason = prompt('Motif') || 'refund_admin';
+                const token = localStorage.getItem('admin_token');
+                const res = await fetch(`/api/admin/commandes/${commandeId}/refund`, {
+                  method: 'POST',
+                  headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+                  body: JSON.stringify({ amount: Number(amount), reason }),
+                });
+                const data = await res.json();
+                alert(res.ok ? `Remboursé ${data.amount} XPF` : (data.error || 'Erreur'));
+                fetchDetails();
+              }}
+            >
+              Rembourser
+            </button>
+            <button
+              className="rounded-lg border border-amber-300 bg-white px-3 py-1.5 text-xs text-amber-800"
+              onClick={async () => {
+                const reason = prompt('Motif du litige');
+                if (!reason) return;
+                const token = localStorage.getItem('admin_token');
+                await fetch('/api/admin/disputes', {
+                  method: 'POST',
+                  headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+                  body: JSON.stringify({ orderId: commandeId, reason }),
+                });
+                alert('Litige ouvert');
+              }}
+            >
+              Ouvrir litige
+            </button>
+          </div>
+        </div>
+      )}
 
       {/* Bandeau récapitulatif */}
       <div className="grid grid-cols-2 gap-2 sm:gap-3 sm:grid-cols-3 lg:grid-cols-5">
