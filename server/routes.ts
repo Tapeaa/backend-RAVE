@@ -15,6 +15,8 @@ import { driverNotifications, clientNotifications, notifyDriver, notifyClient, s
 import { sendVerificationCode, verifyCode, isTwilioConfigured, sendSMSMessage } from "./twilio";
 import { generateInvoicePDF } from "./pdf-generator";
 import { sendSupportMessageNotification } from "./email";
+import { persistImageUri, persistContractHtml, isEphemeralLocalUri } from "./persist-media";
+import { buildRentalContractHtml } from "./rental-contract";
 
 /**
  * Helper function to get driver session with database fallback.
@@ -1876,6 +1878,40 @@ app.post("/api/rental-orders", async (req, res) => {
     const category = vehicleRow.modelCategory || body.vehicle?.category || "autre";
     const categoryLabel = body.vehicle?.categoryLabel || category;
 
+    // Documents : uniquement des URLs durables (Cloudinary). Refuse file:// ImagePicker.
+    let licenseFront: string | null = null;
+    let licenseBack: string | null = null;
+    if (body.clientDocuments?.licenseFrontUri) {
+      if (isEphemeralLocalUri(body.clientDocuments.licenseFrontUri)) {
+        return res.status(400).json({
+          error: "Permis recto invalide : renvoyez la photo (upload requis).",
+          code: "EPHEMERAL_LICENSE",
+        });
+      }
+      licenseFront = await persistImageUri(body.clientDocuments.licenseFrontUri, "rave/licenses");
+      if (!licenseFront) {
+        return res.status(400).json({
+          error: "Impossible d'enregistrer le permis recto. Réessayez.",
+          code: "LICENSE_UPLOAD_FAILED",
+        });
+      }
+    }
+    if (body.clientDocuments?.licenseBackUri) {
+      if (isEphemeralLocalUri(body.clientDocuments.licenseBackUri)) {
+        return res.status(400).json({
+          error: "Permis verso invalide : renvoyez la photo (upload requis).",
+          code: "EPHEMERAL_LICENSE",
+        });
+      }
+      licenseBack = await persistImageUri(body.clientDocuments.licenseBackUri, "rave/licenses");
+      if (!licenseBack) {
+        return res.status(400).json({
+          error: "Impossible d'enregistrer le permis verso. Réessayez.",
+          code: "LICENSE_UPLOAD_FAILED",
+        });
+      }
+    }
+
     const orderData = {
       clientName: `${body.client.firstName} ${body.client.lastName}`,
       clientPhone: body.client.phone,
@@ -1916,9 +1952,9 @@ app.post("/api/rental-orders", async (req, res) => {
           clientSignedAt: body.signature.clientSignedAt,
           clientSignatureName: body.signature.clientSignatureName,
         } : {}),
-        ...(body.clientDocuments ? {
-          clientLicenseFront: body.clientDocuments.licenseFrontUri || null,
-          clientLicenseBack: body.clientDocuments.licenseBackUri || null,
+        ...(licenseFront || licenseBack ? {
+          clientLicenseFront: licenseFront,
+          clientLicenseBack: licenseBack,
         } : {}),
       },
       routeInfo: undefined,
@@ -1948,12 +1984,36 @@ app.post("/api/rental-orders", async (req, res) => {
 
     const order = await dbStorage.createOrder(orderData as any, clientId);
 
+    // Snapshot contrat permanent (HTML en base + URL Cloudinary si possible)
+    if (body.signature?.clientSignatureSvg) {
+      try {
+        const html = buildRentalContractHtml({
+          id: order.id,
+          clientName: order.clientName,
+          totalPrice: order.totalPrice,
+          driverName: ownerName,
+          rideOption: order.rideOption,
+        });
+        const contractUrl = await persistContractHtml(html, order.id);
+        const rideOpt = {
+          ...(order.rideOption as any),
+          contractHtmlSnapshot: html,
+          ...(contractUrl ? { contractUrl } : {}),
+        };
+        await db.update(orders).set({ rideOption: rideOpt as any }).where(eq(orders.id, order.id));
+        (order as any).rideOption = rideOpt;
+        console.log(`[RENTAL] Contract snapshot saved for ${order.id}`);
+      } catch (e) {
+        console.warn("[RENTAL] Contract snapshot failed:", e);
+      }
+    }
+
     const clientToken = generateClientToken();
     orderClientTokens.set(order.id, { token: clientToken, socketId: null });
 
     const sigPresent = !!(body.signature?.clientSignatureSvg);
-    const docFront = !!(body.clientDocuments?.licenseFrontUri);
-    const docBack = !!(body.clientDocuments?.licenseBackUri);
+    const docFront = !!licenseFront;
+    const docBack = !!licenseBack;
     console.log(`[RENTAL] New rental order ${order.id} → driver ${vehicleRow.driverId} (${ownerName}) — ${modelName} ${pricePerDay}XPF/j × ${days}j | sig:${sigPresent} docs:${docFront}/${docBack}`);
 
     const rentalPayload = {
@@ -3500,12 +3560,28 @@ app.post("/api/live-activities/end", async (req, res) => {
       }
 
       // Stocker la signature dans rideOption (JSONB, passthrough)
-      const updatedRideOption = {
+      let updatedRideOption: any = {
         ...order.rideOption,
         clientSignatureSvg,
         clientSignedAt: clientSignedAt || new Date().toISOString(),
         clientSignatureName: clientName || order.clientName,
       };
+
+      // Snapshot contrat permanent
+      try {
+        const html = buildRentalContractHtml({
+          id: order.id,
+          clientName: order.clientName,
+          totalPrice: order.totalPrice,
+          driverName: (order as any).driverName || (order.rideOption as any)?.owner,
+          rideOption: updatedRideOption,
+        });
+        updatedRideOption.contractHtmlSnapshot = html;
+        const contractUrl = await persistContractHtml(html, orderId);
+        if (contractUrl) updatedRideOption.contractUrl = contractUrl;
+      } catch (e) {
+        console.warn("[SIGNATURE] Contract snapshot failed:", e);
+      }
 
       // Mettre à jour l'ordre avec la signature et passer le statut à "contract_signed"
       const [updatedOrder] = await db.update(orders)
@@ -3536,6 +3612,62 @@ app.post("/api/live-activities/end", async (req, res) => {
     }
   });
 
+  // Contrat permanent (HTML snapshot ou régénéré) — toujours accessible au client
+  app.get("/api/orders/:id/contract", async (req, res) => {
+    try {
+      const clientId = await getAuthenticatedClient(req);
+      if (!clientId) {
+        return res.status(401).json({ error: "Authentification requise" });
+      }
+      const orderId = req.params.id;
+      const order = await dbStorage.getOrder(orderId);
+      if (!order) return res.status(404).json({ error: "Commande introuvable" });
+      if (order.clientId && order.clientId !== clientId) {
+        return res.status(403).json({ error: "Accès non autorisé" });
+      }
+
+      const rideOpt = (order.rideOption || {}) as any;
+      let html = rideOpt.contractHtmlSnapshot as string | undefined;
+      let contractUrl = rideOpt.contractUrl as string | undefined;
+
+      if (!html) {
+        html = buildRentalContractHtml({
+          id: order.id,
+          clientName: order.clientName,
+          totalPrice: order.totalPrice,
+          driverName: (order as any).driverName || rideOpt.owner,
+          rideOption: rideOpt,
+        });
+        // Persister pour les prochaines fois
+        const url = await persistContractHtml(html, order.id);
+        const nextRide = {
+          ...rideOpt,
+          contractHtmlSnapshot: html,
+          ...(url ? { contractUrl: url } : {}),
+        };
+        await db.update(orders).set({ rideOption: nextRide as any }).where(eq(orders.id, orderId));
+        contractUrl = url || contractUrl;
+      }
+
+      return res.json({
+        html,
+        contractUrl: contractUrl || null,
+        signed: !!rideOpt.clientSignatureSvg,
+        licenses: {
+          front: isEphemeralLocalUri(rideOpt.clientLicenseFront)
+            ? null
+            : rideOpt.clientLicenseFront || null,
+          back: isEphemeralLocalUri(rideOpt.clientLicenseBack)
+            ? null
+            : rideOpt.clientLicenseBack || null,
+        },
+      });
+    } catch (error) {
+      console.error("[CONTRACT] Error:", error);
+      return res.status(500).json({ error: "Erreur serveur" });
+    }
+  });
+
   app.patch("/api/orders/:id/documents", async (req, res) => {
     try {
       const clientId = await getAuthenticatedClient(req);
@@ -3555,10 +3687,34 @@ app.post("/api/live-activities/end", async (req, res) => {
         return res.status(403).json({ error: "Accès non autorisé" });
       }
 
+      if (
+        (licenseFrontUri && isEphemeralLocalUri(licenseFrontUri)) ||
+        (licenseBackUri && isEphemeralLocalUri(licenseBackUri))
+      ) {
+        return res.status(400).json({
+          error: "Les photos du permis doivent être uploadées (pas de fichier local).",
+          code: "EPHEMERAL_LICENSE",
+        });
+      }
+
+      const front = licenseFrontUri
+        ? await persistImageUri(licenseFrontUri, "rave/licenses")
+        : (order.rideOption as any)?.clientLicenseFront || null;
+      const back = licenseBackUri
+        ? await persistImageUri(licenseBackUri, "rave/licenses")
+        : (order.rideOption as any)?.clientLicenseBack || null;
+
+      if (licenseFrontUri && !front) {
+        return res.status(400).json({ error: "Échec upload permis recto" });
+      }
+      if (licenseBackUri && !back) {
+        return res.status(400).json({ error: "Échec upload permis verso" });
+      }
+
       const updatedRideOption = {
         ...order.rideOption,
-        clientLicenseFront: licenseFrontUri || null,
-        clientLicenseBack: licenseBackUri || null,
+        clientLicenseFront: front,
+        clientLicenseBack: back,
       };
 
       const [updatedOrder] = await db.update(orders)
