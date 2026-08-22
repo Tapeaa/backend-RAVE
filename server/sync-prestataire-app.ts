@@ -169,3 +169,70 @@ export async function healPrestataireAppNameIfNeeded(prestataireId: string): Pro
   });
   return true;
 }
+
+/**
+ * Sync inverse : modification depuis l'app Loueur → dashboard (prestataires.nom / phone).
+ * Ne touche pas les sociétés multi-chauffeurs sauf pour le compte « principal »
+ * (seul driver, même code, ou même téléphone que le portail).
+ */
+export async function syncDriverToPrestataire(driverId: string): Promise<boolean> {
+  const [driver] = await db
+    .select({
+      id: drivers.id,
+      firstName: drivers.firstName,
+      lastName: drivers.lastName,
+      phone: drivers.phone,
+      code: drivers.code,
+      prestataireId: drivers.prestataireId,
+    })
+    .from(drivers)
+    .where(eq(drivers.id, driverId))
+    .limit(1);
+
+  if (!driver?.prestataireId) return false;
+
+  const [prestataire] = await db
+    .select({
+      id: prestataires.id,
+      nom: prestataires.nom,
+      phone: prestataires.phone,
+      code: prestataires.code,
+    })
+    .from(prestataires)
+    .where(eq(prestataires.id, driver.prestataireId))
+    .limit(1);
+
+  if (!prestataire) return false;
+
+  const allLinked = await db
+    .select({ id: drivers.id })
+    .from(drivers)
+    .where(eq(drivers.prestataireId, prestataire.id));
+
+  const isPrimary =
+    allLinked.length === 1 ||
+    driver.code === prestataire.code ||
+    (!!prestataire.phone && driver.phone === prestataire.phone);
+
+  if (!isPrimary) {
+    console.log(
+      `[Sync] Skip app→dashboard for driver ${driverId}: not primary account of société (${allLinked.length} drivers)`
+    );
+    return false;
+  }
+
+  const nom = `${driver.firstName || ""} ${driver.lastName || ""}`.trim();
+  if (!nom) return false;
+
+  const patch: { nom: string; phone?: string } = { nom };
+  if (driver.phone) patch.phone = driver.phone;
+
+  await db.update(prestataires).set(patch).where(eq(prestataires.id, prestataire.id));
+
+  const { storage } = await import("./storage");
+  await dbStorage.updateDriverNameInDbSessions(driverId, nom);
+  await storage.updateDriverNameInSessions(driverId, nom);
+
+  console.log(`[Sync] driver ${driverId} → prestataire ${prestataire.id} nom="${nom}"`);
+  return true;
+}

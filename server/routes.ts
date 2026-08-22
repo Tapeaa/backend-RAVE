@@ -203,6 +203,7 @@ const updateClientProfileSchema = z.object({
 const updateDriverProfileSchema = z.object({
   firstName: z.string().min(1).max(100).optional(),
   lastName: z.string().min(1).max(100).optional(),
+  phone: z.string().min(6).max(20).optional(),
   vehicleModel: z.string().max(100).optional().nullable(),
   vehicleColor: z.string().max(50).optional().nullable(),
   vehiclePlate: z.string().max(20).optional().nullable(),
@@ -6260,8 +6261,10 @@ const sessionId = headerSessionId || cookieSessionId;
         return res.status(400).json({ error: "ID chauffeur requis" });
       }
       
-      // Verify driver session via Authorization header (sessionId)
-      const sessionId = req.headers.authorization?.replace("Bearer ", "");
+      // Accept Bearer ou X-Driver-Session (comme le GET profil)
+      const sessionId =
+        (req.headers["x-driver-session"] as string | undefined) ||
+        req.headers.authorization?.replace("Bearer ", "");
       if (!sessionId) {
         return res.status(401).json({ error: "Non authentifié" });
       }
@@ -6286,11 +6289,23 @@ const sessionId = headerSessionId || cookieSessionId;
         });
       }
       
-      const { firstName, lastName, vehicleModel, vehicleColor, vehiclePlate } = validationResult.data;
+      const { firstName, lastName, phone, vehicleModel, vehicleColor, vehiclePlate } = validationResult.data;
+
+      if (phone) {
+        const [phoneTaken] = await db
+          .select({ id: drivers.id })
+          .from(drivers)
+          .where(eq(drivers.phone, phone.trim()))
+          .limit(1);
+        if (phoneTaken && phoneTaken.id !== driverId) {
+          return res.status(400).json({ error: "Ce numéro est déjà utilisé par un autre compte" });
+        }
+      }
       
       const updatedDriver = await dbStorage.updateDriverProfile(driverId, {
         firstName,
         lastName,
+        phone: phone?.trim(),
         vehicleModel,
         vehicleColor,
         vehiclePlate
@@ -6298,6 +6313,16 @@ const sessionId = headerSessionId || cookieSessionId;
       
       if (!updatedDriver) {
         return res.status(404).json({ error: "Chauffeur non trouvé" });
+      }
+
+      // Sync app → dashboard (raison sociale / téléphone)
+      if (firstName !== undefined || lastName !== undefined || phone !== undefined) {
+        try {
+          const { syncDriverToPrestataire } = await import("./sync-prestataire-app");
+          await syncDriverToPrestataire(driverId);
+        } catch (syncErr) {
+          console.warn("[Driver] app→dashboard sync failed:", syncErr);
+        }
       }
       
       res.json({
@@ -6310,6 +6335,8 @@ const sessionId = headerSessionId || cookieSessionId;
           vehicleModel: updatedDriver.vehicleModel,
           vehicleColor: updatedDriver.vehicleColor,
           vehiclePlate: updatedDriver.vehiclePlate,
+          prestataireId: updatedDriver.prestataireId || null,
+          prestataireName: updatedDriver.prestataireName || null,
         }
       });
     } catch (error) {

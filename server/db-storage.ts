@@ -302,10 +302,11 @@ export class DbStorage {
     };
   }
 
-  async updateDriverProfile(driverId: string, data: { firstName?: string; lastName?: string; vehicleModel?: string | null; vehicleColor?: string | null; vehiclePlate?: string | null }): Promise<Driver | undefined> {
+  async updateDriverProfile(driverId: string, data: { firstName?: string; lastName?: string; phone?: string; vehicleModel?: string | null; vehicleColor?: string | null; vehiclePlate?: string | null }): Promise<Driver | undefined> {
     const updateData: Record<string, unknown> = {};
     if (data.firstName !== undefined) updateData.firstName = data.firstName;
     if (data.lastName !== undefined) updateData.lastName = data.lastName;
+    if (data.phone !== undefined) updateData.phone = data.phone;
     if (data.vehicleModel !== undefined) updateData.vehicleModel = data.vehicleModel;
     if (data.vehicleColor !== undefined) updateData.vehicleColor = data.vehicleColor;
     if (data.vehiclePlate !== undefined) updateData.vehiclePlate = data.vehiclePlate;
@@ -320,26 +321,8 @@ export class DbStorage {
       .returning();
     
     if (!driver) return undefined;
-    
-    return {
-      id: driver.id,
-      phone: driver.phone,
-      code: driver.code,
-      firstName: driver.firstName,
-      lastName: driver.lastName,
-      typeChauffeur: driver.typeChauffeur as "salarie" | "patente",
-      vehicleModel: driver.vehicleModel,
-      vehicleColor: driver.vehicleColor,
-      vehiclePlate: driver.vehiclePlate,
-      photoUrl: driver.photoUrl,
-      lastLatitude: driver.lastLatitude ?? null,
-      lastLongitude: driver.lastLongitude ?? null,
-      lastLocationAt: driver.lastLocationAt?.toISOString() || null,
-      isActive: driver.isActive,
-      averageRating: driver.averageRating,
-      totalRides: driver.totalRides,
-      createdAt: driver.createdAt.toISOString(),
-    };
+
+    return this.getDriver(driverId);
   }
 
   async updateDriverLastLocation(
