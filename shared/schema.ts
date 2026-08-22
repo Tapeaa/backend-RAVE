@@ -81,8 +81,12 @@ export const loueurVehicles = pgTable("loueur_vehicles", {
   prestataireId: varchar("prestataire_id").notNull().references(() => prestataires.id),
   driverId: varchar("driver_id").references(() => drivers.id), // Nullable - pour loueur individuel
   plate: text("plate"), // Immatriculation
-  pricePerDay: real("price_per_day").notNull(), // Prix/jour en XPF
-  pricePerDayLongTerm: real("price_per_day_long_term"), // Prix réduit pour location longue durée
+  pricePerDay: real("price_per_day").notNull(), // Prix/jour en XPF (souvent = 1er palier)
+  pricePerDayLongTerm: real("price_per_day_long_term"), // Legacy longue durée
+  /** Paliers dégressifs cumulatifs : [{ fromDay, toDay, pricePerDay }] */
+  pricingTiers: jsonb("pricing_tiers").$type<{ fromDay: number; toDay: number; pricePerDay: number }[]>().default([]),
+  /** Durée max louable (1–90 jours) définie par le loueur */
+  maxRentalDays: integer("max_rental_days").default(90).notNull(),
   availableForRental: boolean("available_for_rental").default(true).notNull(), // Louer
   availableForDelivery: boolean("available_for_delivery").default(false).notNull(), // Livraison
   availableForLongTerm: boolean("available_for_long_term").default(false).notNull(), // Long terme
