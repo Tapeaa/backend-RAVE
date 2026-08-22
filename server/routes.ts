@@ -16,6 +16,7 @@ import { sendVerificationCode, verifyCode, isTwilioConfigured, sendSMSMessage } 
 import { generateInvoicePDF } from "./pdf-generator";
 import { sendSupportMessageNotification } from "./email";
 import { assertVehicleAvailableForRental } from "./rental-availability";
+import { computeDigressiveRentalPrice, validatePricingTiers, MAX_RENTAL_DAYS_CAP } from "./rental-pricing";
 import { persistImageUri, persistContractHtml, isEphemeralLocalUri } from "./persist-media";
 import { buildRentalContractHtml } from "./rental-contract";
 
@@ -1818,6 +1819,8 @@ app.post("/api/rental-orders", async (req, res) => {
         pricePerDay: loueurVehicles.pricePerDay,
         isActive: loueurVehicles.isActive,
         availableForRental: loueurVehicles.availableForRental,
+        pricingTiers: loueurVehicles.pricingTiers,
+        maxRentalDays: loueurVehicles.maxRentalDays,
         prestataireNom: prestataires.nom,
         prestataireActive: prestataires.isActive,
         modelId: vehicleModels.id,
@@ -1863,8 +1866,20 @@ app.post("/api/rental-orders", async (req, res) => {
     }
 
     const days = Math.max(1, Number(body.rental.days) || 1);
-    const pricePerDay = Number(vehicleRow.pricePerDay) || 0;
-    if (pricePerDay <= 0) {
+    const maxRentalDays = Number(vehicleRow.maxRentalDays) || MAX_RENTAL_DAYS_CAP;
+    const priced = computeDigressiveRentalPrice({
+      days,
+      tiers: (vehicleRow as any).pricingTiers || [],
+      maxRentalDays,
+      fallbackPricePerDay: Number(vehicleRow.pricePerDay) || 0,
+    });
+    if (!priced.ok) {
+      return res.status(409).json({ success: false, error: priced.error });
+    }
+
+    const pricePerDay = priced.averagePerDay;
+    const subtotal = priced.total;
+    if (subtotal <= 0) {
       return res.status(409).json({ success: false, error: "Tarif journalier invalide pour ce véhicule" });
     }
 
@@ -1880,7 +1895,6 @@ app.post("/api/rental-orders", async (req, res) => {
       (sum: number, s: any) => sum + (Number(s.price) || 0) * days,
       0
     );
-    const subtotal = pricePerDay * days;
     const discountAmount = Number(body.pricing?.discountAmount) || 0;
     const grandTotal = Math.max(0, subtotal + supplementsTotal - discountAmount);
 
@@ -1957,6 +1971,9 @@ app.post("/api/rental-orders", async (req, res) => {
         seats: vehicleRow.seats,
         supplementsTotal,
         isRentalOrder: true,
+        pricingBreakdown: priced.breakdown,
+        pricingSubtotal: priced.total,
+        maxRentalDays,
         ...(body.signature ? {
           clientSignatureSvg: body.signature.clientSignatureSvg,
           clientSignedAt: body.signature.clientSignedAt,
@@ -4044,6 +4061,8 @@ app.post("/api/live-activities/end", async (req, res) => {
         plate: loueurVehicles.plate,
         pricePerDay: loueurVehicles.pricePerDay,
         pricePerDayLongTerm: loueurVehicles.pricePerDayLongTerm,
+        pricingTiers: loueurVehicles.pricingTiers,
+        maxRentalDays: loueurVehicles.maxRentalDays,
         availableForRental: loueurVehicles.availableForRental,
         availableForDelivery: loueurVehicles.availableForDelivery,
         availableForLongTerm: loueurVehicles.availableForLongTerm,
@@ -4147,6 +4166,8 @@ app.post("/api/live-activities/end", async (req, res) => {
           transmission: row.transmission || 'auto',
           fuel: row.fuel || 'essence',
           pricePerDay: typeof row.pricePerDay === 'number' ? row.pricePerDay : Number(row.pricePerDay) || 0,
+          pricingTiers: Array.isArray(row.pricingTiers) ? row.pricingTiers : [],
+          maxRentalDays: Number(row.maxRentalDays) || 90,
           availableCount: 1,
           services: {
             rental: !!row.availableForRental,
@@ -4180,6 +4201,8 @@ app.post("/api/live-activities/end", async (req, res) => {
         plate: loueurVehicles.plate,
         pricePerDay: loueurVehicles.pricePerDay,
         pricePerDayLongTerm: loueurVehicles.pricePerDayLongTerm,
+        pricingTiers: loueurVehicles.pricingTiers,
+        maxRentalDays: loueurVehicles.maxRentalDays,
         rentalContractMode: loueurVehicles.rentalContractMode,
         customContractText: loueurVehicles.customContractText,
         customImageUrl: loueurVehicles.customImageUrl,
@@ -4448,10 +4471,11 @@ app.post("/api/live-activities/end", async (req, res) => {
         plate, pricePerDay, pricePerDayLongTerm,
         availableForRental, availableForDelivery, availableForLongTerm,
         customImageUrl, customImageUrls, rentalContractMode, customContractText,
+        pricingTiers, maxRentalDays,
       } = req.body;
 
-      if (!vehicleModelId || !pricePerDay) {
-        return res.status(400).json({ error: "Modèle et prix par jour requis" });
+      if (!vehicleModelId) {
+        return res.status(400).json({ error: "Modèle requis" });
       }
 
       // Chercher le modèle en base ; auto-créer si c'est un builtin (b-*) ou si le nom est fourni
@@ -4496,13 +4520,29 @@ app.post("/api/live-activities/end", async (req, res) => {
       const contractMode = rentalContractMode === "custom" ? "custom" : "app_default";
       const imageUrls = normalizeVehicleImageUrls(customImageUrls, customImageUrl);
 
+      let tiersPayload = pricingTiers;
+      let maxDaysPayload = maxRentalDays ?? MAX_RENTAL_DAYS_CAP;
+      if (!tiersPayload || !Array.isArray(tiersPayload) || tiersPayload.length === 0) {
+        const base = Number(pricePerDay);
+        if (!base || base < 1) {
+          return res.status(400).json({ error: "Prix par jour ou paliers tarifaires requis" });
+        }
+        tiersPayload = [{ fromDay: 1, toDay: maxDaysPayload, pricePerDay: base }];
+      }
+      const validatedPricing = validatePricingTiers(tiersPayload, maxDaysPayload);
+      if (!validatedPricing.ok) {
+        return res.status(400).json({ error: validatedPricing.error });
+      }
+
       const baseVehicleValues = {
         vehicleModelId: model.id,
         prestataireId,
         driverId: driver.id,
         plate: plate || null,
-        pricePerDay,
+        pricePerDay: validatedPricing.tiers[0].pricePerDay,
         pricePerDayLongTerm: pricePerDayLongTerm || null,
+        pricingTiers: validatedPricing.tiers,
+        maxRentalDays: validatedPricing.maxRentalDays,
         availableForRental: availableForRental ?? true,
         availableForDelivery: availableForDelivery ?? false,
         availableForLongTerm: availableForLongTerm ?? false,
@@ -4598,6 +4638,22 @@ app.post("/api/live-activities/end", async (req, res) => {
         if (req.body[field] !== undefined) {
           updates[field] = req.body[field];
         }
+      }
+
+      if (req.body.pricingTiers !== undefined || req.body.maxRentalDays !== undefined) {
+        const tiersInput = req.body.pricingTiers !== undefined
+          ? req.body.pricingTiers
+          : existing.pricingTiers;
+        const maxInput = req.body.maxRentalDays !== undefined
+          ? req.body.maxRentalDays
+          : existing.maxRentalDays ?? MAX_RENTAL_DAYS_CAP;
+        const validated = validatePricingTiers(tiersInput, maxInput);
+        if (!validated.ok) {
+          return res.status(400).json({ error: validated.error });
+        }
+        updates.pricingTiers = validated.tiers;
+        updates.maxRentalDays = validated.maxRentalDays;
+        updates.pricePerDay = validated.tiers[0].pricePerDay;
       }
 
       if (req.body.customImageUrls !== undefined || req.body.customImageUrl !== undefined) {

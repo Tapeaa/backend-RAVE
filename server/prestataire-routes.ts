@@ -12,6 +12,7 @@ import { drivers, orders, prestataires, collecteFrais, tarifs, vehicleModels, lo
 import { eq, desc, asc, count, sql, and, gte, lte, inArray } from "drizzle-orm";
 import { dbStorage } from "./db-storage";
 import { uploadDocument, uploadDocumentToCloudinary } from "./cloudinary";
+import { validatePricingTiers, MAX_RENTAL_DAYS_CAP } from "./rental-pricing";
 
 const stripe = process.env.STRIPE_SECRET_KEY ? new Stripe(process.env.STRIPE_SECRET_KEY) : null;
 
@@ -1323,6 +1324,8 @@ export function registerPrestataireRoutes(app: Express) {
           plate: loueurVehicles.plate,
           pricePerDay: loueurVehicles.pricePerDay,
           pricePerDayLongTerm: loueurVehicles.pricePerDayLongTerm,
+          pricingTiers: loueurVehicles.pricingTiers,
+          maxRentalDays: loueurVehicles.maxRentalDays,
           availableForRental: loueurVehicles.availableForRental,
           availableForDelivery: loueurVehicles.availableForDelivery,
           availableForLongTerm: loueurVehicles.availableForLongTerm,
@@ -1364,11 +1367,11 @@ export function registerPrestataireRoutes(app: Express) {
       const {
         vehicleModelId, plate, pricePerDay, pricePerDayLongTerm,
         availableForRental, availableForDelivery, availableForLongTerm, customImageUrl,
-        rentalContractMode,
+        rentalContractMode, pricingTiers, maxRentalDays,
       } = req.body;
 
-      if (!vehicleModelId || !pricePerDay) {
-        return res.status(400).json({ error: "Modèle et prix par jour requis" });
+      if (!vehicleModelId) {
+        return res.status(400).json({ error: "Modèle requis" });
       }
 
       // Vérifier que le modèle existe
@@ -1394,6 +1397,21 @@ export function registerPrestataireRoutes(app: Express) {
       const contractMode =
         rentalContractMode === "custom" ? "custom" : "app_default";
 
+      let tiersPayload = pricingTiers;
+      let maxDaysPayload = maxRentalDays ?? MAX_RENTAL_DAYS_CAP;
+      if (!tiersPayload || !Array.isArray(tiersPayload) || tiersPayload.length === 0) {
+        const base = Number(pricePerDay);
+        if (!base || base < 1) {
+          return res.status(400).json({ error: "Prix par jour ou paliers tarifaires requis" });
+        }
+        tiersPayload = [{ fromDay: 1, toDay: maxDaysPayload, pricePerDay: base }];
+      }
+
+      const validated = validatePricingTiers(tiersPayload, maxDaysPayload);
+      if (!validated.ok) {
+        return res.status(400).json({ error: validated.error });
+      }
+
       const [newVehicle] = await db
         .insert(loueurVehicles)
         .values({
@@ -1401,8 +1419,10 @@ export function registerPrestataireRoutes(app: Express) {
           prestataireId: req.prestataire.id,
           driverId,
           plate: plate || null,
-          pricePerDay,
+          pricePerDay: validated.tiers[0].pricePerDay,
           pricePerDayLongTerm: pricePerDayLongTerm || null,
+          pricingTiers: validated.tiers,
+          maxRentalDays: validated.maxRentalDays,
           availableForRental: availableForRental ?? true,
           availableForDelivery: availableForDelivery ?? false,
           availableForLongTerm: availableForLongTerm ?? false,
@@ -1452,6 +1472,22 @@ export function registerPrestataireRoutes(app: Express) {
 
       if (updates.rentalContractMode !== undefined) {
         updates.rentalContractMode = updates.rentalContractMode === "custom" ? "custom" : "app_default";
+      }
+
+      if (req.body.pricingTiers !== undefined || req.body.maxRentalDays !== undefined) {
+        const tiersInput = req.body.pricingTiers !== undefined
+          ? req.body.pricingTiers
+          : existing.pricingTiers;
+        const maxInput = req.body.maxRentalDays !== undefined
+          ? req.body.maxRentalDays
+          : existing.maxRentalDays ?? MAX_RENTAL_DAYS_CAP;
+        const validated = validatePricingTiers(tiersInput, maxInput);
+        if (!validated.ok) {
+          return res.status(400).json({ error: validated.error });
+        }
+        updates.pricingTiers = validated.tiers;
+        updates.maxRentalDays = validated.maxRentalDays;
+        updates.pricePerDay = validated.tiers[0].pricePerDay;
       }
 
       if (Object.keys(updates).length === 0) {

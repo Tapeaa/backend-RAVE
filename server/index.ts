@@ -17,6 +17,7 @@ import { ensureDriverCommissionColumn } from "./ensure-driver-commission-column"
 import { ensureCustomContractTextColumn } from "./ensure-custom-contract-text";
 import { ensureHomeCategoriesTable } from "./ensure-home-categories";
 import { ensureBackofficeTables } from "./ensure-backoffice-tables";
+import { ensurePricingTiersColumns } from "./ensure-pricing-tiers";
 import { assertProductionSecrets } from "./assert-production-secrets";
 import { syncTahitiVehicleCatalog } from "./sync-vehicle-catalog";
 
@@ -103,6 +104,9 @@ app.use((req, res, next) => {
 
     // Tables BO location (promos, wallet ledger, calendrier, admins, litiges)
     await ensureBackofficeTables();
+
+    // Paliers tarifaires dégressifs loueur
+    await ensurePricingTiersColumns();
     
     const server = await registerRoutes(app);
 
