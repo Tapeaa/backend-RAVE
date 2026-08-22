@@ -15,7 +15,7 @@ import { driverNotifications, clientNotifications, notifyDriver, notifyClient, s
 import { sendVerificationCode, verifyCode, isTwilioConfigured, sendSMSMessage } from "./twilio";
 import { generateInvoicePDF } from "./pdf-generator";
 import { sendSupportMessageNotification } from "./email";
-import { assertVehicleAvailableForRental, getVehicleBusyRanges } from "./rental-availability";
+import { assertVehicleAvailableForRental, getVehicleBusyRanges, filterVehicleIdsAvailableForRange } from "./rental-availability";
 import { computeDigressiveRentalPrice, validatePricingTiers, MAX_RENTAL_DAYS_CAP } from "./rental-pricing";
 import { normalizeListingExtras, resolveVehicleSpecs } from "@shared/listing-extras";
 import { persistImageUri, persistContractHtml, isEphemeralLocalUri } from "./persist-media";
@@ -4056,9 +4056,12 @@ app.post("/api/live-activities/end", async (req, res) => {
   
   // GET /api/vehicles/available — 1 fiche = 1 véhicule loueur (pas d'agrégation par modèle)
   // ?service=rental|delivery|longterm|all (défaut: all = au moins un service actif)
+  // ?startDate=&endDate= — optionnel : ne garder que les véhicules libres sur la plage
   app.get("/api/vehicles/available", async (req, res) => {
     try {
       const serviceType = (req.query.service as string) || 'all';
+      const startDateQ = req.query.startDate ? String(req.query.startDate) : '';
+      const endDateQ = req.query.endDate ? String(req.query.endDate) : '';
 
       const selectBase = {
         loueurVehicleId: loueurVehicles.id,
@@ -4196,8 +4199,22 @@ app.post("/api/live-activities/end", async (req, res) => {
         return (a.ownerName || '').localeCompare(b.ownerName || '', 'fr');
       });
 
-      console.log(`[AVAILABLE] ${result.length} véhicule(s) loueur listés (service=${serviceType})`);
-      return res.json(result);
+      let filtered = result;
+      if (startDateQ && endDateQ) {
+        const freeIds = await filterVehicleIdsAvailableForRange({
+          loueurVehicleIds: result.map((v) => v.loueurVehicleId),
+          startDate: startDateQ,
+          endDate: endDateQ,
+        });
+        filtered = result.filter((v) => freeIds.has(v.loueurVehicleId));
+      }
+
+      console.log(
+        `[AVAILABLE] ${filtered.length}/${result.length} véhicule(s) loueur (service=${serviceType}` +
+          (startDateQ && endDateQ ? `, dates=${startDateQ}→${endDateQ}` : '') +
+          ')'
+      );
+      return res.json(filtered);
     } catch (error) {
       console.error("Get available vehicles error:", error);
       return res.status(500).json({ error: "Erreur serveur" });
