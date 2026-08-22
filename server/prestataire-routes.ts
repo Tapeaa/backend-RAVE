@@ -14,6 +14,12 @@ import { dbStorage } from "./db-storage";
 import { uploadDocument, uploadDocumentToCloudinary } from "./cloudinary";
 import { validatePricingTiers, MAX_RENTAL_DAYS_CAP } from "./rental-pricing";
 import { normalizeListingExtras } from "@shared/listing-extras";
+import {
+  assertVehicleOwnedByPrestataire,
+  createAvailabilityBlock,
+  deleteAvailabilityBlock,
+  listAvailabilityBlocks,
+} from "./availability-blocks";
 
 const stripe = process.env.STRIPE_SECRET_KEY ? new Stripe(process.env.STRIPE_SECRET_KEY) : null;
 
@@ -1628,4 +1634,70 @@ export function registerPrestataireRoutes(app: Express) {
       return res.status(500).json({ error: "Erreur serveur" });
     }
   });
+
+  // ─── Indisponibilités (blocs dates hors app) ─────────────────────
+  app.get(
+    "/api/prestataire/vehicles/:id/availability-blocks",
+    requirePrestataireAuth,
+    async (req: AuthenticatedRequest, res) => {
+      try {
+        if (!req.prestataire) return res.status(401).json({ error: "Non authentifié" });
+        const ok = await assertVehicleOwnedByPrestataire(req.params.id, req.prestataire.id);
+        if (!ok) return res.status(404).json({ error: "Véhicule introuvable" });
+        const blocks = await listAvailabilityBlocks(req.params.id);
+        return res.json({ blocks });
+      } catch (error) {
+        console.error("prestataire availability-blocks GET:", error);
+        return res.status(500).json({ error: "Erreur serveur" });
+      }
+    }
+  );
+
+  app.post(
+    "/api/prestataire/vehicles/:id/availability-blocks",
+    requirePrestataireAuth,
+    async (req: AuthenticatedRequest, res) => {
+      try {
+        if (!req.prestataire) return res.status(401).json({ error: "Non authentifié" });
+        const ok = await assertVehicleOwnedByPrestataire(req.params.id, req.prestataire.id);
+        if (!ok) return res.status(404).json({ error: "Véhicule introuvable" });
+
+        const startYmd = String(req.body.startDate || req.body.startYmd || "").slice(0, 10);
+        const endYmd = String(req.body.endDate || req.body.endYmd || "").slice(0, 10);
+        const result = await createAvailabilityBlock({
+          loueurVehicleId: req.params.id,
+          startYmd,
+          endYmd,
+          reason: req.body.reason,
+          createdBy: "prestataire",
+        });
+        if (!result.ok) return res.status(result.status).json({ error: result.error });
+        return res.status(201).json(result.block);
+      } catch (error) {
+        console.error("prestataire availability-blocks POST:", error);
+        return res.status(500).json({ error: "Erreur serveur" });
+      }
+    }
+  );
+
+  app.delete(
+    "/api/prestataire/vehicles/:id/availability-blocks/:blockId",
+    requirePrestataireAuth,
+    async (req: AuthenticatedRequest, res) => {
+      try {
+        if (!req.prestataire) return res.status(401).json({ error: "Non authentifié" });
+        const ok = await assertVehicleOwnedByPrestataire(req.params.id, req.prestataire.id);
+        if (!ok) return res.status(404).json({ error: "Véhicule introuvable" });
+        const result = await deleteAvailabilityBlock({
+          blockId: req.params.blockId,
+          loueurVehicleId: req.params.id,
+        });
+        if (!result.ok) return res.status(result.status).json({ error: result.error });
+        return res.json({ success: true });
+      } catch (error) {
+        console.error("prestataire availability-blocks DELETE:", error);
+        return res.status(500).json({ error: "Erreur serveur" });
+      }
+    }
+  );
 }

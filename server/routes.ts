@@ -21,6 +21,12 @@ import { normalizeListingExtras, resolveVehicleSpecs } from "@shared/listing-ext
 import { persistImageUri, persistContractHtml, isEphemeralLocalUri } from "./persist-media";
 import { buildRentalContractHtml } from "./rental-contract";
 import { LOUEUR_SUBSCRIPTION_PLANS } from "./ensure-loueur-subscription";
+import {
+  assertVehicleOwnedByDriver,
+  createAvailabilityBlock,
+  deleteAvailabilityBlock,
+  listAvailabilityBlocks,
+} from "./availability-blocks";
 
 /**
  * Helper function to get driver session with database fallback.
@@ -5131,6 +5137,92 @@ app.post("/api/live-activities/end", async (req, res) => {
       return res.json({ success: true, message: "Véhicule supprimé" });
     } catch (error) {
       console.error("Error deleting driver vehicle:", error);
+      return res.status(500).json({ error: "Erreur serveur" });
+    }
+  });
+
+  // ─── Indisponibilités manuelles (résas hors app) ─────────────────
+  app.get("/api/driver/vehicles/:id/availability-blocks", async (req, res) => {
+    try {
+      const sessionId = req.headers["x-driver-session"] as string;
+      if (!sessionId) return res.status(401).json({ error: "Session requise" });
+      const session = await getDriverSessionWithFallback(sessionId);
+      if (!session) return res.status(401).json({ error: "Session invalide" });
+      const driver = await dbStorage.getDriver(session.driverId);
+      if (!driver) return res.status(401).json({ error: "Loueur introuvable" });
+
+      const owned = await assertVehicleOwnedByDriver(
+        req.params.id,
+        session.driverId,
+        driver.prestataireId
+      );
+      if (!owned) return res.status(404).json({ error: "Véhicule introuvable" });
+
+      const blocks = await listAvailabilityBlocks(req.params.id);
+      return res.json({ blocks });
+    } catch (error) {
+      console.error("driver availability-blocks GET:", error);
+      return res.status(500).json({ error: "Erreur serveur" });
+    }
+  });
+
+  app.post("/api/driver/vehicles/:id/availability-blocks", async (req, res) => {
+    try {
+      const sessionId = req.headers["x-driver-session"] as string;
+      if (!sessionId) return res.status(401).json({ error: "Session requise" });
+      const session = await getDriverSessionWithFallback(sessionId);
+      if (!session) return res.status(401).json({ error: "Session invalide" });
+      const driver = await dbStorage.getDriver(session.driverId);
+      if (!driver) return res.status(401).json({ error: "Loueur introuvable" });
+
+      const owned = await assertVehicleOwnedByDriver(
+        req.params.id,
+        session.driverId,
+        driver.prestataireId
+      );
+      if (!owned) return res.status(404).json({ error: "Véhicule introuvable" });
+
+      const startYmd = String(req.body.startDate || req.body.startYmd || "").slice(0, 10);
+      const endYmd = String(req.body.endDate || req.body.endYmd || "").slice(0, 10);
+      const result = await createAvailabilityBlock({
+        loueurVehicleId: req.params.id,
+        startYmd,
+        endYmd,
+        reason: req.body.reason,
+        createdBy: "loueur",
+      });
+      if (!result.ok) return res.status(result.status).json({ error: result.error });
+      return res.status(201).json(result.block);
+    } catch (error) {
+      console.error("driver availability-blocks POST:", error);
+      return res.status(500).json({ error: "Erreur serveur" });
+    }
+  });
+
+  app.delete("/api/driver/vehicles/:id/availability-blocks/:blockId", async (req, res) => {
+    try {
+      const sessionId = req.headers["x-driver-session"] as string;
+      if (!sessionId) return res.status(401).json({ error: "Session requise" });
+      const session = await getDriverSessionWithFallback(sessionId);
+      if (!session) return res.status(401).json({ error: "Session invalide" });
+      const driver = await dbStorage.getDriver(session.driverId);
+      if (!driver) return res.status(401).json({ error: "Loueur introuvable" });
+
+      const owned = await assertVehicleOwnedByDriver(
+        req.params.id,
+        session.driverId,
+        driver.prestataireId
+      );
+      if (!owned) return res.status(404).json({ error: "Véhicule introuvable" });
+
+      const result = await deleteAvailabilityBlock({
+        blockId: req.params.blockId,
+        loueurVehicleId: req.params.id,
+      });
+      if (!result.ok) return res.status(result.status).json({ error: result.error });
+      return res.json({ success: true });
+    } catch (error) {
+      console.error("driver availability-blocks DELETE:", error);
       return res.status(500).json({ error: "Erreur serveur" });
     }
   });

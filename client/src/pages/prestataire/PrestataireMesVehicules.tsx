@@ -4,7 +4,7 @@
  */
 
 import { useEffect, useState } from 'react';
-import { CarFront, Plus, X, Check, Edit, Trash2, Eye, EyeOff, Search } from 'lucide-react';
+import { CarFront, Plus, X, Check, Edit, Trash2, Eye, EyeOff, Search, CalendarOff } from 'lucide-react';
 import {
   DEFAULT_LISTING_EXTRAS,
   FEATURE_PRESETS,
@@ -55,6 +55,40 @@ interface LoueurVehicle {
   modelSeats: number;
   modelTransmission: string;
   modelFuel: string;
+}
+
+interface AvailabilityBlock {
+  id: string;
+  loueurVehicleId: string;
+  startDate: string;
+  endDate: string;
+  reason: string | null;
+}
+
+function blockInclusiveEndYmd(endIso: string): string {
+  const d = new Date(endIso);
+  d.setUTCDate(d.getUTCDate() - 1);
+  return d.toISOString().slice(0, 10);
+}
+
+function formatBlockLabel(startIso: string, endIso: string): string {
+  const start = startIso.slice(0, 10);
+  const end = blockInclusiveEndYmd(endIso);
+  const fmt = (ymd: string) =>
+    new Date(ymd + 'T12:00:00').toLocaleDateString('fr-FR', {
+      day: 'numeric',
+      month: 'short',
+      year: 'numeric',
+    });
+  return start === end ? fmt(start) : `${fmt(start)} → ${fmt(end)}`;
+}
+
+function todayYmd(): string {
+  const d = new Date();
+  const y = d.getFullYear();
+  const m = String(d.getMonth() + 1).padStart(2, '0');
+  const day = String(d.getDate()).padStart(2, '0');
+  return `${y}-${m}-${day}`;
 }
 
 const categoryLabels: Record<string, string> = {
@@ -138,6 +172,13 @@ export function PrestataireMesVehicules() {
     defaultMeetingPoint: '',
   });
 
+  const [availabilityBlocks, setAvailabilityBlocks] = useState<AvailabilityBlock[]>([]);
+  const [blockStart, setBlockStart] = useState(todayYmd());
+  const [blockEnd, setBlockEnd] = useState(todayYmd());
+  const [blockReason, setBlockReason] = useState('');
+  const [blockSaving, setBlockSaving] = useState(false);
+  const [blocksLoading, setBlocksLoading] = useState(false);
+
   useEffect(() => {
     fetchVehicles();
     fetchModels();
@@ -176,8 +217,86 @@ export function PrestataireMesVehicules() {
     }
   }
 
+  async function fetchAvailabilityBlocks(vehicleId: string) {
+    setBlocksLoading(true);
+    try {
+      const token = localStorage.getItem('admin_token');
+      const response = await fetch(`/api/prestataire/vehicles/${vehicleId}/availability-blocks`, {
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      if (response.ok) {
+        const data = await response.json();
+        setAvailabilityBlocks(Array.isArray(data.blocks) ? data.blocks : []);
+      } else {
+        setAvailabilityBlocks([]);
+      }
+    } catch {
+      setAvailabilityBlocks([]);
+    } finally {
+      setBlocksLoading(false);
+    }
+  }
+
+  async function addAvailabilityBlock() {
+    if (!editingVehicle) return;
+    if (blockEnd < blockStart) {
+      alert('La date de fin doit être après le début');
+      return;
+    }
+    setBlockSaving(true);
+    try {
+      const token = localStorage.getItem('admin_token');
+      const response = await fetch(
+        `/api/prestataire/vehicles/${editingVehicle.id}/availability-blocks`,
+        {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            Authorization: `Bearer ${token}`,
+          },
+          body: JSON.stringify({
+            startDate: blockStart,
+            endDate: blockEnd,
+            reason: blockReason.trim() || undefined,
+          }),
+        }
+      );
+      if (!response.ok) {
+        const err = await response.json().catch(() => ({}));
+        alert(err.error || 'Erreur');
+        return;
+      }
+      setBlockReason('');
+      await fetchAvailabilityBlocks(editingVehicle.id);
+    } catch (e) {
+      console.error(e);
+      alert('Erreur réseau');
+    } finally {
+      setBlockSaving(false);
+    }
+  }
+
+  async function removeAvailabilityBlock(blockId: string) {
+    if (!editingVehicle) return;
+    if (!confirm('Supprimer ce blocage de dates ?')) return;
+    try {
+      const token = localStorage.getItem('admin_token');
+      await fetch(
+        `/api/prestataire/vehicles/${editingVehicle.id}/availability-blocks/${blockId}`,
+        {
+          method: 'DELETE',
+          headers: { Authorization: `Bearer ${token}` },
+        }
+      );
+      await fetchAvailabilityBlocks(editingVehicle.id);
+    } catch (e) {
+      console.error(e);
+    }
+  }
+
   function openCreateModal() {
     setEditingVehicle(null);
+    setAvailabilityBlocks([]);
     const model = models[0];
     setFormData({
       vehicleModelId: model?.id || '',
@@ -193,6 +312,10 @@ export function PrestataireMesVehicules() {
 
   function openEditModal(vehicle: LoueurVehicle) {
     setEditingVehicle(vehicle);
+    setBlockStart(todayYmd());
+    setBlockEnd(todayYmd());
+    setBlockReason('');
+    void fetchAvailabilityBlocks(vehicle.id);
     const maxDays = vehicle.maxRentalDays || 90;
     const tiers =
       vehicle.pricingTiers && vehicle.pricingTiers.length > 0
@@ -622,6 +745,89 @@ export function PrestataireMesVehicules() {
                   Vous pourrez aussi en envoyer un autre depuis l’app loueur.
                 </p>
               </div>
+
+              {editingVehicle && (
+                <div className="rounded-xl border border-orange-200 bg-orange-50/60 p-4 space-y-3">
+                  <div className="flex items-center gap-2">
+                    <CalendarOff className="w-4 h-4 text-orange-700" />
+                    <h3 className="text-sm font-semibold text-orange-900">Indisponibilités</h3>
+                  </div>
+                  <p className="text-xs text-orange-800/80">
+                    Bloquez des dates pour une réservation hors RAVE. Le véhicule reste publié le
+                    reste du temps (plus rapide que de le désactiver).
+                  </p>
+                  <div className="grid grid-cols-2 gap-2">
+                    <div>
+                      <label className="text-[10px] uppercase text-orange-700">Du</label>
+                      <input
+                        type="date"
+                        value={blockStart}
+                        onChange={(e) => {
+                          setBlockStart(e.target.value);
+                          if (blockEnd < e.target.value) setBlockEnd(e.target.value);
+                        }}
+                        className="w-full px-2 py-1.5 border border-orange-200 rounded-lg text-sm"
+                      />
+                    </div>
+                    <div>
+                      <label className="text-[10px] uppercase text-orange-700">Au</label>
+                      <input
+                        type="date"
+                        value={blockEnd}
+                        min={blockStart}
+                        onChange={(e) => setBlockEnd(e.target.value)}
+                        className="w-full px-2 py-1.5 border border-orange-200 rounded-lg text-sm"
+                      />
+                    </div>
+                  </div>
+                  <input
+                    type="text"
+                    value={blockReason}
+                    onChange={(e) => setBlockReason(e.target.value)}
+                    placeholder="Motif (optionnel) — ex. WhatsApp / walk-in"
+                    className="w-full px-3 py-2 border border-orange-200 rounded-lg text-sm"
+                  />
+                  <button
+                    type="button"
+                    onClick={addAvailabilityBlock}
+                    disabled={blockSaving}
+                    className="w-full py-2 rounded-lg bg-gray-900 text-white text-sm font-semibold disabled:opacity-50"
+                  >
+                    {blockSaving ? 'Enregistrement…' : 'Bloquer ces dates'}
+                  </button>
+                  {blocksLoading ? (
+                    <p className="text-xs text-orange-700">Chargement…</p>
+                  ) : availabilityBlocks.length === 0 ? (
+                    <p className="text-xs text-orange-700/70">Aucun blocage manuel.</p>
+                  ) : (
+                    <ul className="space-y-2">
+                      {availabilityBlocks.map((b) => (
+                        <li
+                          key={b.id}
+                          className="flex items-center justify-between gap-2 bg-white border border-orange-100 rounded-lg px-3 py-2"
+                        >
+                          <div>
+                            <p className="text-sm font-semibold text-gray-900">
+                              {formatBlockLabel(b.startDate, b.endDate)}
+                            </p>
+                            {b.reason ? (
+                              <p className="text-xs text-gray-500">{b.reason}</p>
+                            ) : null}
+                          </div>
+                          <button
+                            type="button"
+                            onClick={() => removeAvailabilityBlock(b.id)}
+                            className="text-red-500 hover:text-red-700 p-1"
+                            title="Supprimer"
+                          >
+                            <Trash2 className="w-4 h-4" />
+                          </button>
+                        </li>
+                      ))}
+                    </ul>
+                  )}
+                </div>
+              )}
 
               <div>
                 <label className="block text-sm font-medium text-gray-700 mb-1">
