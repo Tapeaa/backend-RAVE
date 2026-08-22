@@ -5,9 +5,15 @@
 
 import { db } from "./db";
 import { orders, vehicleAvailabilityBlocks } from "@shared/schema";
-import { eq, inArray, ne, sql } from "drizzle-orm";
+import { eq, inArray, sql } from "drizzle-orm";
 
-const INACTIVE_STATUSES = new Set(["cancelled"]);
+const INACTIVE_STATUSES = new Set([
+  "cancelled",
+  "completed",
+  "declined",
+  "expired",
+  "payment_confirmed",
+]);
 
 function parseDate(value: unknown): Date | null {
   if (!value) return null;
@@ -94,18 +100,20 @@ export async function getBusyRangesMapForVehicles(
       rideOption: orders.rideOption,
     })
     .from(orders)
-    .where(ne(orders.status, "cancelled"))
     .orderBy(sql`${orders.createdAt} DESC`)
-    .limit(800);
+    .limit(1200);
 
   for (const order of candidates) {
-    if (INACTIVE_STATUSES.has(order.status)) continue;
+    if (INACTIVE_STATUSES.has(String(order.status || ""))) continue;
     const ro = (order.rideOption || {}) as Record<string, unknown>;
     const isRental =
       ro.type === "rental" ||
       ro.isRentalOrder === true ||
       String(ro.id || "").startsWith("rental-");
     if (!isRental) continue;
+
+    // Location déjà rendue (phase returned) → ne bloque plus, même si status pas encore "completed"
+    if (ro.rentalLifecyclePhase === "returned") continue;
 
     const orderVehicleId = extractRentalVehicleId(ro);
     if (!orderVehicleId || !idSet.has(orderVehicleId)) continue;
