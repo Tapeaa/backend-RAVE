@@ -2273,6 +2273,19 @@ app.post("/api/rental-orders/:id/accept", async (req, res) => {
     // Notify other drivers this order is taken
     io.to("drivers:online").emit("rental-order:taken", { orderId: id });
 
+    if (meetingPoint && updatedOrder.clientId) {
+      try {
+        await clientNotifications.meetingPointSet(
+          updatedOrder.clientId,
+          meetingPoint,
+          id,
+          session.driverName
+        );
+      } catch (e) {
+        console.warn("[RENTAL] meetingPoint push on accept:", e);
+      }
+    }
+
     console.log(`[RENTAL] Order ${id} accepted by driver ${session.driverName} (${session.driverId})`);
     res.json({ success: true, order: updatedOrder, meetingPoint: meetingPoint || null });
   } catch (error) {
@@ -2325,7 +2338,21 @@ app.post("/api/rental-orders/:id/meeting-point", async (req, res) => {
     io.to(`order:${id}`).emit("rental-order:meeting-point", {
       orderId: id,
       meetingPoint,
+      driverName: session.driverName,
     });
+
+    if (order.clientId) {
+      try {
+        await clientNotifications.meetingPointSet(
+          order.clientId,
+          meetingPoint,
+          id,
+          session.driverName
+        );
+      } catch (e) {
+        console.warn("[RENTAL] meetingPoint push:", e);
+      }
+    }
 
     const updated = await dbStorage.getOrder(id);
     res.json({ success: true, meetingPoint, order: updated });

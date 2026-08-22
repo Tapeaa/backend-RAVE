@@ -246,6 +246,19 @@ export const clientNotifications = {
         type: 'reservation_30min', 
         orderId 
       }),
+
+  /** Loueur a fixé / mis à jour le lieu de récupération */
+  meetingPointSet: (clientId: string, meetingPoint: string, orderId: string, driverName?: string) =>
+    notifyClient(
+      clientId,
+      '📍 Lieu de récupération',
+      `${driverName ? `${driverName} : ` : ''}${meetingPoint}`,
+      {
+        type: 'rental_meeting_point',
+        orderId,
+        meetingPoint,
+      }
+    ),
 };
 
 /**
