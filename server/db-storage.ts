@@ -18,6 +18,7 @@ import {
   prestataires,
   ratings,
   loueurVehicles,
+  walletTransactions,
 } from "@shared/schema";
 import { 
   type Client,
@@ -116,6 +117,7 @@ export class DbStorage {
       email: client.email,
       photoUrl: client.photoUrl,
       isVerified: client.isVerified,
+      isActive: (client as any).isActive !== false,
       walletBalance: client.walletBalance,
       averageRating: client.averageRating,
       totalRides: client.totalRides,
@@ -136,6 +138,7 @@ export class DbStorage {
       email: client.email,
       photoUrl: client.photoUrl,
       isVerified: client.isVerified,
+      isActive: (client as any).isActive !== false,
       walletBalance: client.walletBalance,
       averageRating: client.averageRating,
       totalRides: client.totalRides,
@@ -163,6 +166,7 @@ export class DbStorage {
       email: client.email,
       photoUrl: client.photoUrl,
       isVerified: client.isVerified,
+      isActive: (client as any).isActive !== false,
       walletBalance: client.walletBalance,
       averageRating: client.averageRating,
       totalRides: client.totalRides,
@@ -247,11 +251,21 @@ export class DbStorage {
       email: client.email,
       photoUrl: client.photoUrl,
       isVerified: client.isVerified,
+      isActive: (client as any).isActive !== false,
       walletBalance: client.walletBalance,
       averageRating: client.averageRating,
       totalRides: client.totalRides,
       createdAt: client.createdAt.toISOString(),
     };
+  }
+
+  async getWalletTransactions(clientId: string, limit = 100) {
+    return db
+      .select()
+      .from(walletTransactions)
+      .where(eq(walletTransactions.clientId, clientId))
+      .orderBy(desc(walletTransactions.createdAt))
+      .limit(limit);
   }
 
   async updateClientProfile(clientId: string, data: { firstName?: string; lastName?: string; email?: string | null; photoUrl?: string | null }): Promise<Client | undefined> {

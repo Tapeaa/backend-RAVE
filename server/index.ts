@@ -17,7 +17,10 @@ import { ensureDriverCommissionColumn } from "./ensure-driver-commission-column"
 import { ensureCustomContractTextColumn } from "./ensure-custom-contract-text";
 import { ensureHomeCategoriesTable } from "./ensure-home-categories";
 import { ensureBackofficeTables } from "./ensure-backoffice-tables";
+import { assertProductionSecrets } from "./assert-production-secrets";
 import { syncTahitiVehicleCatalog } from "./sync-vehicle-catalog";
+
+assertProductionSecrets();
 
 const app = express();
 app.set("trust proxy", 1);
@@ -26,7 +29,7 @@ app.use(cors({
   origin: true,
   credentials: true,
   methods: ["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
-  allowedHeaders: ["Content-Type", "Cookie", "Authorization", "X-Client-Session-Id", "X-Driver-Session-Id", "X-Admin-Secret"],
+  allowedHeaders: ["Content-Type", "Cookie", "Authorization", "X-Client-Session-Id", "X-Driver-Session-Id", "X-Driver-Session", "X-Admin-Secret"],
 }));
 
 app.use(express.json({ limit: '50mb' }));

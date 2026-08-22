@@ -15,6 +15,7 @@ import { driverNotifications, clientNotifications, notifyDriver, notifyClient, s
 import { sendVerificationCode, verifyCode, isTwilioConfigured, sendSMSMessage } from "./twilio";
 import { generateInvoicePDF } from "./pdf-generator";
 import { sendSupportMessageNotification } from "./email";
+import { assertVehicleAvailableForRental } from "./rental-availability";
 import { persistImageUri, persistContractHtml, isEphemeralLocalUri } from "./persist-media";
 import { buildRentalContractHtml } from "./rental-contract";
 
@@ -1842,6 +1843,15 @@ app.post("/api/rental-orders", async (req, res) => {
       return res.status(409).json({ success: false, error: "Aucun loueur associé à ce véhicule" });
     }
 
+    const availability = await assertVehicleAvailableForRental({
+      loueurVehicleId: vehicleRow.id,
+      startDate: body.rental.startDate,
+      endDate: body.rental.endDate,
+    });
+    if (!availability.ok) {
+      return res.status(409).json({ success: false, error: availability.error });
+    }
+
     let ownerName = vehicleRow.prestataireNom || "Loueur";
     const [driver] = await db
       .select({ firstName: drivers.firstName, lastName: drivers.lastName })
@@ -2236,19 +2246,50 @@ app.post("/api/rental-orders/:id/decline", async (req, res) => {
 // ============================================
 // CANCEL A RENTAL ORDER (by client or driver)
 // ============================================
-// Driver cancels directly
+function getRentalOwnerDriverId(order: Order): string | null {
+  const ro = (order.rideOption || {}) as any;
+  return (
+    order.assignedDriverId ||
+    ro?.targetDriverId ||
+    ro?.rentalDispatch?.targetDriverId ||
+    ro?.rentalDispatch?.driverId ||
+    null
+  );
+}
+
+async function requireDriverSessionFromReq(req: any): Promise<{ ok: true; session: DriverSession } | { ok: false; status: number; error: string }> {
+  const sessionId = (
+    (req.headers["x-driver-session"] as string) ||
+    (req.headers["x-driver-session-id"] as string) ||
+    req.body?.sessionId ||
+    ""
+  )
+    .split(",")[0]
+    .trim();
+  if (!sessionId) return { ok: false, status: 401, error: "Session loueur requise" };
+  const session = await getDriverSessionWithFallback(sessionId);
+  if (!session) return { ok: false, status: 401, error: "Session loueur invalide" };
+  return { ok: true, session };
+}
+
+async function requireClientSessionFromReq(req: any): Promise<{ ok: true; clientId: string } | { ok: false; status: number; error: string }> {
+  const headerSessionRaw = (req.headers["x-client-session-id"] as string | undefined) || "";
+  const headerSessionId = headerSessionRaw.split(",")[0].trim() || undefined;
+  const rawCookieSessionId = req.cookies?.clientSessionId as string | undefined;
+  const cookieSessionId = rawCookieSessionId?.split(",")[0].trim() || undefined;
+  const sessionId = headerSessionId || cookieSessionId;
+  if (!sessionId) return { ok: false, status: 401, error: "Session client requise" };
+  const session = await dbStorage.getClientSession(sessionId);
+  if (!session) return { ok: false, status: 401, error: "Session client invalide" };
+  return { ok: true, clientId: session.clientId };
+}
+
+// Driver cancels directly / client requests cancel
 app.post("/api/rental-orders/:id/cancel", async (req, res) => {
   try {
     const { id } = req.params;
     const role = req.body.role || "client";
     const reason = req.body.reason || "Annulation";
-
-    if (role === "driver") {
-      const sessionId = (req.headers["x-driver-session"] as string || req.body.sessionId || "").split(",")[0].trim();
-      if (!sessionId) return res.status(401).json({ success: false, error: "Session requise" });
-      const session = await getDriverSessionWithFallback(sessionId);
-      if (!session) return res.status(401).json({ success: false, error: "Session invalide" });
-    }
 
     const order = await dbStorage.getOrder(id);
     if (!order) {
@@ -2259,6 +2300,13 @@ app.post("/api/rental-orders/:id/cancel", async (req, res) => {
     }
 
     if (role === "driver") {
+      const auth = await requireDriverSessionFromReq(req);
+      if (!auth.ok) return res.status(auth.status).json({ success: false, error: auth.error });
+      const ownerId = getRentalOwnerDriverId(order);
+      if (!ownerId || ownerId !== auth.session.driverId) {
+        return res.status(403).json({ success: false, error: "Vous n'êtes pas le loueur de cette réservation" });
+      }
+
       await dbStorage.updateOrderStatus(id, "cancelled");
       const orderData = {
         orderId: id,
@@ -2275,7 +2323,13 @@ app.post("/api/rental-orders/:id/cancel", async (req, res) => {
       return res.json({ success: true, order: { ...order, status: "cancelled" } });
     }
 
-    // Client: just a request, not a direct cancel
+    // Client: authenticated request, not a direct cancel
+    const clientAuth = await requireClientSessionFromReq(req);
+    if (!clientAuth.ok) return res.status(clientAuth.status).json({ success: false, error: clientAuth.error });
+    if (order.clientId && order.clientId !== clientAuth.clientId) {
+      return res.status(403).json({ success: false, error: "Cette réservation ne vous appartient pas" });
+    }
+
     const orderData = {
       orderId: id,
       reason,
@@ -2300,12 +2354,19 @@ app.post("/api/rental-orders/:id/cancel", async (req, res) => {
 app.post("/api/rental-orders/:id/cancel-approve", async (req, res) => {
   try {
     const { id } = req.params;
+    const auth = await requireDriverSessionFromReq(req);
+    if (!auth.ok) return res.status(auth.status).json({ success: false, error: auth.error });
+
     const order = await dbStorage.getOrder(id);
     if (!order) {
       return res.status(404).json({ success: false, error: "Commande introuvable" });
     }
     if (order.status === "cancelled" || order.status === "completed") {
       return res.status(409).json({ success: false, error: "Commande déjà terminée ou annulée" });
+    }
+    const ownerId = getRentalOwnerDriverId(order);
+    if (!ownerId || ownerId !== auth.session.driverId) {
+      return res.status(403).json({ success: false, error: "Vous n'êtes pas le loueur de cette réservation" });
     }
 
     await dbStorage.updateOrderStatus(id, "cancelled");
@@ -2332,10 +2393,18 @@ app.post("/api/rental-orders/:id/cancel-approve", async (req, res) => {
 app.post("/api/rental-orders/:id/cancel-reject", async (req, res) => {
   try {
     const { id } = req.params;
+    const auth = await requireDriverSessionFromReq(req);
+    if (!auth.ok) return res.status(auth.status).json({ success: false, error: auth.error });
+
     const order = await dbStorage.getOrder(id);
     if (!order) {
       return res.status(404).json({ success: false, error: "Commande introuvable" });
     }
+    const ownerId = getRentalOwnerDriverId(order);
+    if (!ownerId || ownerId !== auth.session.driverId) {
+      return res.status(403).json({ success: false, error: "Vous n'êtes pas le loueur de cette réservation" });
+    }
+
     const rejectData = {
       orderId: id,
       reason: req.body.reason || "Le loueur a refusé l'annulation",
@@ -3479,9 +3548,16 @@ app.post("/api/live-activities/end", async (req, res) => {
     }
   });
 
-  // HTTP endpoint to force cleanup orphan orders (no driver assigned for too long)
+  // HTTP endpoint to force cleanup orphan orders (admin only)
   app.post("/api/orders/cleanup-orphans", async (req, res) => {
     try {
+      const { requireAdminAuth } = await import("./admin-auth");
+      let authorized = false;
+      requireAdminAuth(req as any, res, () => {
+        authorized = true;
+      });
+      if (!authorized) return;
+
       const allOrders = await dbStorage.getAllOrders();
       const now = new Date();
       const ORPHAN_TIMEOUT_MS = 10 * 60 * 1000; // 10 minutes
@@ -5069,6 +5145,10 @@ app.post("/api/live-activities/end", async (req, res) => {
       if (!client) {
         return res.status(401).json({ error: "Numéro de téléphone ou mot de passe incorrect" });
       }
+
+      if (client.isActive === false) {
+        return res.status(403).json({ error: "Compte suspendu", code: "ACCOUNT_SUSPENDED" });
+      }
       
       if (!verifyPassword(password, client.hashedPassword)) {
         return res.status(401).json({ error: "Numéro de téléphone ou mot de passe incorrect" });
@@ -5743,7 +5823,7 @@ const sessionId = headerSessionId || cookieSessionId;
     }
     
     const client = await dbStorage.getClient(session.clientId);
-    const transactions: any[] = []; // Wallet transactions not implemented in dbStorage yet
+    const transactions = await dbStorage.getWalletTransactions(session.clientId, 100);
     
     res.json({
       balance: client?.walletBalance || 0,
@@ -7551,10 +7631,17 @@ const sessionId = headerSessionId || cookieSessionId;
   registerAWSLegacyRoutes(app);
 
   // ============================================================================
-  // DEBUG: Endpoint pour tester les rappels de réservation
+  // DEBUG: Endpoint pour tester les rappels de réservation (admin JWT)
   // ============================================================================
   app.get("/api/debug/reservation-reminders", async (req, res) => {
     try {
+      const { requireAdminAuth } = await import("./admin-auth");
+      let authorized = false;
+      requireAdminAuth(req as any, res, () => {
+        authorized = true;
+      });
+      if (!authorized) return;
+
       const now = new Date();
       console.log(`[DEBUG] Current server time: ${now.toISOString()}`);
       console.log(`[DEBUG] Current server time (Tahiti): ${now.toLocaleString('fr-FR', { timeZone: 'Pacific/Tahiti' })}`);
@@ -7708,17 +7795,23 @@ const sessionId = headerSessionId || cookieSessionId;
   });
 
   // ============================================================================
-  // SERVICE DE RAPPEL POUR RÉSERVATIONS À L'AVANCE
+  // SERVICE DE RAPPEL POUR RÉSERVATIONS À L'AVANCE (durable via Postgres)
   // ============================================================================
-  
-  // Set pour tracker les notifications déjà envoyées (format: "orderId-type")
-  const sentReservationReminders = new Set<string>();
-  
-  // Nettoyer les anciennes entrées toutes les heures
-  setInterval(() => {
-    console.log('[ReservationReminder] Cleaning old reminder entries...');
-    sentReservationReminders.clear();
-  }, 60 * 60 * 1000); // 1 heure
+
+  async function claimReservationReminder(orderId: string, reminderType: string): Promise<boolean> {
+    try {
+      const result = await db.execute(dsql`
+        INSERT INTO reservation_reminders_sent (order_id, reminder_type)
+        VALUES (${orderId}, ${reminderType})
+        ON CONFLICT (order_id, reminder_type) DO NOTHING
+        RETURNING id
+      `);
+      return (result.rows?.length || 0) > 0;
+    } catch (e) {
+      console.error("[ReservationReminder] claim failed:", e);
+      return false;
+    }
+  }
   
   // Vérifier les réservations toutes les 1 minute
   setInterval(async () => {
@@ -7730,49 +7823,36 @@ const sessionId = headerSessionId || cookieSessionId;
       console.log(`[ReservationReminder] Found ${reservations1h.length} reservations for 1-hour reminder`);
       
       for (const order of reservations1h) {
-        const reminderKey1h = `${order.id}-1hour`;
-        if (!sentReservationReminders.has(reminderKey1h)) {
-          console.log(`[ReservationReminder] 📤 Sending 1-hour reminder for order ${order.id}`);
-          console.log(`[ReservationReminder] - assignedDriverId: ${order.assignedDriverId}`);
-          console.log(`[ReservationReminder] - clientId: ${order.clientId}`);
-          console.log(`[ReservationReminder] - scheduledTime: ${order.scheduledTime}`);
+        const claimed = await claimReservationReminder(order.id, "1h");
+        if (!claimed) continue;
+
+        console.log(`[ReservationReminder] 📤 Sending 1-hour reminder for order ${order.id}`);
           
-          // Récupérer le chauffeur assigné
           if (order.assignedDriverId) {
             const driver = await dbStorage.getDriver(order.assignedDriverId);
             const driverName = driver ? `${driver.firstName || ''} ${driver.lastName || ''}`.trim() || 'Chauffeur' : null;
-            console.log(`[ReservationReminder] - driver found: ${driver ? driverName : 'NOT FOUND'}`);
             
             if (driver && driverName) {
-              // Notification chauffeur
               const pickupAddress = Array.isArray(order.addresses) && order.addresses[0]
                 ? (order.addresses[0] as any).value || (order.addresses[0] as any).address || 'Adresse non spécifiée'
                 : 'Adresse non spécifiée';
               
-              console.log(`[ReservationReminder] Sending notification to driver ${driver.id}`);
-              const driverNotifResult = await driverNotifications.reservationIn1Hour(
+              await driverNotifications.reservationIn1Hour(
                 driver.id,
                 order.clientName || 'Client',
                 order.id,
                 pickupAddress
               );
-              console.log(`[ReservationReminder] Driver notification result: ${driverNotifResult}`);
               
-              // Notification client
               if (order.clientId) {
-                console.log(`[ReservationReminder] Sending notification to client ${order.clientId}`);
-                const clientNotifResult = await clientNotifications.reservationIn1Hour(
+                await clientNotifications.reservationIn1Hour(
                   order.clientId,
                   driverName,
                   order.id
                 );
-                console.log(`[ReservationReminder] Client notification result: ${clientNotifResult}`);
               }
             }
           }
-          
-          sentReservationReminders.add(reminderKey1h);
-        }
       }
       
       // Rappel 30 minutes avant
@@ -7780,56 +7860,43 @@ const sessionId = headerSessionId || cookieSessionId;
       console.log(`[ReservationReminder] Found ${reservations30m.length} reservations for 30-min reminder`);
       
       for (const order of reservations30m) {
-        const reminderKey30m = `${order.id}-30min`;
-        if (!sentReservationReminders.has(reminderKey30m)) {
-          console.log(`[ReservationReminder] 📤 Sending 30-min reminder for order ${order.id}`);
-          console.log(`[ReservationReminder] - assignedDriverId: ${order.assignedDriverId}`);
-          console.log(`[ReservationReminder] - clientId: ${order.clientId}`);
-          console.log(`[ReservationReminder] - scheduledTime: ${order.scheduledTime}`);
+        const claimed = await claimReservationReminder(order.id, "30m");
+        if (!claimed) continue;
+
+        console.log(`[ReservationReminder] 📤 Sending 30-min reminder for order ${order.id}`);
           
-          // Récupérer le chauffeur assigné
           if (order.assignedDriverId) {
             const driver = await dbStorage.getDriver(order.assignedDriverId);
             const driverName = driver ? `${driver.firstName || ''} ${driver.lastName || ''}`.trim() || 'Chauffeur' : null;
-            console.log(`[ReservationReminder] - driver found: ${driver ? driverName : 'NOT FOUND'}`);
             
             if (driver && driverName) {
-              // Notification chauffeur
               const pickupAddress = Array.isArray(order.addresses) && order.addresses[0]
                 ? (order.addresses[0] as any).value || (order.addresses[0] as any).address || 'Adresse non spécifiée'
                 : 'Adresse non spécifiée';
               
-              console.log(`[ReservationReminder] Sending notification to driver ${driver.id}`);
-              const driverNotifResult = await driverNotifications.reservationIn30Min(
+              await driverNotifications.reservationIn30Min(
                 driver.id,
                 order.clientName || 'Client',
                 order.id,
                 pickupAddress
               );
-              console.log(`[ReservationReminder] Driver notification result: ${driverNotifResult}`);
               
-              // Notification client
               if (order.clientId) {
-                console.log(`[ReservationReminder] Sending notification to client ${order.clientId}`);
-                const clientNotifResult = await clientNotifications.reservationIn30Min(
+                await clientNotifications.reservationIn30Min(
                   order.clientId,
                   driverName,
                   order.id
                 );
-                console.log(`[ReservationReminder] Client notification result: ${clientNotifResult}`);
               }
             }
           }
-          
-          sentReservationReminders.add(reminderKey30m);
-        }
       }
     } catch (error) {
       console.error('[ReservationReminder] ❌ Error checking reservations:', error);
     }
   }, 1 * 60 * 1000); // Toutes les 1 minute
   
-  console.log('[ReservationReminder] ✅ Service de rappel des réservations activé');
+  console.log('[ReservationReminder] ✅ Service de rappel des réservations activé (Postgres)');
 
   return httpServer;
 }

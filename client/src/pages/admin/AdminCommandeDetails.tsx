@@ -277,7 +277,7 @@ export function AdminCommandeDetails() {
         <div className="rounded-xl border border-amber-200 bg-amber-50/60 p-4 space-y-3">
           <h3 className="font-semibold text-amber-900">Pipeline location</h3>
           <div className="text-sm text-amber-800">
-            Phase : <strong>{(commande.rideOption as any)?.rentalPhase || (commande.rideOption as any)?.rentalDispatch?.phase || '—'}</strong>
+            Phase : <strong>{(commande.rideOption as any)?.rentalLifecyclePhase || (commande.rideOption as any)?.rentalPhase || (commande.rideOption as any)?.rentalDispatch?.phase || '—'}</strong>
             {(commande.rideOption as any)?.clientSignatureSvg || (commande.rideOption as any)?.clientSignedAt ? (
               <span className="ml-3 text-green-700">Signature client OK</span>
             ) : (
