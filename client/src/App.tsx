@@ -20,9 +20,6 @@ import { AdminCarousel } from "@/pages/admin/AdminCarousel";
 import { AdminHomeCategories } from "@/pages/admin/AdminHomeCategories";
 import { AdminMessages } from "@/pages/admin/AdminMessages";
 import { AdminVehicles } from "@/pages/admin/AdminVehicles";
-import { AdminTarifs } from "@/pages/admin/AdminTarifs";
-import { AdminCollecte } from "@/pages/admin/AdminCollecte";
-import { AdminCollecteDetails } from "@/pages/admin/AdminCollecteDetails";
 import { AdminFleet } from "@/pages/admin/AdminFleet";
 import { AdminSettings } from "@/pages/admin/AdminSettings";
 import { AdminPromos } from "@/pages/admin/AdminPromos";
@@ -71,9 +68,9 @@ function Router() {
       <Route path="/admin/prestataires">{() => <Redirect to="/admin/chauffeurs" />}</Route>
       <Route path="/admin/prestataires/:id">{() => <Redirect to="/admin/chauffeurs" />}</Route>
       <Route path="/admin/paiements">{() => <AdminPage><AdminPaiements /></AdminPage>}</Route>
-      <Route path="/admin/collecte">{() => <AdminPage><AdminCollecte /></AdminPage>}</Route>
-      <Route path="/admin/collecte/:id">{() => <AdminPage><AdminCollecteDetails /></AdminPage>}</Route>
-      <Route path="/admin/tarifs">{() => <AdminPage><AdminTarifs /></AdminPage>}</Route>
+      <Route path="/admin/collecte">{() => <Redirect to="/admin" />}</Route>
+      <Route path="/admin/collecte/:id">{() => <Redirect to="/admin" />}</Route>
+      <Route path="/admin/tarifs">{() => <Redirect to="/admin/settings" />}</Route>
       <Route path="/admin/carousel">{() => <AdminPage><AdminCarousel /></AdminPage>}</Route>
       <Route path="/admin/home-categories">{() => <AdminPage><AdminHomeCategories /></AdminPage>}</Route>
       <Route path="/admin/messages">{() => <AdminPage><AdminMessages /></AdminPage>}</Route>

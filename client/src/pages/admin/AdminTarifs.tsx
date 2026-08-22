@@ -1,10 +1,10 @@
-/**
- * Tape'ā Back Office - Page Tarifs
+﻿/**
+ * RAVE Back Office - Page Tarifs
  * Gestion complète de tous les tarifs et suppléments
  */
 
 import { useEffect, useState } from 'react';
-import { DollarSign, Plus, Edit, Trash2, Sun, Moon, Clock, Save, X, Settings, Users, Percent } from 'lucide-react';
+import { DollarSign, Plus, Edit, Trash2, Sun, Moon, Clock, Save, X, Settings } from 'lucide-react';
 
 interface Tarif {
   id: string;
@@ -27,14 +27,8 @@ interface Supplement {
   actif: boolean;
 }
 
-interface FraisServiceConfig {
-  fraisServicePrestataire: number;
-  commissionPrestataire: number;
-  commissionSalarieTapea: number;
-}
-
 interface TarifConfig {
-  fraisTapea: number; // Pourcentage (10%)
+  fraisPlateforme: number; // Pourcentage
   minimumCourseJour: number;
   minimumCourseNuit: number;
   majorationHauteurColline: number; // Pourcentage (20%)
@@ -87,22 +81,14 @@ const typeLabels: Record<string, { label: string; icon: React.ReactNode; color: 
 export function AdminTarifs() {
   const [tarifs, setTarifs] = useState<Tarif[]>([]);
   const [supplements, setSupplements] = useState<Supplement[]>([]);
-  const [fraisServiceConfig, setFraisServiceConfig] = useState<FraisServiceConfig>({
-    fraisServicePrestataire: 15,
-    commissionPrestataire: 0,
-    commissionSalarieTapea: 0,
-  });
   const [isLoading, setIsLoading] = useState(true);
   const [editingTarif, setEditingTarif] = useState<Tarif | null>(null);
   const [editingSupplement, setEditingSupplement] = useState<Supplement | null>(null);
   const [showTarifForm, setShowTarifForm] = useState(false);
   const [showSupplementForm, setShowSupplementForm] = useState(false);
-  const [showFraisServiceForm, setShowFraisServiceForm] = useState(false);
-  const [editingFraisServiceType, setEditingFraisServiceType] = useState<'fraisService' | 'commissionPrestataire' | 'commissionSalarie' | null>(null);
-  const [fraisServiceSliderValue, setFraisServiceSliderValue] = useState(15);
   const [showConfig, setShowConfig] = useState(false);
   const [config, setConfig] = useState<TarifConfig>({
-    fraisTapea: 10,
+    fraisPlateforme: 10,
     minimumCourseJour: 1500,
     minimumCourseNuit: 2000,
     majorationHauteurColline: 20,
@@ -134,14 +120,13 @@ export function AdminTarifs() {
     setIsLoading(true);
     try {
       const token = localStorage.getItem('admin_token');
-      const [tarifsRes, supplementsRes, fraisServiceRes] = await Promise.all([
+      const [tarifsRes, supplementsRes] = await Promise.all([
         fetch('/api/admin/tarifs', {
           headers: { Authorization: `Bearer ${token}` },
         }),
         fetch('/api/admin/supplements', {
           headers: { Authorization: `Bearer ${token}` },
         }),
-        fetch('/api/frais-service-config'),
       ]);
 
       if (tarifsRes.ok) {
@@ -152,13 +137,6 @@ export function AdminTarifs() {
       if (supplementsRes.ok) {
         const data = await supplementsRes.json();
         setSupplements(data || []);
-      }
-
-      if (fraisServiceRes.ok) {
-        const data = await fraisServiceRes.json();
-        if (data.success && data.config) {
-          setFraisServiceConfig(data.config);
-        }
       }
     } catch (error) {
       console.error('Error fetching data:', error);
@@ -214,59 +192,9 @@ export function AdminTarifs() {
   function closeForms() {
     setShowTarifForm(false);
     setShowSupplementForm(false);
-    setShowFraisServiceForm(false);
     setShowConfig(false);
     setEditingTarif(null);
     setEditingSupplement(null);
-    setEditingFraisServiceType(null);
-  }
-
-  function openFraisServiceForm(type: 'fraisService' | 'commissionPrestataire' | 'commissionSalarie') {
-    setEditingFraisServiceType(type);
-    if (type === 'fraisService') {
-      setFraisServiceSliderValue(fraisServiceConfig.fraisServicePrestataire);
-    } else if (type === 'commissionPrestataire') {
-      setFraisServiceSliderValue(fraisServiceConfig.commissionPrestataire);
-    } else {
-      setFraisServiceSliderValue(fraisServiceConfig.commissionSalarieTapea);
-    }
-    setShowFraisServiceForm(true);
-  }
-
-  async function handleSubmitFraisService(e: React.FormEvent) {
-    e.preventDefault();
-    if (!editingFraisServiceType) return;
-
-    try {
-      const body: Partial<FraisServiceConfig> = {};
-      if (editingFraisServiceType === 'fraisService') {
-        body.fraisServicePrestataire = fraisServiceSliderValue;
-      } else if (editingFraisServiceType === 'commissionPrestataire') {
-        body.commissionPrestataire = fraisServiceSliderValue;
-      } else {
-        body.commissionSalarieTapea = fraisServiceSliderValue;
-      }
-
-      const response = await fetch('/api/frais-service-config', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          Authorization: `Bearer ${localStorage.getItem('admin_token')}`,
-        },
-        body: JSON.stringify(body),
-      });
-
-      if (response.ok) {
-        await fetchData();
-        closeForms();
-      } else {
-        const error = await response.json();
-        alert(error.error || 'Erreur lors de la sauvegarde');
-      }
-    } catch (error) {
-      console.error('Error saving frais service config:', error);
-      alert('Erreur lors de la sauvegarde');
-    }
   }
 
   async function handleSubmitTarif(e: React.FormEvent) {
@@ -511,127 +439,6 @@ export function AdminTarifs() {
               </div>
             );
           })}
-        </div>
-      </div>
-
-      {/* Frais de Service et Commissions */}
-      <div>
-        <div className="mb-4 flex items-center gap-3">
-          <div className="rounded-lg p-2 bg-purple-100 text-purple-700">
-            <Percent className="h-5 w-5" />
-          </div>
-          <div>
-            <h2 className="text-lg font-semibold text-gray-900">Frais de Service & Commissions</h2>
-            <p className="text-sm text-gray-500">Configuration des frais appliqués aux courses</p>
-          </div>
-        </div>
-        
-        {/* Frais de service loueurs */}
-        <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3 mb-6">
-          {/* Frais de service pour loueurs */}
-          <div className="rounded-xl bg-white p-6 shadow-sm border-2 border-purple-300">
-            <div className="mb-4 flex items-start justify-between">
-              <div className="flex items-center gap-3">
-                <div className="rounded-full p-2 bg-purple-100 text-purple-700">
-                  <DollarSign className="h-5 w-5" />
-                </div>
-                <div>
-                  <h3 className="font-semibold text-gray-900">Frais de Service Loueurs</h3>
-                  <p className="text-xs text-gray-500 mt-1">% ajouté au prix client (facturé au client)</p>
-                </div>
-              </div>
-              <button
-                onClick={() => openFraisServiceForm('fraisService')}
-                className="rounded p-1 text-gray-400 hover:bg-gray-100 hover:text-gray-600"
-              >
-                <Edit className="h-4 w-4" />
-              </button>
-            </div>
-            
-            <div className="text-center bg-purple-50 rounded-lg p-4 mb-4">
-              <div className="text-4xl font-bold text-purple-600">{fraisServiceConfig.fraisServicePrestataire}%</div>
-              <div className="text-sm text-gray-500">Frais de service</div>
-            </div>
-            
-            <div className="bg-yellow-50 rounded-lg p-3">
-              <p className="text-xs text-gray-600">
-                <span className="font-semibold">Exemple :</span> Course 10 000 XPF → Client paie{' '}
-                <span className="font-bold text-purple-600">
-                  {Math.round(10000 * (1 + fraisServiceConfig.fraisServicePrestataire / 100)).toLocaleString('fr-FR')} XPF
-                </span>
-              </p>
-            </div>
-          </div>
-
-          {/* Commission loueur (sur subtotal) */}
-          <div className="rounded-xl bg-white p-6 shadow-sm border-2 border-orange-300">
-            <div className="mb-4 flex items-start justify-between">
-              <div className="flex items-center gap-3">
-                <div className="rounded-full p-2 bg-orange-100 text-orange-700">
-                  <Percent className="h-5 w-5" />
-                </div>
-                <div>
-                  <h3 className="font-semibold text-gray-900">Commission Loueur</h3>
-                  <p className="text-xs text-gray-500 mt-1">% prélevé sur le subtotal (hors frais service)</p>
-                </div>
-              </div>
-              <button
-                onClick={() => openFraisServiceForm('commissionPrestataire')}
-                className="rounded p-1 text-gray-400 hover:bg-gray-100 hover:text-gray-600"
-              >
-                <Edit className="h-4 w-4" />
-              </button>
-            </div>
-            
-            <div className="text-center bg-orange-50 rounded-lg p-4 mb-4">
-              <div className="text-4xl font-bold text-orange-600">{fraisServiceConfig.commissionPrestataire}%</div>
-              <div className="text-sm text-gray-500">Commission TAPEA</div>
-            </div>
-            
-            <div className="bg-yellow-50 rounded-lg p-3">
-              <p className="text-xs text-gray-600">
-                <span className="font-semibold">Exemple :</span> Sur 10 000 XPF de course, TAPEA prélève{' '}
-                <span className="font-bold text-orange-600">
-                  {Math.round(10000 * fraisServiceConfig.commissionPrestataire / 100).toLocaleString('fr-FR')} XPF
-                </span>
-              </p>
-            </div>
-          </div>
-
-          {/* Commission salarié TAPEA */}
-          <div className="rounded-xl bg-white p-6 shadow-sm border-2 border-blue-300">
-            <div className="mb-4 flex items-start justify-between">
-              <div className="flex items-center gap-3">
-                <div className="rounded-full p-2 bg-blue-100 text-blue-700">
-                  <Users className="h-5 w-5" />
-                </div>
-                <div>
-                  <h3 className="font-semibold text-gray-900">Commission Salarié TAPEA</h3>
-                  <p className="text-xs text-gray-500 mt-1">% prélevé sur les gains des salariés TAPEA</p>
-                </div>
-              </div>
-              <button
-                onClick={() => openFraisServiceForm('commissionSalarie')}
-                className="rounded p-1 text-gray-400 hover:bg-gray-100 hover:text-gray-600"
-              >
-                <Edit className="h-4 w-4" />
-              </button>
-            </div>
-            
-            <div className="text-center bg-blue-50 rounded-lg p-4 mb-4">
-              <div className="text-4xl font-bold text-blue-600">{fraisServiceConfig.commissionSalarieTapea}%</div>
-              <div className="text-sm text-gray-500">Commission TAPEA</div>
-            </div>
-            
-            <div className="bg-yellow-50 rounded-lg p-3">
-              <p className="text-xs text-gray-600">
-                <span className="font-semibold">Exemple :</span> Sur 10 000 XPF de gains, TAPEA prélève{' '}
-                <span className="font-bold text-blue-600">
-                  {Math.round(10000 * fraisServiceConfig.commissionSalarieTapea / 100).toLocaleString('fr-FR')} XPF
-                </span>
-              </p>
-            </div>
-          </div>
         </div>
       </div>
 
@@ -895,164 +702,6 @@ export function AdminTarifs() {
         </div>
       )}
 
-      {/* Modal Form Frais de Service */}
-      {showFraisServiceForm && editingFraisServiceType && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50">
-          <div className="w-full max-w-md rounded-xl bg-white p-6 shadow-lg">
-            <div className="mb-4 flex items-center justify-between">
-              <h2 className="text-xl font-bold text-gray-900">
-                {editingFraisServiceType === 'fraisService' && 'Modifier les Frais de Service'}
-                {editingFraisServiceType === 'commissionPrestataire' && 'Modifier la Commission Loueur'}
-                {editingFraisServiceType === 'commissionSalarie' && 'Modifier la Commission Salarié TAPEA'}
-              </h2>
-              <button onClick={closeForms} className="rounded p-1 hover:bg-gray-100">
-                <X className="h-5 w-5" />
-              </button>
-            </div>
-
-            <form onSubmit={handleSubmitFraisService} className="space-y-4">
-              <div className={`rounded-lg p-3 ${
-                editingFraisServiceType === 'fraisService' 
-                  ? 'bg-purple-50 text-purple-800' 
-                  : editingFraisServiceType === 'commissionPrestataire'
-                    ? 'bg-orange-50 text-orange-800'
-                    : 'bg-blue-50 text-blue-800'
-              }`}>
-                <p className="text-sm">
-                  {editingFraisServiceType === 'fraisService' && (
-                    <>
-                      <span className="font-semibold">Frais de service</span> ajoutés au prix de la course pour les clients 
-                      utilisant un chauffeur prestataire. Ces frais sont offerts quand un salarié TAPEA accepte la course.
-                    </>
-                  )}
-                  {editingFraisServiceType === 'commissionPrestataire' && (
-                    <>
-                      <span className="font-semibold">Commission</span> prélevée sur le subtotal (prix avant frais de service) 
-                      des courses effectuées par les prestataires.
-                    </>
-                  )}
-                  {editingFraisServiceType === 'commissionSalarie' && (
-                    <>
-                      <span className="font-semibold">Commission</span> prélevée sur les gains totaux des salariés TAPEA 
-                      (en plus de leur salaire).
-                    </>
-                  )}
-                </p>
-              </div>
-
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-2">
-                  Pourcentage : <span className={`font-bold ${
-                    editingFraisServiceType === 'fraisService' 
-                      ? 'text-purple-600' 
-                      : editingFraisServiceType === 'commissionPrestataire'
-                        ? 'text-orange-600'
-                        : 'text-blue-600'
-                  }`}>{fraisServiceSliderValue}%</span>
-                </label>
-                <input
-                  type="range"
-                  min="0"
-                  max="50"
-                  step="1"
-                  value={fraisServiceSliderValue}
-                  onChange={(e) => setFraisServiceSliderValue(parseInt(e.target.value))}
-                  className={`w-full h-3 bg-gray-200 rounded-lg appearance-none cursor-pointer ${
-                    editingFraisServiceType === 'fraisService' 
-                      ? 'accent-purple-600' 
-                      : editingFraisServiceType === 'commissionPrestataire'
-                        ? 'accent-orange-600'
-                        : 'accent-blue-600'
-                  }`}
-                />
-                <div className="flex justify-between text-xs text-gray-500 mt-1">
-                  <span>0%</span>
-                  <span>50%</span>
-                </div>
-              </div>
-
-              <div className={`text-center rounded-lg p-6 ${
-                editingFraisServiceType === 'fraisService' 
-                  ? 'bg-purple-100' 
-                  : editingFraisServiceType === 'commissionPrestataire'
-                    ? 'bg-orange-100'
-                    : 'bg-blue-100'
-              }`}>
-                <div className={`text-5xl font-bold ${
-                  editingFraisServiceType === 'fraisService' 
-                    ? 'text-purple-600' 
-                    : editingFraisServiceType === 'commissionPrestataire'
-                      ? 'text-orange-600'
-                      : 'text-blue-600'
-                }`}>{fraisServiceSliderValue}%</div>
-                <div className="text-sm text-gray-600 mt-2">
-                  {editingFraisServiceType === 'fraisService' && 'Frais de service'}
-                  {editingFraisServiceType === 'commissionPrestataire' && 'Commission prestataire'}
-                  {editingFraisServiceType === 'commissionSalarie' && 'Commission salarié'}
-                </div>
-              </div>
-
-              <div className="bg-green-50 rounded-lg p-3">
-                <p className="text-sm text-gray-700">
-                  <span className="font-semibold">Exemple pour 10 000 XPF :</span>
-                  <br />
-                  {editingFraisServiceType === 'fraisService' && (
-                    <>
-                      Le client paie{' '}
-                      <span className="font-bold text-purple-600">
-                        {Math.round(10000 * (1 + fraisServiceSliderValue / 100)).toLocaleString('fr-FR')} XPF
-                      </span>
-                      {' '}(+{Math.round(10000 * fraisServiceSliderValue / 100).toLocaleString('fr-FR')} XPF de frais)
-                    </>
-                  )}
-                  {editingFraisServiceType === 'commissionPrestataire' && (
-                    <>
-                      TAPEA prélève{' '}
-                      <span className="font-bold text-orange-600">
-                        {Math.round(10000 * fraisServiceSliderValue / 100).toLocaleString('fr-FR')} XPF
-                      </span>
-                      {' '}de commission
-                    </>
-                  )}
-                  {editingFraisServiceType === 'commissionSalarie' && (
-                    <>
-                      TAPEA prélève{' '}
-                      <span className="font-bold text-blue-600">
-                        {Math.round(10000 * fraisServiceSliderValue / 100).toLocaleString('fr-FR')} XPF
-                      </span>
-                      {' '}de commission
-                    </>
-                  )}
-                </p>
-              </div>
-
-              <div className="flex gap-2 pt-4">
-                <button
-                  type="button"
-                  onClick={closeForms}
-                  className="flex-1 rounded-lg border border-gray-300 px-4 py-2 hover:bg-gray-50"
-                >
-                  Annuler
-                </button>
-                <button
-                  type="submit"
-                  className={`flex-1 flex items-center justify-center gap-2 rounded-lg px-4 py-2 text-white ${
-                    editingFraisServiceType === 'fraisService' 
-                      ? 'bg-purple-600 hover:bg-purple-700' 
-                      : editingFraisServiceType === 'commissionPrestataire'
-                        ? 'bg-orange-600 hover:bg-orange-700'
-                        : 'bg-blue-600 hover:bg-blue-700'
-                  }`}
-                >
-                  <Save className="h-4 w-4" />
-                  Sauvegarder
-                </button>
-              </div>
-            </form>
-          </div>
-        </div>
-      )}
-
       {/* Modal Configuration */}
       {showConfig && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50">
@@ -1067,15 +716,15 @@ export function AdminTarifs() {
             <div className="space-y-4">
               <div>
                 <label className="block text-sm font-medium text-gray-700 mb-1">
-                  Frais TĀPE'A (%)
+                  Frais plateforme (%)
                 </label>
                 <input
                   type="number"
                   step="0.1"
                   min="0"
                   max="100"
-                  value={config.fraisTapea}
-                  onChange={(e) => setConfig({ ...config, fraisTapea: parseFloat(e.target.value) || 0 })}
+                  value={config.fraisPlateforme}
+                  onChange={(e) => setConfig({ ...config, fraisPlateforme: parseFloat(e.target.value) || 0 })}
                   className="w-full rounded-lg border border-gray-300 px-3 py-2"
                 />
               </div>

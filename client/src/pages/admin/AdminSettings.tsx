@@ -1,5 +1,5 @@
 /**
- * Paramètres BO : frais, commissions, abonnement loueur, version app
+ * Paramètres BO : abonnement loueur, version app
  */
 
 import { useEffect, useState } from "react";
@@ -16,7 +16,6 @@ type LoueurPlanForm = {
 };
 
 export function AdminSettings() {
-  const [frais, setFrais] = useState({ fraisServicePrestataire: 15, commissionPrestataire: 0, commissionSalarieTapea: 0 });
   const [subPlans, setSubPlans] = useState<LoueurPlanForm>({
     monthlyAmountXpf: 5000,
     monthlyLabel: "Mensuel",
@@ -36,15 +35,10 @@ export function AdminSettings() {
 
   async function load() {
     try {
-      const [f, v, s] = await Promise.all([
-        fetch("/api/frais-service-config"),
+      const [v, s] = await Promise.all([
         fetch("/api/admin/app-version"),
         fetch("/api/admin/loueur-subscription-config", { headers: adminAuthHeaders() }),
       ]);
-      if (f.ok) {
-        const data = await f.json();
-        if (data.config) setFrais(data.config);
-      }
       if (v.ok) {
         const data = await v.json();
         if (data.client) setClientVersion({ minVersion: data.client.minVersion || "1.0.0", forceUpdate: !!data.client.forceUpdate, message: data.client.message || "" });
@@ -66,21 +60,6 @@ export function AdminSettings() {
       }
     } catch (e) {
       console.error(e);
-    }
-  }
-
-  async function saveFrais() {
-    setSaving(true);
-    setMsg("");
-    try {
-      const res = await fetch("/api/admin/frais-service-config", {
-        method: "POST",
-        headers: adminAuthHeaders(),
-        body: JSON.stringify(frais),
-      });
-      setMsg(res.ok ? "Frais enregistrés" : "Erreur frais");
-    } finally {
-      setSaving(false);
     }
   }
 
@@ -137,38 +116,10 @@ export function AdminSettings() {
         <h1 className="text-2xl font-bold text-slate-900 flex items-center gap-2">
           <Settings className="h-7 w-7 text-amber-500" /> Paramètres
         </h1>
-        <p className="text-sm text-slate-500">Frais, abonnement loueur et versions app</p>
+        <p className="text-sm text-slate-500">Abonnement loueur et versions app</p>
       </div>
 
       {msg && <div className="rounded-lg bg-amber-50 border border-amber-200 px-4 py-2 text-sm text-amber-800">{msg}</div>}
-
-      <section className="rounded-xl border border-slate-200 bg-white p-5 shadow-sm space-y-4">
-        <h2 className="font-semibold text-slate-900">Frais & commissions (%)</h2>
-        {([
-          ["fraisServicePrestataire", "Frais service client"],
-          ["commissionPrestataire", "Commission loueur"],
-          ["commissionSalarieTapea", "Commission salarié"],
-        ] as const).map(([key, label]) => (
-          <label key={key} className="block text-sm">
-            <span className="text-slate-600">{label}</span>
-            <input
-              type="number"
-              min={0}
-              max={100}
-              className="mt-1 w-full rounded-lg border border-slate-200 px-3 py-2"
-              value={(frais as any)[key]}
-              onChange={(e) => setFrais({ ...frais, [key]: Number(e.target.value) })}
-            />
-          </label>
-        ))}
-        <button
-          onClick={saveFrais}
-          disabled={saving}
-          className="inline-flex items-center gap-2 rounded-lg bg-amber-500 px-4 py-2 text-sm font-medium text-slate-900 hover:bg-amber-400"
-        >
-          <Save className="h-4 w-4" /> Enregistrer frais
-        </button>
-      </section>
 
       <section className="rounded-xl border border-slate-200 bg-white p-5 shadow-sm space-y-5">
         <div>

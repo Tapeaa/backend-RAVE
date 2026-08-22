@@ -6,7 +6,7 @@ import { useEffect, useState } from 'react';
 import { useLocation } from 'wouter';
 import { 
   ArrowLeft, MapPin, User, Car, DollarSign, 
-  CreditCard, Wallet, Calendar, Clock, Package, Star, Building2, FileText
+  CreditCard, Wallet, Calendar, Clock, Package, Star, FileText
 } from 'lucide-react';
 
 interface CommandeDetails {
@@ -46,13 +46,10 @@ interface CommandeDetails {
     vehiclePlate: string | null;
     typeChauffeur?: 'salarie' | 'patente';
     prestataireId?: string | null;
-    commissionChauffeur?: number;
   } | null;
   prestataire?: { id: string; nom: string; type: string } | null;
   waitingRatePerMin?: number;
   freeMinutes?: number;
-  fraisServicePercent?: number;
-  fraisConfig?: { fraisServicePrestataire: number; commissionPrestataire: number } | null;
   ratings?: {
     client: {
       id: string;
@@ -79,15 +76,9 @@ interface CommandeDetails {
   };
 }
 
-interface FraisConfigState {
-  fraisServicePrestataire: number;
-  commissionPrestataire: number;
-}
-
 export function AdminCommandeDetails() {
   const [, setLocation] = useLocation();
   const [details, setDetails] = useState<CommandeDetails | null>(null);
-  const [fraisConfig, setFraisConfig] = useState<FraisConfigState | null>(null);
   const [isLoading, setIsLoading] = useState(true);
   
   // Récupérer l'ID depuis l'URL
@@ -96,25 +87,7 @@ export function AdminCommandeDetails() {
 
   useEffect(() => {
     fetchDetails();
-    fetchFraisConfig();
   }, [commandeId]);
-
-  async function fetchFraisConfig() {
-    try {
-      const response = await fetch('/api/frais-service-config');
-      if (response.ok) {
-        const result = await response.json();
-        if (result.success && result.config) {
-          setFraisConfig({
-            fraisServicePrestataire: result.config.fraisServicePrestataire ?? 15,
-            commissionPrestataire: result.config.commissionPrestataire ?? 0,
-          });
-        }
-      }
-    } catch (error) {
-      console.error('Error fetching frais config:', error);
-    }
-  }
 
   async function fetchDetails() {
     setIsLoading(true);
@@ -207,11 +180,6 @@ export function AdminCommandeDetails() {
 
   const { commande, client, chauffeur, ratings = { client: null, chauffeur: null }, prestataire, waitingRatePerMin = 42, freeMinutes = 0 } = details;
   const isRental = commande.rideOption?.type === 'rental' || commande.rideOption?.id?.startsWith('rental-');
-  // Utiliser fraisConfig de /api/frais-service-config (même source que prestataire) pour cohérence des calculs
-  const fsPctFromConfig = fraisConfig?.fraisServicePrestataire ?? details.fraisConfig?.fraisServicePrestataire ?? details.fraisServicePercent ?? 15;
-  const commissionPctFromConfig = fraisConfig?.commissionPrestataire ?? details.fraisConfig?.commissionPrestataire ?? 0;
-  const isSalarieTapea = chauffeur?.typeChauffeur === 'salarie' && !chauffeur?.prestataireId;
-  const isPrestataire = !!chauffeur?.prestataireId;
   
   // Les adresses sont un tableau avec type: 'pickup' | 'stop' | 'destination'
   const addressesArray = Array.isArray(commande.addresses) ? commande.addresses : [];
@@ -672,16 +640,26 @@ export function AdminCommandeDetails() {
               <p className="text-xs font-medium text-gray-500">
                 {commande.paymentMethod === 'card' ? 'Carte bancaire' : 'Espèces'}
               </p>
-              {isPrestataire ? (
-              /* Détail complet comme dashboard prestataire */
               <div className="space-y-4">
                 <div className="border-t border-gray-200 pt-4">
                   <h3 className="mb-3 flex items-center gap-2 text-sm font-semibold text-gray-800">
                     <FileText className="h-4 w-4 text-purple-600" />
                     Tarification
                   </h3>
-                  <div className="space-y-2 text-sm">
-                    {(() => {
+                  {isRental ? (
+                    <div className="space-y-2 text-sm">
+                      <div className="bg-purple-50 p-3 rounded-lg mb-3">
+                        <span className="text-sm font-medium text-purple-700">
+                          {commande.rideOption?.label || commande.rideOption?.title || 'Location'}
+                        </span>
+                      </div>
+                      <div className="border-t border-gray-200 pt-3 flex flex-wrap justify-between gap-x-2 font-semibold">
+                        <span>Prix total</span>
+                        <span className="text-lg text-purple-600">{commande.totalPrice.toLocaleString()} XPF</span>
+                      </div>
+                    </div>
+                  ) : (
+                    (() => {
                       const rideOption = commande.rideOption || {};
                       const baseFare = rideOption.baseFare || rideOption.basePrice || rideOption.price || 0;
                       const pricePerKm = rideOption.pricePerKm || rideOption.pricePerKilometer || 0;
@@ -693,175 +671,62 @@ export function AdminCommandeDetails() {
                       const waitingMins = commande.waitingTimeMinutes || 0;
                       const billable = Math.max(0, waitingMins - freeMinutes);
                       const waitingPrice = Math.round(billable * waitingRatePerMin);
-                      const supplementsTotal = (supplements as any[]).reduce((sum: number, s: any) => sum + ((s.price || 0) * (s.quantity || 1)), 0);
-                      const prixConfirmation = rideOption.initialTotalPrice ?? commande.totalPrice;
-                      const fsPct = fsPctFromConfig;
-                      const prixHorsFrais = Math.round(prixConfirmation / (1 + fsPct / 100));
-                      const fraisService = prixConfirmation - prixHorsFrais;
-                      const knownTotal = baseFare + distancePrice + waitingPrice + supplementsTotal;
-                      const subtotalAvantFrais = Math.round(commande.totalPrice / (1 + fsPct / 100));
-                      const majorations = subtotalAvantFrais - knownTotal;
-                      const commissionPct = commissionPctFromConfig;
-                      const commissionSupp = Math.round(prixConfirmation * commissionPct / 100);
-                      const commissionChauffeur = chauffeur?.commissionChauffeur ?? 95;
-                      const subtotal = commande.totalPrice - fraisService - commissionSupp;
-                      const revenusChauffeur = Math.round(subtotal * (commissionChauffeur / 100));
-                      const revenusPrestataire = subtotal - revenusChauffeur;
+                      const supplementsTotal = (supplements as any[]).reduce((sum: number, s: any) => sum + ((s.price ?? s.prixXpf ?? 0) * (s.quantity ?? 1)), 0);
+                      const paidStopsCost = (rideOption as any)?.paidStopsCost || 0;
+                      const knownTotal = baseFare + distancePrice + waitingPrice + supplementsTotal + paidStopsCost;
+                      const majorations = Math.max(0, commande.totalPrice - knownTotal);
+                      const hasDetails = baseFare > 0 || distanceKm > 0 || billable > 0 || supplements.length > 0 || paidStopsCost > 0 || majorations > 0;
 
                       return (
-                        <>
-                          <div className="bg-purple-50 p-3 rounded-lg mb-3">
-                            <span className="text-sm font-medium text-purple-700">{rideOption.label || rideOption.title || 'Course standard'}</span>
-                          </div>
-                          <div className="flex flex-wrap justify-between gap-x-2"><span className="text-gray-600">Prise en charge</span><span className="font-medium">{baseFare.toLocaleString()} XPF</span></div>
-                          {distanceKm > 0 && (
-                            <div className="flex flex-wrap justify-between gap-x-2">
-                              <span className="text-gray-600 text-xs sm:text-sm">Distance ({distanceKm.toFixed(1)} km)</span>
-                              <span className="font-medium">{distancePrice.toLocaleString()} XPF</span>
-                            </div>
-                          )}
-                          {billable > 0 && (
-                            <div className="flex flex-wrap justify-between gap-x-2">
-                              <span className="text-gray-600 text-xs sm:text-sm">Attente ({billable} min)</span>
-                              <span className="font-medium">{waitingPrice.toLocaleString()} XPF</span>
-                            </div>
-                          )}
-                          {supplements.map((supp: any, i: number) => (
-                            <div key={i} className="flex flex-wrap justify-between gap-x-2">
-                              <span className="text-gray-600 text-xs sm:text-sm">{supp.name || supp.id}{supp.quantity > 1 ? ` (×${supp.quantity})` : ''}</span>
-                              <span className="font-medium">{((supp.price || 0) * (supp.quantity || 1)).toLocaleString()} XPF</span>
-                            </div>
-                          ))}
-                          {majorations > 0 && (
-                            <div className="flex flex-wrap justify-between gap-x-2"><span className="text-gray-600 text-xs sm:text-sm">Majorations</span><span className="font-medium">{majorations.toLocaleString()} XPF</span></div>
-                          )}
-                          {fraisService > 0 && (
-                            <div className="flex flex-wrap justify-between gap-x-2"><span className="text-purple-600 text-xs sm:text-sm">Frais service ({fsPct}%)</span><span className="font-medium text-purple-600">{fraisService.toLocaleString()} XPF</span></div>
-                          )}
+                        <div className="space-y-2 text-sm">
+                          {hasDetails ? (
+                            <>
+                              <div className="bg-purple-50 p-3 rounded-lg mb-3">
+                                <span className="text-sm font-medium text-purple-700">{rideOption.label || rideOption.title || 'Réservation'}</span>
+                              </div>
+                              <div className="flex flex-wrap justify-between gap-x-2"><span className="text-gray-600">Prise en charge</span><span className="font-medium">{baseFare.toLocaleString()} XPF</span></div>
+                              {distanceKm > 0 && (
+                                <div className="flex flex-wrap justify-between gap-x-2">
+                                  <span className="text-gray-600 text-xs sm:text-sm">Distance ({distanceKm.toFixed(1)} km)</span>
+                                  <span className="font-medium">{distancePrice.toLocaleString()} XPF</span>
+                                </div>
+                              )}
+                              {billable > 0 && (
+                                <div className="flex flex-wrap justify-between gap-x-2">
+                                  <span className="text-gray-600 text-xs sm:text-sm">Attente ({billable} min)</span>
+                                  <span className="font-medium">{waitingPrice.toLocaleString()} XPF</span>
+                                </div>
+                              )}
+                              {supplements.map((supp: any, i: number) => {
+                                const qty = supp.quantity ?? 1;
+                                const prix = supp.price ?? supp.prixXpf ?? 0;
+                                return (
+                                  <div key={i} className="flex flex-wrap justify-between gap-x-2">
+                                    <span className="text-gray-600 text-xs sm:text-sm">{supp.name || supp.nom || supp.id}{qty > 1 ? ` (×${qty})` : ''}</span>
+                                    <span className="font-medium">{(prix * qty).toLocaleString()} XPF</span>
+                                  </div>
+                                );
+                              })}
+                              {paidStopsCost > 0 && (
+                                <div className="flex flex-wrap justify-between gap-x-2">
+                                  <span className="text-gray-600">Arrêts payants</span>
+                                  <span className="font-medium">{paidStopsCost.toLocaleString()} XPF</span>
+                                </div>
+                              )}
+                              {majorations > 0 && (
+                                <div className="flex flex-wrap justify-between gap-x-2"><span className="text-gray-600 text-xs sm:text-sm">Majorations</span><span className="font-medium">{majorations.toLocaleString()} XPF</span></div>
+                              )}
+                            </>
+                          ) : null}
                           <div className="border-t border-gray-200 pt-3 flex flex-wrap justify-between gap-x-2 font-semibold">
-                            <span>Total course</span><span className="text-lg">{commande.totalPrice.toLocaleString()} XPF</span>
+                            <span>Prix total</span><span className="text-lg text-purple-600">{commande.totalPrice.toLocaleString()} XPF</span>
                           </div>
-
-                          <div className="border-t border-gray-200 pt-3 mt-3 space-y-2">
-                            <div className="flex flex-wrap justify-between gap-x-2 text-sm bg-gray-50 p-2 rounded"><span className="font-medium text-xs sm:text-sm">Subtotal (hors frais)</span><span className="font-medium">{subtotal.toLocaleString()} XPF</span></div>
-                            <div className="flex flex-wrap justify-between gap-x-2 text-sm"><span className="text-green-600 text-xs sm:text-sm">Chauffeur ({commissionChauffeur}%)</span><span className="font-medium text-green-600">{revenusChauffeur.toLocaleString()} XPF</span></div>
-                            <div className="flex flex-wrap justify-between gap-x-2 text-sm"><span className="text-blue-600 text-xs sm:text-sm">Loueur ({100 - commissionChauffeur}%)</span><span className="font-medium text-blue-600">{revenusPrestataire.toLocaleString()} XPF</span></div>
-
-                            <div className="relative overflow-hidden rounded-xl border border-emerald-200/80 bg-gradient-to-br from-emerald-50 via-teal-50/30 to-emerald-50 p-4 shadow-sm ring-1 ring-emerald-500/20 mt-3">
-                              <div className="absolute top-0 right-0 w-24 h-24 -translate-y-1/2 translate-x-1/2 rounded-full bg-emerald-400/10" />
-                              <div className="relative flex items-center gap-2 mb-3">
-                                <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-emerald-600 text-white shadow-md">
-                                  <Building2 className="h-4 w-4" />
-                                </div>
-                                <span className="text-sm font-semibold uppercase tracking-wider text-emerald-800/90">Frais TAPEA</span>
-                              </div>
-                              <div className="relative space-y-2.5">
-                                <div className="flex justify-between items-center rounded-md bg-white/60 px-3 py-2">
-                                  <span className="text-sm text-slate-600">Frais de service</span>
-                                  <span className="text-sm font-semibold text-slate-800">{fsPct}% · {fraisService.toLocaleString()} XPF</span>
-                                </div>
-                                <div className="flex justify-between items-center rounded-md bg-white/60 px-3 py-2">
-                                  <span className="text-sm text-slate-600">Commission supp.</span>
-                                  <span className="text-sm font-semibold text-slate-800">{commissionPct}% · {commissionSupp.toLocaleString()} XPF</span>
-                                </div>
-                                <div className="flex justify-between items-center rounded-lg bg-emerald-600/15 px-3 py-3 mt-2 border border-emerald-500/30">
-                                  <span className="text-sm font-bold text-emerald-800">Total TAPEA</span>
-                                  <span className="text-base font-bold text-emerald-700">{(fraisService + commissionSupp).toLocaleString()} XPF</span>
-                                </div>
-                              </div>
-                            </div>
-                          </div>
-                        </>
+                        </div>
                       );
-                    })()}
-                  </div>
+                    })()
+                  )}
                 </div>
               </div>
-            ) : (
-              /* Salarié TAPEA ou sans prestataire : détail tarification sans frais TAPEA */
-              <div className="space-y-4">
-                <div className="border-t border-gray-200 pt-4">
-                  <h3 className="mb-3 flex items-center gap-2 text-sm font-semibold text-gray-800">
-                    <FileText className="h-4 w-4 text-purple-600" />
-                    Tarification
-                  </h3>
-                  {(() => {
-                    const rideOption = commande.rideOption || {};
-                    const baseFare = rideOption.baseFare || rideOption.basePrice || rideOption.price || 0;
-                    const pricePerKm = rideOption.pricePerKm || rideOption.pricePerKilometer || 0;
-                    let distanceKm = 0;
-                    if (typeof routeInfo?.distance === 'number') {
-                      distanceKm = routeInfo.distance >= 1000 ? routeInfo.distance / 1000 : routeInfo.distance;
-                    }
-                    const distancePrice = Math.round(distanceKm * pricePerKm);
-                    const waitingMins = commande.waitingTimeMinutes || 0;
-                    const billable = Math.max(0, waitingMins - freeMinutes);
-                    const waitingPrice = Math.round(billable * waitingRatePerMin);
-                    const supplementsTotal = (supplements as any[]).reduce((sum: number, s: any) => sum + ((s.price ?? s.prixXpf ?? 0) * (s.quantity ?? 1)), 0);
-                    const paidStopsCost = (rideOption as any)?.paidStopsCost || 0;
-                    const knownTotal = baseFare + distancePrice + waitingPrice + supplementsTotal + paidStopsCost;
-                    const majorations = Math.max(0, commande.totalPrice - knownTotal);
-                    const hasDetails = baseFare > 0 || distanceKm > 0 || billable > 0 || supplements.length > 0 || paidStopsCost > 0 || majorations > 0;
-
-                    return (
-                      <div className="space-y-2 text-sm">
-                        {hasDetails ? (
-                          <>
-                            <div className="bg-purple-50 p-3 rounded-lg mb-3">
-                              <span className="text-sm font-medium text-purple-700">{rideOption.label || rideOption.title || 'Course standard'}</span>
-                            </div>
-                            <div className="flex flex-wrap justify-between gap-x-2"><span className="text-gray-600">Prise en charge</span><span className="font-medium">{baseFare.toLocaleString()} XPF</span></div>
-                            {distanceKm > 0 && (
-                              <div className="flex flex-wrap justify-between gap-x-2">
-                                <span className="text-gray-600 text-xs sm:text-sm">Distance ({distanceKm.toFixed(1)} km)</span>
-                                <span className="font-medium">{distancePrice.toLocaleString()} XPF</span>
-                              </div>
-                            )}
-                            {billable > 0 && (
-                              <div className="flex flex-wrap justify-between gap-x-2">
-                                <span className="text-gray-600 text-xs sm:text-sm">Attente ({billable} min)</span>
-                                <span className="font-medium">{waitingPrice.toLocaleString()} XPF</span>
-                              </div>
-                            )}
-                            {supplements.map((supp: any, i: number) => {
-                              const qty = supp.quantity ?? 1;
-                              const prix = supp.price ?? supp.prixXpf ?? 0;
-                              return (
-                                <div key={i} className="flex flex-wrap justify-between gap-x-2">
-                                  <span className="text-gray-600 text-xs sm:text-sm">{supp.name || supp.nom || supp.id}{qty > 1 ? ` (×${qty})` : ''}</span>
-                                  <span className="font-medium">{(prix * qty).toLocaleString()} XPF</span>
-                                </div>
-                              );
-                            })}
-                            {paidStopsCost > 0 && (
-                              <div className="flex flex-wrap justify-between gap-x-2">
-                                <span className="text-gray-600">Arrêts payants</span>
-                                <span className="font-medium">{paidStopsCost.toLocaleString()} XPF</span>
-                              </div>
-                            )}
-                            {majorations > 0 && (
-                              <div className="flex flex-wrap justify-between gap-x-2"><span className="text-gray-600 text-xs sm:text-sm">Majorations</span><span className="font-medium">{majorations.toLocaleString()} XPF</span></div>
-                            )}
-                          </>
-                        ) : null}
-                        <div className="border-t border-gray-200 pt-3 flex flex-wrap justify-between gap-x-2 font-semibold">
-                          <span>Prix total</span><span className="text-lg text-purple-600">{commande.totalPrice.toLocaleString()} XPF</span>
-                        </div>
-                        <div className="flex flex-wrap justify-between gap-x-2">
-                          <span className="text-gray-600">Gains chauffeur</span>
-                          <span className="font-medium text-green-600">{commande.driverEarnings.toLocaleString()} XPF</span>
-                        </div>
-                        {isSalarieTapea && (
-                          <div className="rounded-lg bg-gray-50 p-3 text-sm text-gray-600 mt-3">
-                            Loueur RAVE — Pas de frais de service ni commission prestataire appliqués.
-                          </div>
-                        )}
-                      </div>
-                    );
-                  })()}
-                </div>
-              </div>
-              )}
             </div>
           </div>
         </div>

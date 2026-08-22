@@ -17,8 +17,6 @@ import {
   X,
   CarFront,
   Home,
-  Tag,
-  Wallet,
   Settings,
   Map,
   Star,
@@ -70,8 +68,6 @@ const navigationSections = [
     title: "Fonds",
     items: [
       { name: "Paiements", href: "/admin/paiements", icon: CreditCard },
-      { name: "Collecte", href: "/admin/collecte", icon: Wallet },
-      { name: "Tarifs", href: "/admin/tarifs", icon: Tag },
       { name: "Promos", href: "/admin/promos", icon: Percent },
       { name: "Reconciliation", href: "/admin/reconciliation", icon: CreditCard },
     ],

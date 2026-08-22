@@ -1,5 +1,5 @@
 /**
- * Tape'a Back Office - Profil Prestataire
+ * RAVE Back Office - Profil Prestataire
  * Affiche et permet de modifier les infos du compte prestataire
  */
 

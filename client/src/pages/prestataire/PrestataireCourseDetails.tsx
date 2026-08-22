@@ -1,6 +1,6 @@
 /**
- * Tape'a Back Office - Détails Course Prestataire
- * Affiche tous les détails d'une course avec facture PDF
+ * RAVE Back Office - Détails réservation prestataire
+ * Affiche tous les détails d'une réservation avec facture PDF
  */
 
 import { useEffect, useState, useRef } from 'react';
@@ -9,7 +9,7 @@ import html2pdf from 'html2pdf.js';
 import { 
   ArrowLeft, MapPin, User, Car, Clock, 
   CreditCard, Banknote, FileText, Download,
-  Building2, CheckCircle, XCircle, Navigation, Star, DollarSign
+  CheckCircle, XCircle, Navigation, Star, DollarSign
 } from 'lucide-react';
 
 interface CourseDetails {
@@ -23,7 +23,6 @@ interface CourseDetails {
     stops: string[];
     totalPrice: number;
     driverEarnings: number;
-    commission: number;
     status: string;
     paymentMethod: string;
     waitingTimeMinutes: number | null;
@@ -34,7 +33,7 @@ interface CourseDetails {
       label: string;
       baseFare: number;
       pricePerKm: number;
-      initialTotalPrice?: number; // Prix à la confirmation (avant attente/arrêts)
+      initialTotalPrice?: number;
     };
     supplements: any[];
     routeInfo: {
@@ -49,7 +48,6 @@ interface CourseDetails {
     phone: string;
     vehicleModel: string | null;
     vehiclePlate: string | null;
-    commissionChauffeur?: number;
   } | null;
   prestataire: {
     id: string;
@@ -61,16 +59,10 @@ interface CourseDetails {
   } | null;
   waitingRatePerMin?: number;
   freeMinutes?: number;
-  fraisServicePercent?: number;
   ratings?: {
     client: { id: string; score: number; comment: string | null } | null;
     chauffeur: { id: string; score: number; comment: string | null } | null;
   };
-}
-
-interface FraisConfig {
-  fraisServicePrestataire: number;
-  commissionPrestataire: number;
 }
 
 export function PrestataireCourseDetails() {
@@ -78,33 +70,11 @@ export function PrestataireCourseDetails() {
   const [data, setData] = useState<CourseDetails | null>(null);
   const [isLoading, setIsLoading] = useState(true);
   const [isDownloadingPdf, setIsDownloadingPdf] = useState(false);
-  const [fraisConfig, setFraisConfig] = useState<FraisConfig>({
-    fraisServicePrestataire: 15,
-    commissionPrestataire: 0,
-  });
   const invoiceRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
     fetchDetails();
-    fetchFraisConfig();
   }, [params.id]);
-
-  async function fetchFraisConfig() {
-    try {
-      const response = await fetch('/api/frais-service-config');
-      if (response.ok) {
-        const result = await response.json();
-        if (result.success && result.config) {
-          setFraisConfig({
-            fraisServicePrestataire: result.config.fraisServicePrestataire || 15,
-            commissionPrestataire: result.config.commissionPrestataire || 0,
-          });
-        }
-      }
-    } catch (error) {
-      console.error('Error fetching frais config:', error);
-    }
-  }
 
   async function fetchDetails() {
     setIsLoading(true);
@@ -557,135 +527,19 @@ export function PrestataireCourseDetails() {
                 </>
               )}
 
-              {/* Calcul des majorations et frais de service */}
-              {(() => {
-                // Éléments de base
-                const baseFare = course.rideOption?.baseFare || 0;
-                const distancePrice = Math.round(distanceKm * (course.rideOption?.pricePerKm || 0));
-                const rate = data?.waitingRatePerMin ?? 42;
-                const free = data?.freeMinutes ?? 0;
-                const billable = Math.max(0, (course.waitingTimeMinutes || 0) - free);
-                const waitingPrice = Math.round(billable * rate);
-                const supplementsTotal = (course.supplements || []).reduce((sum: number, s: any) => 
-                  sum + ((s.price || s.amount || 0) * (s.quantity || 1)), 0
-                );
-                
-                // Calculer le subtotal AVANT frais de service
-                const fraisPercent = fraisConfig.fraisServicePrestataire || 8;
-                const subtotalAvantFrais = Math.round(course.totalPrice / (1 + fraisPercent / 100));
-                const fraisService = course.totalPrice - subtotalAvantFrais;
-                
-                // Majorations = reste après base + distance + attente + suppléments (passagers, altitude, etc.)
-                const knownTotal = baseFare + distancePrice + waitingPrice + supplementsTotal;
-                const majorations = subtotalAvantFrais - knownTotal;
-                
-                return (
-                  <>
-                    {/* Majorations uniquement si > 0 (passagers, altitude, etc. - pas l'attente) */}
-                    {majorations > 0 && (
-                      <div className="flex justify-between text-sm">
-                        <span className="text-gray-600">Majorations (passagers/altitude)</span>
-                        <span className="font-medium">{majorations.toLocaleString()} XPF</span>
-                      </div>
-                    )}
-
-                    {/* Frais de service - calculés sur le prix à la confirmation (PAS sur attente/arrêts) */}
-                    {(() => {
-                      const fsPercent = data?.fraisServicePercent ?? fraisConfig.fraisServicePrestataire ?? 8;
-                      const prixConfirmation = course.rideOption?.initialTotalPrice ?? course.totalPrice!;
-                      const prixHorsFrais = Math.round(prixConfirmation / (1 + fsPercent / 100));
-                      const fraisService = prixConfirmation - prixHorsFrais;
-                      if (fraisService <= 0) return null;
-                      return (
-                        <div className="flex justify-between text-sm">
-                          <span className="text-purple-600">Frais de service ({fsPercent}%)</span>
-                          <span className="font-medium text-purple-600">{fraisService.toLocaleString()} XPF</span>
-                        </div>
-                      );
-                    })()}
-
-                    <div className="border-t border-gray-200 pt-3 mt-3">
-                      <div className="flex justify-between font-semibold">
-                        <span>Total course</span>
-                        <span className="text-lg">{course.totalPrice?.toLocaleString()} XPF</span>
-                      </div>
-                    </div>
-                  </>
-                );
-              })()}
-
-              <div className="border-t border-gray-200 pt-3 space-y-2">
-                {/* Calcul du subtotal (prix hors frais TAPEA) */}
-                {(() => {
-                  const fsPercent = data?.fraisServicePercent ?? fraisConfig.fraisServicePrestataire ?? 8;
-                  const prixConfirmation = course.rideOption?.initialTotalPrice ?? course.totalPrice;
-                  const prixHorsFrais = Math.round(prixConfirmation / (1 + fsPercent / 100));
-                  const fraisService = prixConfirmation - prixHorsFrais;
-                  const commissionSupp = Math.round(prixConfirmation * (fraisConfig.commissionPrestataire || 0) / 100);
-                  const subtotal = (course.totalPrice || 0) - fraisService - commissionSupp;
-                  const commissionChauffeur = driver?.commissionChauffeur || 95;
-                  const revenusRéelsChauffeur = Math.round(subtotal * (commissionChauffeur / 100));
-                  const revenusPrestataire = subtotal - revenusRéelsChauffeur;
-                  
-                  return (
-                    <>
-                      <div className="flex justify-between text-sm bg-gray-50 p-2 rounded">
-                        <span className="font-medium">Subtotal (hors frais TAPEA)</span>
-                        <span className="font-medium">{subtotal.toLocaleString()} XPF</span>
-                      </div>
-                      
-                      <div className="flex justify-between text-sm">
-                        <span className="text-green-600">
-                          Revenus chauffeur ({commissionChauffeur}%)
-                        </span>
-                        <span className="font-medium text-green-600">{revenusRéelsChauffeur.toLocaleString()} XPF</span>
-                      </div>
-                      
-                      <div className="flex justify-between text-sm">
-                        <span className="text-blue-600">
-                          Revenus prestataire ({100 - commissionChauffeur}%)
-                        </span>
-                        <span className="font-medium text-blue-600">{revenusPrestataire.toLocaleString()} XPF</span>
-                      </div>
-                      
-                      <div className="border-t border-gray-200 my-2"></div>
-                      
-                      {/* Frais TAPEA - bloc design moderne */}
-                      <div className="relative overflow-hidden rounded-xl border border-emerald-200/80 bg-gradient-to-br from-emerald-50 via-teal-50/30 to-emerald-50 p-4 shadow-sm shadow-emerald-900/5 ring-1 ring-emerald-500/20">
-                        <div className="absolute top-0 right-0 w-24 h-24 -translate-y-1/2 translate-x-1/2 rounded-full bg-emerald-400/10" />
-                        <div className="relative flex items-center gap-2 mb-3">
-                          <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-emerald-600 text-white shadow-md shadow-emerald-600/30">
-                            <Building2 className="h-4 w-4" />
-                          </div>
-                          <span className="text-sm font-semibold uppercase tracking-wider text-emerald-800/90">Frais TAPEA</span>
-                        </div>
-                        <div className="relative space-y-2.5">
-                          <div className="flex justify-between items-center rounded-md bg-white/60 px-3 py-2 backdrop-blur-sm">
-                            <span className="text-sm text-slate-600">Frais de service</span>
-                            <span className="text-sm font-semibold text-slate-800">{fsPercent}% · {fraisService.toLocaleString()} XPF</span>
-                          </div>
-                          <div className="flex justify-between items-center rounded-md bg-white/60 px-3 py-2 backdrop-blur-sm">
-                            <span className="text-sm text-slate-600">Commission supp.</span>
-                            <span className="text-sm font-semibold text-slate-800">{fraisConfig.commissionPrestataire}% · {commissionSupp.toLocaleString()} XPF</span>
-                          </div>
-                          <div className="flex justify-between items-center rounded-lg bg-emerald-600/15 px-3 py-3 mt-2 border border-emerald-500/30">
-                            <span className="text-sm font-bold text-emerald-800">Total TAPEA</span>
-                            <span className="text-base font-bold text-emerald-700">
-                              {(fraisService + commissionSupp).toLocaleString()} XPF
-                            </span>
-                          </div>
-                        </div>
-                      </div>
-                    </>
-                  );
-                })()}
+              <div className="border-t border-gray-200 pt-3 mt-3">
+                <div className="flex justify-between font-semibold">
+                  <span>Total location</span>
+                  <span className="text-lg">{course.totalPrice?.toLocaleString()} XPF</span>
+                </div>
+              </div>
             </div>
           </div>
         </div>
         </div>
       </div>
 
-      {/* Hidden Invoice for Print - Facture client/prestataire (sans TAPEA) */}
+      {/* Hidden Invoice for Print */}
       <div className="hidden">
         <div ref={invoiceRef}>
           <div className="header">
@@ -716,7 +570,7 @@ export function PrestataireCourseDetails() {
             </div>
             {driver && (
               <div className="block">
-                <div className="block-title">Chauffeur</div>
+                <div className="block-title">Loueur</div>
                 <div className="block-content">
                   <div>{driver.firstName} {driver.lastName}</div>
                   {driver.vehicleModel && (
@@ -750,7 +604,7 @@ export function PrestataireCourseDetails() {
             </thead>
             <tbody>
               <tr>
-                <td>{course.rideOption?.label || 'Course standard'}</td>
+                <td>{course.rideOption?.label || 'Location'}</td>
                 <td>{(course.rideOption?.baseFare || 0).toLocaleString()} XPF</td>
               </tr>
               {distanceKm > 0 && (
@@ -768,19 +622,6 @@ export function PrestataireCourseDetails() {
                   <tr>
                     <td>Attente ({billable} min × {rate} XPF)</td>
                     <td>{fee.toLocaleString()} XPF</td>
-                  </tr>
-                );
-              })()}
-              {(() => {
-                const fsPercent = data?.fraisServicePercent ?? fraisConfig.fraisServicePrestataire ?? 8;
-                const prixConfirmation = course.rideOption?.initialTotalPrice ?? course.totalPrice;
-                const prixHorsFrais = Math.round((prixConfirmation || 0) / (1 + fsPercent / 100));
-                const fraisService = (prixConfirmation || 0) - prixHorsFrais;
-                if (fraisService <= 0) return null;
-                return (
-                  <tr>
-                    <td>Frais de service plateforme ({fsPercent}%)</td>
-                    <td>{fraisService.toLocaleString()} XPF</td>
                   </tr>
                 );
               })()}

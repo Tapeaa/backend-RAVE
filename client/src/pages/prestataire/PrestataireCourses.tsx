@@ -4,7 +4,7 @@
 
 import { useEffect, useState } from 'react';
 import { Link } from 'wouter';
-import { Car, Clock, CreditCard, Banknote, User, Eye, Calendar } from 'lucide-react';
+import { Car, CreditCard, Banknote, Eye, Calendar } from 'lucide-react';
 
 interface Course {
   id: string;
@@ -15,16 +15,9 @@ interface Course {
   stops?: string[];
   totalPrice: number;
   driverEarnings: number;
-  commission: number;
   status: string;
   paymentMethod: string;
   driverName?: string;
-}
-
-interface FraisConfig {
-  fraisServicePrestataire: number;
-  commissionPrestataire: number;
-  commissionSalarieTapea: number;
 }
 
 const statusLabels: Record<string, string> = {
@@ -55,12 +48,10 @@ const statusColors: Record<string, string> = {
 
 export function PrestataireCourses() {
   const [courses, setCourses] = useState<Course[]>([]);
-  const [fraisConfig, setFraisConfig] = useState<FraisConfig | null>(null);
   const [isLoading, setIsLoading] = useState(true);
 
   useEffect(() => {
     fetchCourses();
-    fetchFraisConfig();
   }, []);
 
   async function fetchCourses() {
@@ -81,19 +72,6 @@ export function PrestataireCourses() {
     }
   }
 
-  async function fetchFraisConfig() {
-    try {
-      const response = await fetch('/api/frais-service-config');
-      if (response.ok) {
-        const data = await response.json();
-        setFraisConfig(data.config);
-      }
-    } catch (error) {
-      console.error('Error fetching frais config:', error);
-    }
-  }
-
-  // Stats - locations terminées / pipeline (pas payment_confirmed taxi seul)
   const completedCourses = courses.filter(
     (c) => c.status === 'completed' || c.status === 'payment_confirmed'
   );
@@ -105,20 +83,6 @@ export function PrestataireCourses() {
       c.status === 'payment_confirmed'
   );
   const totalRevenu = pipelineCourses.reduce((sum, c) => sum + (c.totalPrice || 0), 0);
-  
-  // Calculer les frais de service et commissions séparément en temps réel
-  const fraisServicePercent = fraisConfig?.fraisServicePrestataire || 15;
-  const commissionPrestatairePercent = fraisConfig?.commissionPrestataire || 0;
-  
-  const totalFraisService = pipelineCourses.reduce((sum, c) => {
-    return sum + Math.round(c.totalPrice * fraisServicePercent / 100);
-  }, 0);
-  
-  const totalCommissionSupplementaire = pipelineCourses.reduce((sum, c) => {
-    return sum + Math.round(c.totalPrice * commissionPrestatairePercent / 100);
-  }, 0);
-  
-  const totalCommission = totalFraisService + totalCommissionSupplementaire;
 
   return (
     <div className="space-y-6">
@@ -129,7 +93,7 @@ export function PrestataireCourses() {
       </div>
 
       {/* Stats */}
-      <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-5">
+      <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3">
         <div className="rounded-2xl bg-white p-5 shadow-sm">
           <div className="text-3xl font-bold text-gray-900">{courses.length}</div>
           <div className="text-sm text-gray-500">Total réservations</div>
@@ -144,28 +108,12 @@ export function PrestataireCourses() {
           </div>
           <div className="text-sm text-gray-500">Revenus locations</div>
         </div>
-        <div className="rounded-2xl bg-white p-5 shadow-sm border-2 border-purple-200">
-          <div className="text-3xl font-bold text-purple-600">
-            {totalFraisService.toLocaleString()} XPF
-          </div>
-          <div className="text-sm text-gray-500">
-            Frais service ({fraisServicePercent}%)
-          </div>
-        </div>
-        <div className="rounded-2xl bg-white p-5 shadow-sm border-2 border-orange-200">
-          <div className="text-3xl font-bold text-orange-600">
-            {totalCommissionSupplementaire.toLocaleString()} XPF
-          </div>
-          <div className="text-sm text-gray-500">
-            Commission supp. ({commissionPrestatairePercent}%)
-          </div>
-        </div>
       </div>
 
-      {/* Courses List */}
+      {/* Reservations List */}
       <div className="rounded-2xl bg-white shadow-sm">
         <div className="border-b border-gray-100 px-6 py-4">
-          <h2 className="font-semibold text-gray-900">Toutes les courses</h2>
+          <h2 className="font-semibold text-gray-900">Toutes les réservations</h2>
         </div>
 
         {isLoading ? (
@@ -175,8 +123,8 @@ export function PrestataireCourses() {
         ) : courses.length === 0 ? (
           <div className="flex h-64 flex-col items-center justify-center text-gray-500">
             <Car className="mb-2 h-12 w-12 text-gray-300" />
-            <p className="font-medium">Aucune course</p>
-            <p className="text-sm">Les courses apparaîtront ici</p>
+            <p className="font-medium">Aucune réservation</p>
+            <p className="text-sm">Les réservations apparaîtront ici</p>
           </div>
         ) : (
           <div className="divide-y divide-gray-50">

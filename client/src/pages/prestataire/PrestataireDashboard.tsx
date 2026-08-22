@@ -6,7 +6,7 @@ import { useEffect, useState } from 'react';
 import { Link } from 'wouter';
 import { 
   Car, Users, Wallet, TrendingUp, 
-  ArrowRight, Clock, Calendar, MapPin,
+  ArrowRight, Calendar,
   CreditCard, Banknote, ChevronDown, ChevronUp
 } from 'lucide-react';
 
@@ -27,7 +27,6 @@ interface Stats {
   coursesSemaine: number;
   coursesMois: number;
   totalCourses: number;
-  commissionsDues: number;
 }
 
 interface Course {
@@ -128,7 +127,7 @@ export function PrestataireDashboard() {
           </div>
           
           {/* Mini stats in hero */}
-          <div className="mt-6 grid grid-cols-2 gap-4 sm:grid-cols-4">
+          <div className="mt-6 grid grid-cols-2 gap-4 sm:grid-cols-2">
             <div className="rounded-xl bg-white/10 p-4 backdrop-blur-sm">
               <div className="text-2xl font-bold text-white">{stats?.totalCourses || 0}</div>
               <div className="text-sm text-purple-200">Réservations</div>
@@ -137,16 +136,12 @@ export function PrestataireDashboard() {
               <div className="text-2xl font-bold text-white">{stats?.revenusGlobal?.toLocaleString() || 0}</div>
               <div className="text-sm text-purple-200">XPF locations</div>
             </div>
-            <div className="rounded-xl bg-white/10 p-4 backdrop-blur-sm">
-              <div className="text-2xl font-bold text-yellow-300">{stats?.commissionsDues?.toLocaleString() || 0}</div>
-              <div className="text-sm text-purple-200">XPF commissions</div>
-            </div>
           </div>
         </div>
       </div>
 
       {/* Stats Cards */}
-      <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4">
+      <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3">
         <div className="group relative overflow-hidden rounded-2xl bg-white p-6 shadow-sm transition-all hover:shadow-lg">
           <div className="absolute right-0 top-0 h-24 w-24 translate-x-8 -translate-y-8 rounded-full bg-green-100 transition-transform group-hover:scale-150" />
           <div className="relative">
@@ -183,19 +178,6 @@ export function PrestataireDashboard() {
               {stats?.coursesMois || 0}
             </div>
             <div className="text-sm font-medium text-gray-500">Locations ce mois</div>
-          </div>
-        </div>
-
-        <div className="group relative overflow-hidden rounded-2xl bg-white p-6 shadow-sm transition-all hover:shadow-lg">
-          <div className="absolute right-0 top-0 h-24 w-24 translate-x-8 -translate-y-8 rounded-full bg-orange-100 transition-transform group-hover:scale-150" />
-          <div className="relative">
-            <div className="mb-4 inline-flex rounded-xl bg-orange-100 p-3">
-              <Clock className="h-6 w-6 text-orange-600" />
-            </div>
-            <div className="text-3xl font-bold text-orange-600">
-              {stats?.commissionsDues?.toLocaleString() || 0}
-            </div>
-            <div className="text-sm font-medium text-gray-500">XPF commissions dues</div>
           </div>
         </div>
       </div>

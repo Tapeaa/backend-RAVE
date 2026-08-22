@@ -92,7 +92,7 @@ export function AdminChauffeurs() {
     }
   }
 
-  // Note: La fonction handleToggleType a été supprimée car seuls les salariés TAPEA sont créés par l'admin
+  // Note: La fonction handleToggleType a été supprimée car seuls les salariés RAVE sont créés par l'admin
 
   async function handleCreateChauffeur() {
     if (!formData.firstName || !formData.lastName || !formData.phone) {

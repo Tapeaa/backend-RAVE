@@ -457,7 +457,7 @@ export function PrestataireChauffeurs() {
                       <span>100% (Tout pour le chauffeur)</span>
                     </div>
                     <p className="mt-2 text-xs text-gray-600 bg-purple-50 rounded p-2">
-                      Le chauffeur recevra {formData.commissionChauffeur}% du prix de chaque course (hors frais TAPEA)
+                      Le chauffeur recevra {formData.commissionChauffeur}% du prix de chaque course
                     </p>
                   </div>
 
@@ -538,7 +538,7 @@ export function PrestataireChauffeurs() {
                 {editingCommission.firstName} {editingCommission.lastName}
               </p>
               <p className="text-sm text-purple-700">
-                Le chauffeur garde {commissionValue}% de chaque course (hors frais de service TAPEA)
+                Le chauffeur garde {commissionValue}% de chaque course
               </p>
             </div>
 
@@ -564,7 +564,7 @@ export function PrestataireChauffeurs() {
 
               <div className="bg-gray-50 rounded-lg p-3">
                 <p className="text-xs text-gray-600">
-                  <span className="font-semibold">Exemple :</span> Pour une course de 10 000 XPF (hors frais TAPEA),{' '}
+                  <span className="font-semibold">Exemple :</span> Pour une course de 10 000 XPF,{' '}
                   le chauffeur reçoit{' '}
                   <span className="font-bold text-purple-600">
                     {Math.round(10000 * commissionValue / 100).toLocaleString('fr-FR')} XPF
