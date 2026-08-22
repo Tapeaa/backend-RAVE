@@ -8,7 +8,7 @@ import Stripe from "stripe";
 import { storage } from "./storage";
 import { verifyPassword, hashPassword, dbStorage } from "./db-storage";
 import { db } from "./db";
-import { insertOrderSchema, pushSubscriptionSchema, insertClientSchema, orders, driverSessions, drivers, collecteFrais, vehicleModels, loueurVehicles, prestataires, type Order, type OrderStatus, type DriverSession } from "@shared/schema";
+import { insertOrderSchema, pushSubscriptionSchema, insertClientSchema, orders, driverSessions, drivers, collecteFrais, vehicleModels, loueurVehicles, prestataires, ratings, type Order, type OrderStatus, type DriverSession } from "@shared/schema";
 import { eq, and, sql as dsql, count, inArray } from "drizzle-orm";
 import cookieParser from "cookie-parser";
 import { driverNotifications, clientNotifications, notifyDriver, notifyClient, startClientLiveActivity, updateClientLiveActivity, endClientLiveActivity } from "./onesignal";
@@ -2474,7 +2474,7 @@ app.patch("/api/orders/:id/loueur-signature", async (req, res) => {
 app.post("/api/rental-orders/:id/lifecycle", async (req, res) => {
   try {
     const { id } = req.params;
-    const { phase, sessionId: bodySessionId } = req.body;
+    const { phase, sessionId: bodySessionId, photos } = req.body;
 
     if (!phase || !["with_client", "returned"].includes(phase)) {
       return res.status(400).json({ success: false, error: "Phase invalide. Valeurs acceptées: with_client, returned" });
@@ -2487,7 +2487,13 @@ app.post("/api/rental-orders/:id/lifecycle", async (req, res) => {
 
     // Authenticate: driver session (loueur) or client session
     const driverSessionId = (req.headers["x-driver-session"] as string || bodySessionId || "").split(",")[0].trim();
-    const clientSessionId = req.cookies?.clientSessionId || req.headers["x-client-session-id"] as string;
+    const clientSessionId = (
+      (req.cookies?.clientSessionId as string) ||
+      (req.headers["x-client-session-id"] as string) ||
+      ""
+    )
+      .split(",")[0]
+      .trim();
     let updatedBy: "driver" | "client" = "client";
 
     if (driverSessionId) {
@@ -2495,8 +2501,19 @@ app.post("/api/rental-orders/:id/lifecycle", async (req, res) => {
       if (!session) {
         return res.status(401).json({ success: false, error: "Session loueur invalide" });
       }
+      const ownerId = getRentalOwnerDriverId(order);
+      if (ownerId && ownerId !== session.driverId) {
+        return res.status(403).json({ success: false, error: "Vous n'êtes pas le loueur de cette réservation" });
+      }
       updatedBy = "driver";
     } else if (clientSessionId) {
+      const clientAuth = await requireClientSessionFromReq(req);
+      if (!clientAuth.ok) {
+        return res.status(clientAuth.status).json({ success: false, error: clientAuth.error });
+      }
+      if (order.clientId && order.clientId !== clientAuth.clientId) {
+        return res.status(403).json({ success: false, error: "Cette réservation ne vous appartient pas" });
+      }
       updatedBy = "client";
     } else {
       return res.status(401).json({ success: false, error: "Authentification requise" });
@@ -2528,10 +2545,29 @@ app.post("/api/rental-orders/:id/lifecycle", async (req, res) => {
     const currentRideOption = order.rideOption as Record<string, any>;
     const updatedRideOption = { ...currentRideOption, rentalLifecyclePhase: phase };
 
+    const photoUrls = Array.isArray(photos)
+      ? photos
+          .map((p: unknown) => String(p || "").trim())
+          .filter((u: string) => u.startsWith("http://") || u.startsWith("https://"))
+          .slice(0, 6)
+      : [];
+
     if (phase === "with_client") {
       updatedRideOption.handoverAt = new Date().toISOString();
+      if (photoUrls.length) {
+        updatedRideOption.handoverPhotos = [
+          ...((currentRideOption.handoverPhotos as string[]) || []),
+          ...photoUrls,
+        ].slice(0, 8);
+      }
     } else if (phase === "returned") {
       updatedRideOption.returnedAt = new Date().toISOString();
+      if (photoUrls.length) {
+        updatedRideOption.returnPhotos = [
+          ...((currentRideOption.returnPhotos as string[]) || []),
+          ...photoUrls,
+        ].slice(0, 8);
+      }
     }
 
     const updateData: Record<string, any> = { rideOption: updatedRideOption };
@@ -3051,7 +3087,7 @@ app.post("/api/live-activities/end", async (req, res) => {
 
   // ============ RATINGS ENDPOINTS ============
 
-  // Client rates driver after ride
+  // Client rates driver / loueur after ride or rental
   app.post("/api/orders/:id/rate-driver", async (req, res) => {
     try {
       const orderId = req.params.id;
@@ -3069,12 +3105,8 @@ app.post("/api/live-activities/end", async (req, res) => {
         return res.status(401).json({ error: "Non authentifié" });
       }
 
-      if (!score) {
-        console.error(`[Rating] Missing score`);
-        return res.status(400).json({ error: "score requis" });
-      }
-
-      if (score < 1 || score > 5) {
+      const numericScore = Math.round(Number(score));
+      if (!Number.isFinite(numericScore) || numericScore < 1 || numericScore > 5) {
         return res.status(400).json({ error: "Le score doit être entre 1 et 5" });
       }
 
@@ -3090,40 +3122,56 @@ app.post("/api/live-activities/end", async (req, res) => {
         return res.status(403).json({ error: "Cette commande ne vous appartient pas" });
       }
 
-      if (!order.assignedDriverId) {
-        return res.status(400).json({ error: "Aucun chauffeur assigné à cette commande" });
+      const ratedDriverId = getRentalOwnerDriverId(order);
+      if (!ratedDriverId) {
+        return res.status(400).json({ error: "Aucun loueur assigné à cette commande" });
       }
 
-      // Vérifier que la commande est terminée
-      if (!['completed', 'payment_confirmed', 'payment_pending'].includes(order.status)) {
-        return res.status(400).json({ error: "La course doit être terminée pour noter" });
+      // Course taxi terminée OU location retournée (status completed)
+      const isRental = !!(order.rideOption as any)?.isRentalOrder || (order.rideOption as any)?.type === "rental";
+      const rentalPhase = (order.rideOption as any)?.rentalLifecyclePhase;
+      const canRateTaxi = ["completed", "payment_confirmed", "payment_pending"].includes(order.status);
+      const canRateRental =
+        isRental &&
+        (order.status === "completed" || rentalPhase === "returned");
+      if (!canRateTaxi && !canRateRental) {
+        return res.status(400).json({
+          error: isRental
+            ? "La location doit être terminée (véhicule rendu) pour noter le loueur"
+            : "La course doit être terminée pour noter",
+        });
       }
 
       // Vérifier si déjà noté
       const existingRating = await dbStorage.getRatingByOrderAndRater(orderId, 'client');
       if (existingRating) {
-        return res.status(400).json({ error: "Vous avez déjà noté cette course" });
+        return res.status(400).json({ error: "Vous avez déjà noté cette location" });
       }
 
-      // Créer la note
+      // Créer la note (persiste + met à jour average_rating du loueur)
       const rating = await dbStorage.createRating({
         orderId,
         raterType: 'client',
         raterId: order.clientId || 'anonymous',
         ratedType: 'driver',
-        ratedId: order.assignedDriverId,
-        score,
-        comment: comment || undefined,
+        ratedId: ratedDriverId,
+        score: numericScore,
+        comment: typeof comment === "string" ? comment.trim().slice(0, 500) : undefined,
       });
 
-      console.log(`[Rating] Client rated driver ${order.assignedDriverId} with ${score} stars for order ${orderId}`);
+      const stats = await dbStorage.getRatingsStats("driver", ratedDriverId);
+
+      console.log(`[Rating] Client rated driver ${ratedDriverId} with ${numericScore} stars for order ${orderId}`);
       
-      // Supprimer le token après la notation réussie pour nettoyer la mémoire
-      // (mais seulement si le rating a été créé avec succès)
       orderClientTokens.delete(orderId);
       console.log(`[Rating] Token cleaned up for order ${orderId} after successful rating`);
 
-      return res.json({ success: true, ratingId: rating.id });
+      return res.json({
+        success: true,
+        ratingId: rating.id,
+        averageRating: stats.average,
+        ratingsCount: stats.count,
+      });
     } catch (error) {
       console.error("Error rating driver:", error);
       return res.status(500).json({ error: "Erreur interne du serveur" });
@@ -4118,6 +4166,7 @@ app.post("/api/live-activities/end", async (req, res) => {
       const driverIds = Array.from(new Set(rows.map((r) => r.driverId).filter(Boolean))) as string[];
       const driverNameById = new Map<string, string>();
       const driverActiveById = new Map<string, boolean>();
+      const driverRatingById = new Map<string, { averageRating: number | null; ratingsCount: number }>();
       if (driverIds.length > 0) {
         const driverRows = await db
           .select({
@@ -4125,12 +4174,35 @@ app.post("/api/live-activities/end", async (req, res) => {
             firstName: drivers.firstName,
             lastName: drivers.lastName,
             isActive: drivers.isActive,
+            averageRating: drivers.averageRating,
           })
           .from(drivers)
           .where(inArray(drivers.id, driverIds));
         for (const d of driverRows) {
           driverNameById.set(d.id, `${d.firstName} ${d.lastName}`.trim());
           driverActiveById.set(d.id, d.isActive !== false);
+          const avg =
+            d.averageRating != null && Number.isFinite(Number(d.averageRating))
+              ? Math.round(Number(d.averageRating) * 10) / 10
+              : null;
+          driverRatingById.set(d.id, { averageRating: avg, ratingsCount: 0 });
+        }
+        // Compteurs d'avis (batch)
+        try {
+          const countRows = await db
+            .select({
+              ratedId: ratings.ratedId,
+              cnt: count(),
+            })
+            .from(ratings)
+            .where(and(eq(ratings.ratedType, "driver"), inArray(ratings.ratedId, driverIds)))
+            .groupBy(ratings.ratedId);
+          for (const row of countRows) {
+            const prev = driverRatingById.get(String(row.ratedId));
+            if (prev) prev.ratingsCount = Number(row.cnt) || 0;
+          }
+        } catch (e) {
+          console.warn("[AVAILABLE] ratings count skipped:", e);
         }
       }
 
@@ -4165,12 +4237,17 @@ app.post("/api/live-activities/end", async (req, res) => {
           fuel: row.fuel,
         });
 
+        const ownerRating = row.driverId ? driverRatingById.get(row.driverId) : undefined;
+
         result.push({
           id: row.loueurVehicleId,
           loueurVehicleId: row.loueurVehicleId,
           vehicleModelId: row.modelId,
           name: row.modelName,
           ownerName,
+          ownerDriverId: row.driverId || null,
+          ownerAverageRating: ownerRating?.averageRating ?? null,
+          ownerRatingsCount: ownerRating?.ratingsCount ?? 0,
           plate: row.plate,
           category: row.category || 'autre',
           imageUrl: imageUrls[0] || null,
@@ -4283,13 +4360,31 @@ app.post("/api/live-activities/end", async (req, res) => {
       for (const row of rows) {
         if (row.prestataireActive === false) continue;
         let ownerName = (row.prestataireNom || "").trim() || "Loueur";
-        if (!row.prestataireNom && row.driverId) {
+        let ownerAverageRating: number | null = null;
+        let ownerRatingsCount = 0;
+        if (row.driverId) {
           const [driver] = await db
-            .select({ firstName: drivers.firstName, lastName: drivers.lastName })
+            .select({
+              firstName: drivers.firstName,
+              lastName: drivers.lastName,
+              averageRating: drivers.averageRating,
+            })
             .from(drivers)
             .where(eq(drivers.id, row.driverId));
           if (driver) {
-            ownerName = `${driver.firstName} ${driver.lastName}`.trim() || ownerName;
+            if (!row.prestataireNom) {
+              ownerName = `${driver.firstName} ${driver.lastName}`.trim() || ownerName;
+            }
+            if (driver.averageRating != null && Number.isFinite(Number(driver.averageRating))) {
+              ownerAverageRating = Math.round(Number(driver.averageRating) * 10) / 10;
+            }
+            try {
+              const stats = await dbStorage.getRatingsStats("driver", row.driverId);
+              ownerRatingsCount = stats.count;
+              if (stats.average != null) ownerAverageRating = stats.average;
+            } catch {
+              /* ignore */
+            }
           }
         }
         const imageUrls = resolveVehicleDisplayImages(
@@ -4318,6 +4413,9 @@ app.post("/api/live-activities/end", async (req, res) => {
           modelImageUrl: row.modelImageUrl || null,
           ownerName,
           driverId: row.driverId,
+          ownerDriverId: row.driverId || null,
+          ownerAverageRating,
+          ownerRatingsCount,
           transmission: specs.transmission,
           fuel: specs.fuel,
           seats: specs.seats,

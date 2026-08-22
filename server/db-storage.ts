@@ -2010,15 +2010,32 @@ export class DbStorage {
 
   async updateAverageRating(entityType: 'driver' | 'client', entityId: string): Promise<void> {
     const result = await db.execute(sql`
-      SELECT AVG(score) as avg_score FROM ratings WHERE rated_type = ${entityType} AND rated_id = ${entityId}
+      SELECT AVG(score) as avg_score, COUNT(*)::int as cnt FROM ratings WHERE rated_type = ${entityType} AND rated_id = ${entityId}
     `);
-    const avgScore = (result.rows[0] as any)?.avg_score || null;
+    const row = result.rows[0] as any;
+    const avgScore = row?.avg_score != null ? Math.round(Number(row.avg_score) * 10) / 10 : null;
 
     if (entityType === 'driver') {
       await db.execute(sql`UPDATE drivers SET average_rating = ${avgScore} WHERE id = ${entityId}`);
     } else {
       await db.execute(sql`UPDATE clients SET average_rating = ${avgScore} WHERE id = ${entityId}`);
     }
+  }
+
+  async getRatingsStats(
+    entityType: 'driver' | 'client',
+    entityId: string
+  ): Promise<{ average: number | null; count: number }> {
+    const result = await db.execute(sql`
+      SELECT AVG(score) as avg_score, COUNT(*)::int as cnt
+      FROM ratings
+      WHERE rated_type = ${entityType} AND rated_id = ${entityId}
+    `);
+    const row = result.rows[0] as any;
+    const count = Number(row?.cnt) || 0;
+    const average =
+      row?.avg_score != null && count > 0 ? Math.round(Number(row.avg_score) * 10) / 10 : null;
+    return { average, count };
   }
 
   /**
