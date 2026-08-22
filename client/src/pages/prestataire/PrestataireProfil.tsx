@@ -581,7 +581,7 @@ export function PrestataireProfil() {
           <h3 className="text-sm font-semibold text-gray-900">Changer mon code à 6 chiffres</h3>
         </div>
         <p className="text-sm text-gray-500 mb-4">
-          Une fois connecté avec le code fourni par l'admin, vous pouvez définir votre propre code pour les prochaines connexions.
+          Ce code sert à la fois pour le dashboard et l&apos;application. Une fois modifié, utilisez le nouveau code des deux côtés.
         </p>
         {codeSuccess && (
           <div className="mb-4 flex items-center gap-2 rounded-lg bg-emerald-50 px-4 py-2 text-sm text-emerald-700">

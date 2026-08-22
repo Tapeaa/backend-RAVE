@@ -210,11 +210,34 @@ export function registerPrestataireRoutes(app: Express) {
         return res.status(400).json({ error: "Code actuel incorrect" });
       }
 
-      const [existing] = await db
+      // Comptes appli à synchroniser : même code aujourd'hui, ou même téléphone (loueur individuel)
+      const linkedDrivers = await db
+        .select({ id: drivers.id, code: drivers.code, phone: drivers.phone })
+        .from(drivers)
+        .where(eq(drivers.prestataireId, prestataire.id));
+
+      const syncDriverIds = linkedDrivers
+        .filter(
+          (d) =>
+            d.code === currentStr ||
+            (!!prestataire.phone && d.phone === prestataire.phone)
+        )
+        .map((d) => d.id);
+
+      const [existingPrestataire] = await db
         .select({ id: prestataires.id })
         .from(prestataires)
         .where(eq(prestataires.code, newStr));
-      if (existing && existing.id !== prestataire.id) {
+      if (existingPrestataire && existingPrestataire.id !== prestataire.id) {
+        return res.status(400).json({ error: "Ce code est déjà utilisé par un autre compte" });
+      }
+
+      const [existingDriverCode] = await db
+        .select({ id: drivers.id })
+        .from(drivers)
+        .where(eq(drivers.code, newStr))
+        .limit(1);
+      if (existingDriverCode && !syncDriverIds.includes(existingDriverCode.id)) {
         return res.status(400).json({ error: "Ce code est déjà utilisé par un autre compte" });
       }
 
@@ -223,7 +246,20 @@ export function registerPrestataireRoutes(app: Express) {
         .set({ code: newStr })
         .where(eq(prestataires.id, prestataire.id));
 
-      return res.json({ success: true, message: "Code mis à jour. Utilisez ce code pour vos prochaines connexions." });
+      // Sync dashboard → appli (chauffeurs salariés avec un autre code ne sont pas touchés)
+      if (syncDriverIds.length > 0) {
+        await db
+          .update(drivers)
+          .set({ code: newStr })
+          .where(inArray(drivers.id, syncDriverIds));
+      }
+
+      return res.json({
+        success: true,
+        message:
+          "Code mis à jour pour le dashboard et l'application. Utilisez ce code pour vos prochaines connexions.",
+        syncedAppAccounts: syncDriverIds.length,
+      });
     } catch (error) {
       console.error("Error updating prestataire code:", error);
       return res.status(500).json({ error: "Erreur serveur" });
