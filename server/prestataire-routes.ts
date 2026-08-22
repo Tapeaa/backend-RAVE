@@ -210,19 +210,22 @@ export function registerPrestataireRoutes(app: Express) {
         return res.status(400).json({ error: "Code actuel incorrect" });
       }
 
-      // Comptes appli à synchroniser : même code aujourd'hui, ou même téléphone (loueur individuel)
+      // Comptes appli à synchroniser : loueur individuel (1 driver), même code, ou même téléphone
       const linkedDrivers = await db
         .select({ id: drivers.id, code: drivers.code, phone: drivers.phone })
         .from(drivers)
         .where(eq(drivers.prestataireId, prestataire.id));
 
-      const syncDriverIds = linkedDrivers
-        .filter(
-          (d) =>
-            d.code === currentStr ||
-            (!!prestataire.phone && d.phone === prestataire.phone)
-        )
-        .map((d) => d.id);
+      const syncDriverIds =
+        linkedDrivers.length === 1
+          ? [linkedDrivers[0].id]
+          : linkedDrivers
+              .filter(
+                (d) =>
+                  d.code === currentStr ||
+                  (!!prestataire.phone && d.phone === prestataire.phone)
+              )
+              .map((d) => d.id);
 
       const [existingPrestataire] = await db
         .select({ id: prestataires.id })

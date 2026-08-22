@@ -1007,7 +1007,39 @@ export class DbStorage {
   }
 
   async getDriverByCode(code: string): Promise<Driver | undefined> {
-    const [driver] = await db.select().from(drivers).where(eq(drivers.code, code));
+    const codeStr = String(code || "").trim();
+    if (!codeStr) return undefined;
+
+    let [driver] = await db.select().from(drivers).where(eq(drivers.code, codeStr));
+
+    // Fallback : le dashboard loueur utilise prestataires.code.
+    // Si le code app (drivers.code) n'est plus synchronisé, retrouver le loueur via le code portail.
+    if (!driver) {
+      const [prestataire] = await db
+        .select()
+        .from(prestataires)
+        .where(and(eq(prestataires.code, codeStr), eq(prestataires.isActive, true)));
+
+      if (prestataire) {
+        const linked = await db
+          .select()
+          .from(drivers)
+          .where(and(eq(drivers.prestataireId, prestataire.id), eq(drivers.isActive, true)));
+
+        if (linked.length === 1) {
+          driver = linked[0];
+          // Auto-réparation : un loueur individuel doit partager le même code app + dashboard
+          if (driver.code !== codeStr) {
+            await db.update(drivers).set({ code: codeStr }).where(eq(drivers.id, driver.id));
+            driver = { ...driver, code: codeStr };
+            console.log(`[Auth] Synced drivers.code → prestataires.code for driver ${driver.id}`);
+          }
+        } else if (linked.length > 1) {
+          driver = linked.find((d) => d.code === codeStr) || undefined;
+        }
+      }
+    }
+
     if (!driver) return undefined;
 
     // Récupérer le nom du prestataire si le chauffeur est lié à un prestataire
