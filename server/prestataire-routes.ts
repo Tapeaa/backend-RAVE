@@ -13,6 +13,7 @@ import { eq, desc, asc, count, sql, and, gte, lte, inArray } from "drizzle-orm";
 import { dbStorage } from "./db-storage";
 import { uploadDocument, uploadDocumentToCloudinary } from "./cloudinary";
 import { validatePricingTiers, MAX_RENTAL_DAYS_CAP } from "./rental-pricing";
+import { normalizeListingExtras } from "@shared/listing-extras";
 
 const stripe = process.env.STRIPE_SECRET_KEY ? new Stripe(process.env.STRIPE_SECRET_KEY) : null;
 
@@ -1383,6 +1384,7 @@ export function registerPrestataireRoutes(app: Express) {
           pricePerDayLongTerm: loueurVehicles.pricePerDayLongTerm,
           pricingTiers: loueurVehicles.pricingTiers,
           maxRentalDays: loueurVehicles.maxRentalDays,
+          listingExtras: loueurVehicles.listingExtras,
           availableForRental: loueurVehicles.availableForRental,
           availableForDelivery: loueurVehicles.availableForDelivery,
           availableForLongTerm: loueurVehicles.availableForLongTerm,
@@ -1424,7 +1426,7 @@ export function registerPrestataireRoutes(app: Express) {
       const {
         vehicleModelId, plate, pricePerDay, pricePerDayLongTerm,
         availableForRental, availableForDelivery, availableForLongTerm, customImageUrl,
-        rentalContractMode, pricingTiers, maxRentalDays,
+        rentalContractMode, pricingTiers, maxRentalDays, listingExtras,
       } = req.body;
 
       if (!vehicleModelId) {
@@ -1480,6 +1482,7 @@ export function registerPrestataireRoutes(app: Express) {
           pricePerDayLongTerm: pricePerDayLongTerm || null,
           pricingTiers: validated.tiers,
           maxRentalDays: validated.maxRentalDays,
+          listingExtras: normalizeListingExtras(listingExtras),
           availableForRental: availableForRental ?? true,
           availableForDelivery: availableForDelivery ?? false,
           availableForLongTerm: availableForLongTerm ?? false,
@@ -1545,6 +1548,10 @@ export function registerPrestataireRoutes(app: Express) {
         updates.pricingTiers = validated.tiers;
         updates.maxRentalDays = validated.maxRentalDays;
         updates.pricePerDay = validated.tiers[0].pricePerDay;
+      }
+
+      if (req.body.listingExtras !== undefined) {
+        updates.listingExtras = normalizeListingExtras(req.body.listingExtras);
       }
 
       if (Object.keys(updates).length === 0) {

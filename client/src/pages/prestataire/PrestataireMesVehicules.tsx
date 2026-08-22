@@ -1,10 +1,18 @@
 /**
  * RAVE - Dashboard Prestataire Loueur - Mes Véhicules
- * Flotte + tarifs dégressifs (paliers cumulatifs jusqu'à 90 jours)
+ * Flotte + tarifs dégressifs + termes fiche client
  */
 
 import { useEffect, useState } from 'react';
 import { CarFront, Plus, X, Check, Edit, Trash2, Eye, EyeOff, Search } from 'lucide-react';
+import {
+  DEFAULT_LISTING_EXTRAS,
+  FEATURE_PRESETS,
+  INCLUDED_PRESETS,
+  normalizeListingExtras,
+  type VehicleListingExtras,
+  type IncludedItem,
+} from '@shared/listing-extras';
 
 interface VehicleModel {
   id: string;
@@ -30,6 +38,7 @@ interface LoueurVehicle {
   pricePerDayLongTerm: number | null;
   pricingTiers?: PricingTier[] | null;
   maxRentalDays?: number | null;
+  listingExtras?: VehicleListingExtras | Record<string, unknown> | null;
   availableForRental: boolean;
   availableForDelivery: boolean;
   availableForLongTerm: boolean;
@@ -74,6 +83,21 @@ function syncTierEdges(tiers: PricingTier[], maxRentalDays: number): PricingTier
   return next;
 }
 
+function cloneExtras(extras?: VehicleListingExtras | Record<string, unknown> | null): VehicleListingExtras {
+  return normalizeListingExtras(extras);
+}
+
+type FormState = {
+  vehicleModelId: string;
+  plate: string;
+  maxRentalDays: number;
+  pricingTiers: PricingTier[];
+  availableForRental: boolean;
+  availableForDelivery: boolean;
+  availableForLongTerm: boolean;
+  listingExtras: VehicleListingExtras;
+};
+
 export function PrestataireMesVehicules() {
   const [vehicles, setVehicles] = useState<LoueurVehicle[]>([]);
   const [models, setModels] = useState<VehicleModel[]>([]);
@@ -83,14 +107,15 @@ export function PrestataireMesVehicules() {
   const [isSaving, setIsSaving] = useState(false);
   const [searchTerm, setSearchTerm] = useState('');
 
-  const [formData, setFormData] = useState({
+  const [formData, setFormData] = useState<FormState>({
     vehicleModelId: '',
     plate: '',
     maxRentalDays: 90,
-    pricingTiers: defaultTiers() as PricingTier[],
+    pricingTiers: defaultTiers(),
     availableForRental: true,
     availableForDelivery: false,
     availableForLongTerm: false,
+    listingExtras: cloneExtras(),
   });
 
   useEffect(() => {
@@ -141,6 +166,7 @@ export function PrestataireMesVehicules() {
       availableForRental: true,
       availableForDelivery: false,
       availableForLongTerm: false,
+      listingExtras: cloneExtras(DEFAULT_LISTING_EXTRAS),
     });
     setShowModal(true);
   }
@@ -160,8 +186,38 @@ export function PrestataireMesVehicules() {
       availableForRental: vehicle.availableForRental,
       availableForDelivery: vehicle.availableForDelivery,
       availableForLongTerm: vehicle.availableForLongTerm,
+      listingExtras: cloneExtras(vehicle.listingExtras),
     });
     setShowModal(true);
+  }
+
+  function updateExtras(patch: Partial<VehicleListingExtras>) {
+    setFormData((prev) => ({
+      ...prev,
+      listingExtras: { ...prev.listingExtras, ...patch },
+    }));
+  }
+
+  function toggleFeature(
+    group: 'featuresSafety' | 'featuresConnectivity' | 'featuresComfort',
+    label: string
+  ) {
+    setFormData((prev) => {
+      const list = prev.listingExtras[group];
+      const next = list.includes(label) ? list.filter((x) => x !== label) : [...list, label];
+      return { ...prev, listingExtras: { ...prev.listingExtras, [group]: next } };
+    });
+  }
+
+  function toggleIncluded(item: IncludedItem) {
+    setFormData((prev) => {
+      const list = prev.listingExtras.includedItems;
+      const exists = list.some((x) => x.label === item.label);
+      const next = exists
+        ? list.filter((x) => x.label !== item.label)
+        : [...list, { label: item.label, desc: item.desc }];
+      return { ...prev, listingExtras: { ...prev.listingExtras, includedItems: next } };
+    });
   }
 
   function updateMaxRentalDays(value: number) {
@@ -199,7 +255,6 @@ export function PrestataireMesVehicules() {
     setFormData((prev) => {
       const tiers = prev.pricingTiers.map((t) => ({ ...t }));
       const last = tiers[tiers.length - 1];
-      // Toujours laisser au moins 1 jour pour le nouveau palier (réduit le dernier si besoin)
       if (last.toDay <= last.fromDay && last.toDay >= prev.maxRentalDays) {
         alert('Allongez ou réduisez la durée max avant d’ajouter un palier');
         return prev;
@@ -229,7 +284,6 @@ export function PrestataireMesVehicules() {
     setFormData((prev) => {
       if (prev.pricingTiers.length <= 1) return prev;
       const tiers = prev.pricingTiers.filter((_, i) => i !== index);
-      // Extend last tier to max
       tiers[tiers.length - 1].toDay = prev.maxRentalDays;
       return { ...prev, pricingTiers: syncTierEdges(tiers, prev.maxRentalDays) };
     });
@@ -261,6 +315,7 @@ export function PrestataireMesVehicules() {
         availableForRental: formData.availableForRental,
         availableForDelivery: formData.availableForDelivery,
         availableForLongTerm: formData.availableForLongTerm,
+        listingExtras: formData.listingExtras,
       };
 
       if (!editingVehicle) {
@@ -325,6 +380,7 @@ export function PrestataireMesVehicules() {
   );
 
   const selectedModel = models.find((m) => m.id === formData.vehicleModelId);
+  const extras = formData.listingExtras;
 
   return (
     <div className="space-y-6">
@@ -336,7 +392,7 @@ export function PrestataireMesVehicules() {
           <div>
             <h1 className="text-2xl font-bold text-gray-900">Mes Véhicules</h1>
             <p className="text-sm text-gray-500">
-              {vehicles.length} véhicule{vehicles.length > 1 ? 's' : ''} — tarifs dégressifs jusqu’à 90 jours
+              {vehicles.length} véhicule{vehicles.length > 1 ? 's' : ''} — tarifs & conditions fiche client
             </p>
           </div>
         </div>
@@ -438,14 +494,13 @@ export function PrestataireMesVehicules() {
                         {tierCount} paliers
                       </span>
                     )}
-                    <span className="text-xs text-gray-400">max {vehicle.maxRentalDays || 90} j</span>
                   </div>
-                  <div className="flex gap-1.5 mt-1.5">
+                  <div className="flex flex-wrap gap-2 mt-2">
                     {vehicle.availableForRental && (
-                      <span className="text-xs bg-blue-50 text-blue-700 px-2 py-0.5 rounded-full">Louer</span>
+                      <span className="text-xs bg-blue-50 text-blue-700 px-2 py-0.5 rounded-full">Location</span>
                     )}
                     {vehicle.availableForDelivery && (
-                      <span className="text-xs bg-teal-50 text-teal-700 px-2 py-0.5 rounded-full">Livraison</span>
+                      <span className="text-xs bg-violet-50 text-violet-700 px-2 py-0.5 rounded-full">Livraison</span>
                     )}
                     {vehicle.availableForLongTerm && (
                       <span className="text-xs bg-amber-50 text-amber-700 px-2 py-0.5 rounded-full">Long terme</span>
@@ -480,8 +535,8 @@ export function PrestataireMesVehicules() {
 
       {showModal && (
         <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4">
-          <div className="bg-white rounded-2xl w-full max-w-lg max-h-[90vh] overflow-y-auto">
-            <div className="flex items-center justify-between p-5 border-b">
+          <div className="bg-white rounded-2xl w-full max-w-2xl max-h-[90vh] overflow-y-auto">
+            <div className="flex items-center justify-between p-5 border-b sticky top-0 bg-white z-10">
               <h2 className="text-lg font-bold">{editingVehicle ? 'Modifier le véhicule' : 'Ajouter un véhicule'}</h2>
               <button onClick={() => setShowModal(false)} className="p-1 hover:bg-gray-100 rounded-lg">
                 <X className="w-5 h-5" />
@@ -602,18 +657,269 @@ export function PrestataireMesVehicules() {
                 ))}
               </div>
 
+              <div className="rounded-xl border border-gray-200 bg-gray-50/80 p-4 space-y-4">
+                <div>
+                  <h3 className="text-sm font-semibold text-gray-900">Conditions fiche client</h3>
+                  <p className="text-xs text-gray-600">
+                    Visible dans l’app client. Configurable ici seulement (pas dans l’app loueur mobile).
+                  </p>
+                </div>
+
+                <div className="grid md:grid-cols-2 gap-3">
+                  <div>
+                    <label className="block text-xs font-medium text-gray-700 mb-1">Annulation — titre</label>
+                    <input
+                      type="text"
+                      value={extras.cancellationTitle}
+                      onChange={(e) => updateExtras({ cancellationTitle: e.target.value })}
+                      className="w-full px-3 py-2 border rounded-lg text-sm"
+                    />
+                  </div>
+                  <div className="md:col-span-2">
+                    <label className="block text-xs font-medium text-gray-700 mb-1">Annulation — détail</label>
+                    <textarea
+                      value={extras.cancellationDesc}
+                      onChange={(e) => updateExtras({ cancellationDesc: e.target.value })}
+                      rows={2}
+                      className="w-full px-3 py-2 border rounded-lg text-sm"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-xs font-medium text-gray-700 mb-1">Paiement — titre</label>
+                    <input
+                      type="text"
+                      value={extras.paymentTitle}
+                      onChange={(e) => updateExtras({ paymentTitle: e.target.value })}
+                      className="w-full px-3 py-2 border rounded-lg text-sm"
+                    />
+                  </div>
+                  <div className="md:col-span-2">
+                    <label className="block text-xs font-medium text-gray-700 mb-1">Paiement — détail</label>
+                    <textarea
+                      value={extras.paymentDesc}
+                      onChange={(e) => updateExtras({ paymentDesc: e.target.value })}
+                      rows={2}
+                      className="w-full px-3 py-2 border rounded-lg text-sm"
+                    />
+                  </div>
+                </div>
+
+                <div className="border-t pt-3 space-y-2">
+                  <p className="text-xs font-semibold text-gray-800 uppercase tracking-wide">Kilométrage</p>
+                  <label className="flex items-center gap-2 text-sm">
+                    <input
+                      type="checkbox"
+                      checked={extras.mileageUnlimited}
+                      onChange={(e) => updateExtras({ mileageUnlimited: e.target.checked })}
+                      className="w-4 h-4 rounded"
+                    />
+                    Kilométrage illimité
+                  </label>
+                  {!extras.mileageUnlimited && (
+                    <div className="grid grid-cols-2 gap-3">
+                      <div>
+                        <label className="block text-xs text-gray-600 mb-1">Km inclus / jour</label>
+                        <input
+                          type="number"
+                          min={0}
+                          value={extras.mileageKmPerDay ?? ''}
+                          onChange={(e) =>
+                            updateExtras({
+                              mileageKmPerDay: e.target.value === '' ? null : Number(e.target.value),
+                            })
+                          }
+                          className="w-full px-3 py-2 border rounded-lg text-sm"
+                        />
+                      </div>
+                      <div>
+                        <label className="block text-xs text-gray-600 mb-1">Prix km supplémentaire (XPF)</label>
+                        <input
+                          type="number"
+                          min={0}
+                          value={extras.mileageExtraPricePerKm ?? ''}
+                          onChange={(e) =>
+                            updateExtras({
+                              mileageExtraPricePerKm: e.target.value === '' ? null : Number(e.target.value),
+                            })
+                          }
+                          className="w-full px-3 py-2 border rounded-lg text-sm"
+                        />
+                      </div>
+                    </div>
+                  )}
+                </div>
+
+                <div className="border-t pt-3 space-y-2">
+                  <p className="text-xs font-semibold text-gray-800 uppercase tracking-wide">Assurance</p>
+                  <div className="flex flex-wrap gap-3 text-sm">
+                    {(
+                      [
+                        { value: 'included', label: 'Incluse' },
+                        { value: 'extra', label: 'Supplément (prix)' },
+                        { value: 'none', label: 'Non incluse' },
+                      ] as const
+                    ).map((opt) => (
+                      <label key={opt.value} className="flex items-center gap-2">
+                        <input
+                          type="radio"
+                          name="insuranceMode"
+                          checked={extras.insuranceMode === opt.value}
+                          onChange={() => updateExtras({ insuranceMode: opt.value })}
+                        />
+                        {opt.label}
+                      </label>
+                    ))}
+                  </div>
+                  <div className="grid grid-cols-2 gap-3">
+                    <div>
+                      <label className="block text-xs text-gray-600 mb-1">Libellé</label>
+                      <input
+                        type="text"
+                        value={extras.insuranceLabel}
+                        onChange={(e) => updateExtras({ insuranceLabel: e.target.value })}
+                        className="w-full px-3 py-2 border rounded-lg text-sm"
+                      />
+                    </div>
+                    {extras.insuranceMode === 'extra' && (
+                      <div>
+                        <label className="block text-xs text-gray-600 mb-1">Prix / jour (XPF)</label>
+                        <input
+                          type="number"
+                          min={0}
+                          value={extras.insurancePricePerDay ?? ''}
+                          onChange={(e) =>
+                            updateExtras({
+                              insurancePricePerDay: e.target.value === '' ? null : Number(e.target.value),
+                            })
+                          }
+                          className="w-full px-3 py-2 border rounded-lg text-sm"
+                        />
+                      </div>
+                    )}
+                  </div>
+                </div>
+
+                <div className="border-t pt-3 space-y-3">
+                  <p className="text-xs font-semibold text-gray-800 uppercase tracking-wide">Caractéristiques</p>
+                  {(
+                    [
+                      { key: 'featuresSafety' as const, title: 'Sécurité', presets: FEATURE_PRESETS.safety },
+                      { key: 'featuresConnectivity' as const, title: 'Connectivité', presets: FEATURE_PRESETS.connectivity },
+                      { key: 'featuresComfort' as const, title: 'Confort', presets: FEATURE_PRESETS.comfort },
+                    ]
+                  ).map((group) => (
+                    <div key={group.key}>
+                      <p className="text-xs font-medium text-gray-700 mb-1">{group.title}</p>
+                      <div className="flex flex-wrap gap-2">
+                        {group.presets.map((label) => {
+                          const on = extras[group.key].includes(label);
+                          return (
+                            <button
+                              key={label}
+                              type="button"
+                              onClick={() => toggleFeature(group.key, label)}
+                              className={`text-xs px-2.5 py-1 rounded-full border ${
+                                on
+                                  ? 'bg-black text-white border-black'
+                                  : 'bg-white text-gray-600 border-gray-200 hover:border-gray-400'
+                              }`}
+                            >
+                              {label}
+                            </button>
+                          );
+                        })}
+                      </div>
+                    </div>
+                  ))}
+                </div>
+
+                <div className="border-t pt-3 space-y-2">
+                  <p className="text-xs font-semibold text-gray-800 uppercase tracking-wide">Inclus dans le prix</p>
+                  <div className="space-y-1.5">
+                    {INCLUDED_PRESETS.map((item) => {
+                      const on = extras.includedItems.some((x) => x.label === item.label);
+                      return (
+                        <label key={item.label} className="flex items-start gap-2 text-sm cursor-pointer">
+                          <input
+                            type="checkbox"
+                            checked={on}
+                            onChange={() => toggleIncluded(item)}
+                            className="mt-0.5 w-4 h-4 rounded"
+                          />
+                          <span>
+                            <span className="font-medium text-gray-800">{item.label}</span>
+                            {item.desc ? (
+                              <span className="block text-xs text-gray-500">{item.desc}</span>
+                            ) : null}
+                          </span>
+                        </label>
+                      );
+                    })}
+                  </div>
+                </div>
+
+                <div className="border-t pt-3 space-y-2">
+                  <p className="text-xs font-semibold text-gray-800 uppercase tracking-wide">Caution</p>
+                  <label className="flex items-center gap-2 text-sm">
+                    <input
+                      type="checkbox"
+                      checked={extras.depositRequired}
+                      onChange={(e) => updateExtras({ depositRequired: e.target.checked })}
+                      className="w-4 h-4 rounded"
+                    />
+                    Exiger une caution
+                  </label>
+                  {extras.depositRequired ? (
+                    <div className="grid grid-cols-2 gap-3">
+                      <div>
+                        <label className="block text-xs text-gray-600 mb-1">Montant (XPF)</label>
+                        <input
+                          type="number"
+                          min={0}
+                          value={extras.depositAmount ?? ''}
+                          onChange={(e) =>
+                            updateExtras({
+                              depositAmount: e.target.value === '' ? null : Number(e.target.value),
+                            })
+                          }
+                          placeholder="Ex: 50000"
+                          className="w-full px-3 py-2 border rounded-lg text-sm"
+                        />
+                      </div>
+                      <div>
+                        <label className="block text-xs text-gray-600 mb-1">Note</label>
+                        <input
+                          type="text"
+                          value={extras.depositNote}
+                          onChange={(e) => updateExtras({ depositNote: e.target.value })}
+                          className="w-full px-3 py-2 border rounded-lg text-sm"
+                        />
+                      </div>
+                    </div>
+                  ) : (
+                    <input
+                      type="text"
+                      value={extras.depositNote}
+                      onChange={(e) => updateExtras({ depositNote: e.target.value })}
+                      placeholder="Message si pas de caution"
+                      className="w-full px-3 py-2 border rounded-lg text-sm"
+                    />
+                  )}
+                </div>
+              </div>
+
               <div>
                 <label className="block text-sm font-medium text-gray-700 mb-2">Services disponibles</label>
                 <div className="space-y-2">
                   {[
-                    { key: 'availableForRental', label: 'Location classique' },
-                    { key: 'availableForDelivery', label: 'Livraison' },
-                    { key: 'availableForLongTerm', label: 'Location longue durée' },
+                    { key: 'availableForRental' as const, label: 'Location classique' },
+                    { key: 'availableForDelivery' as const, label: 'Livraison' },
+                    { key: 'availableForLongTerm' as const, label: 'Location longue durée' },
                   ].map(({ key, label }) => (
                     <label key={key} className="flex items-center gap-3 p-2 rounded-lg hover:bg-gray-50 cursor-pointer">
                       <input
                         type="checkbox"
-                        checked={(formData as any)[key]}
+                        checked={formData[key]}
                         onChange={(e) => setFormData((prev) => ({ ...prev, [key]: e.target.checked }))}
                         className="w-4 h-4 rounded border-gray-300"
                       />
@@ -624,7 +930,7 @@ export function PrestataireMesVehicules() {
               </div>
             </div>
 
-            <div className="flex items-center justify-end gap-3 p-5 border-t">
+            <div className="flex items-center justify-end gap-3 p-5 border-t sticky bottom-0 bg-white">
               <button onClick={() => setShowModal(false)} className="px-4 py-2 text-gray-700 bg-gray-100 rounded-lg hover:bg-gray-200">
                 Annuler
               </button>

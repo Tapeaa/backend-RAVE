@@ -17,6 +17,7 @@ import { generateInvoicePDF } from "./pdf-generator";
 import { sendSupportMessageNotification } from "./email";
 import { assertVehicleAvailableForRental } from "./rental-availability";
 import { computeDigressiveRentalPrice, validatePricingTiers, MAX_RENTAL_DAYS_CAP } from "./rental-pricing";
+import { normalizeListingExtras } from "@shared/listing-extras";
 import { persistImageUri, persistContractHtml, isEphemeralLocalUri } from "./persist-media";
 import { buildRentalContractHtml } from "./rental-contract";
 
@@ -4071,6 +4072,7 @@ app.post("/api/live-activities/end", async (req, res) => {
         availableForDelivery: loueurVehicles.availableForDelivery,
         availableForLongTerm: loueurVehicles.availableForLongTerm,
         customImageUrl: loueurVehicles.customImageUrl,
+        listingExtras: loueurVehicles.listingExtras,
         prestataireNom: prestataires.nom,
         prestataireActive: prestataires.isActive,
         modelId: vehicleModels.id,
@@ -4172,6 +4174,7 @@ app.post("/api/live-activities/end", async (req, res) => {
           pricePerDay: typeof row.pricePerDay === 'number' ? row.pricePerDay : Number(row.pricePerDay) || 0,
           pricingTiers: Array.isArray(row.pricingTiers) ? row.pricingTiers : [],
           maxRentalDays: Number(row.maxRentalDays) || 90,
+          listingExtras: normalizeListingExtras(row.listingExtras),
           availableCount: 1,
           services: {
             rental: !!row.availableForRental,
@@ -4207,6 +4210,7 @@ app.post("/api/live-activities/end", async (req, res) => {
         pricePerDayLongTerm: loueurVehicles.pricePerDayLongTerm,
         pricingTiers: loueurVehicles.pricingTiers,
         maxRentalDays: loueurVehicles.maxRentalDays,
+        listingExtras: loueurVehicles.listingExtras,
         rentalContractMode: loueurVehicles.rentalContractMode,
         customContractText: loueurVehicles.customContractText,
         customImageUrl: loueurVehicles.customImageUrl,
@@ -4277,6 +4281,7 @@ app.post("/api/live-activities/end", async (req, res) => {
           pricePerDayLongTerm: row.pricePerDayLongTerm,
           pricingTiers: Array.isArray(row.pricingTiers) ? row.pricingTiers : [],
           maxRentalDays: Number(row.maxRentalDays) || 90,
+          listingExtras: normalizeListingExtras(row.listingExtras),
           rentalContractMode: row.rentalContractMode,
           customContractText: row.customContractText,
           customImageUrl: imageUrls[0] || null,

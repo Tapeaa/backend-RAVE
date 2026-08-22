@@ -93,6 +93,11 @@ export const loueurVehicles = pgTable("loueur_vehicles", {
   customImageUrl: text("custom_image_url"), // Photo de couverture (1ère image)
   /** Galerie photos du véhicule (URLs Cloudinary) */
   customImageUrls: jsonb("custom_image_urls").$type<string[]>().default([]),
+  /**
+   * Termes affichés sur la fiche client (annulation, km, assurance, caractéristiques, inclus, caution).
+   * Éditables uniquement via le dashboard web loueur.
+   */
+  listingExtras: jsonb("listing_extras").$type<Record<string, unknown>>().default({}),
   /** app_default = contrat RAVE partagé (plusieurs loueurs même modèle peuvent recevoir la demande) ; custom = annonce liée à un seul loueur */
   rentalContractMode: text("rental_contract_mode").default("app_default").notNull(),
   customContractText: text("custom_contract_text"),
