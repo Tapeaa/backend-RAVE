@@ -46,6 +46,7 @@ interface LoueurVehicle {
   listingExtras?: VehicleListingExtras | Record<string, unknown> | null;
   availableForRental: boolean;
   customImageUrl: string | null;
+  defaultMeetingPoint?: string | null;
   isActive: boolean;
   createdAt: string;
   modelName: string;
@@ -115,6 +116,7 @@ type FormState = {
   pricingTiers: PricingTier[];
   availableForRental: boolean;
   listingExtras: VehicleListingExtras;
+  defaultMeetingPoint: string;
 };
 
 export function PrestataireMesVehicules() {
@@ -133,6 +135,7 @@ export function PrestataireMesVehicules() {
     pricingTiers: defaultTiers(),
     availableForRental: true,
     listingExtras: cloneExtras(),
+    defaultMeetingPoint: '',
   });
 
   useEffect(() => {
@@ -183,6 +186,7 @@ export function PrestataireMesVehicules() {
       pricingTiers: defaultTiers(5000, 90),
       availableForRental: true,
       listingExtras: cloneExtras(DEFAULT_LISTING_EXTRAS, model),
+      defaultMeetingPoint: '',
     });
     setShowModal(true);
   }
@@ -205,6 +209,7 @@ export function PrestataireMesVehicules() {
         transmission: vehicle.modelTransmission,
         fuel: vehicle.modelFuel,
       }),
+      defaultMeetingPoint: vehicle.defaultMeetingPoint || '',
     });
     setShowModal(true);
   }
@@ -334,6 +339,7 @@ export function PrestataireMesVehicules() {
         availableForDelivery: false,
         availableForLongTerm: false,
         listingExtras: formData.listingExtras,
+        defaultMeetingPoint: formData.defaultMeetingPoint.trim() || null,
       };
 
       if (!editingVehicle) {
@@ -500,6 +506,11 @@ export function PrestataireMesVehicules() {
                   </div>
                   <div className="flex flex-wrap items-center gap-3 mt-1 text-sm text-gray-500">
                     {vehicle.plate && <span>Plaque: {vehicle.plate}</span>}
+                    {vehicle.defaultMeetingPoint ? (
+                      <span className="block truncate text-emerald-700">
+                        RDV: {vehicle.defaultMeetingPoint}
+                      </span>
+                    ) : null}
                     <span className="font-medium text-gray-900">
                       dès {vehicle.pricePerDay.toLocaleString()} XPF/jour
                     </span>
@@ -591,6 +602,25 @@ export function PrestataireMesVehicules() {
                   placeholder="Ex: 12345 P"
                   className="w-full px-3 py-2 border rounded-lg focus:outline-none focus:ring-2 focus:ring-black/20"
                 />
+              </div>
+
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">
+                  Lieu de récupération / RDV par défaut
+                </label>
+                <input
+                  type="text"
+                  value={formData.defaultMeetingPoint}
+                  onChange={(e) =>
+                    setFormData((prev) => ({ ...prev, defaultMeetingPoint: e.target.value }))
+                  }
+                  placeholder="Ex: Parking Fare Ute, Papeete"
+                  className="w-full px-3 py-2 border rounded-lg focus:outline-none focus:ring-2 focus:ring-black/20"
+                />
+                <p className="text-xs text-gray-500 mt-1">
+                  Envoyé automatiquement au client quand vous acceptez une location de ce véhicule.
+                  Vous pourrez aussi en envoyer un autre depuis l’app loueur.
+                </p>
               </div>
 
               <div>

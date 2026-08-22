@@ -1389,6 +1389,7 @@ export function registerPrestataireRoutes(app: Express) {
           availableForDelivery: loueurVehicles.availableForDelivery,
           availableForLongTerm: loueurVehicles.availableForLongTerm,
           customImageUrl: loueurVehicles.customImageUrl,
+          defaultMeetingPoint: loueurVehicles.defaultMeetingPoint,
           rentalContractMode: loueurVehicles.rentalContractMode,
           isActive: loueurVehicles.isActive,
           createdAt: loueurVehicles.createdAt,
@@ -1426,7 +1427,7 @@ export function registerPrestataireRoutes(app: Express) {
       const {
         vehicleModelId, plate, pricePerDay, pricePerDayLongTerm,
         availableForRental, availableForDelivery, availableForLongTerm, customImageUrl,
-        rentalContractMode, pricingTiers, maxRentalDays, listingExtras,
+        rentalContractMode, pricingTiers, maxRentalDays, listingExtras, defaultMeetingPoint,
       } = req.body;
 
       if (!vehicleModelId) {
@@ -1487,6 +1488,10 @@ export function registerPrestataireRoutes(app: Express) {
           availableForDelivery: false,
           availableForLongTerm: false,
           customImageUrl: customImageUrl || null,
+          defaultMeetingPoint:
+            typeof defaultMeetingPoint === "string" && defaultMeetingPoint.trim()
+              ? defaultMeetingPoint.trim()
+              : null,
           rentalContractMode: contractMode,
           isActive: true,
         })
@@ -1523,11 +1528,28 @@ export function registerPrestataireRoutes(app: Express) {
       }
 
       const updates: Record<string, any> = {};
-      const allowedFields = ["plate", "pricePerDay", "pricePerDayLongTerm", "availableForRental", "availableForDelivery", "availableForLongTerm", "customImageUrl", "isActive", "rentalContractMode"];
+      const allowedFields = [
+        "plate",
+        "pricePerDay",
+        "pricePerDayLongTerm",
+        "availableForRental",
+        "availableForDelivery",
+        "availableForLongTerm",
+        "customImageUrl",
+        "isActive",
+        "rentalContractMode",
+        "defaultMeetingPoint",
+      ];
       for (const field of allowedFields) {
         if (req.body[field] !== undefined) {
           updates[field] = req.body[field];
         }
+      }
+
+      if (updates.defaultMeetingPoint !== undefined) {
+        const mp = updates.defaultMeetingPoint;
+        updates.defaultMeetingPoint =
+          typeof mp === "string" && mp.trim() ? mp.trim() : null;
       }
 
       if (updates.rentalContractMode !== undefined) {

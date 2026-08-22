@@ -106,6 +106,8 @@ export const loueurVehicles = pgTable("loueur_vehicles", {
    * Éditables uniquement via le dashboard web loueur.
    */
   listingExtras: jsonb("listing_extras").$type<Record<string, unknown>>().default({}),
+  /** Lieu de récupération / RDV par défaut pour ce véhicule (dashboard) */
+  defaultMeetingPoint: text("default_meeting_point"),
   /** app_default = contrat RAVE partagé (plusieurs loueurs même modèle peuvent recevoir la demande) ; custom = annonce liée à un seul loueur */
   rentalContractMode: text("rental_contract_mode").default("app_default").notNull(),
   customContractText: text("custom_contract_text"),

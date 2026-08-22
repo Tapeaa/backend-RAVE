@@ -2207,8 +2207,27 @@ app.post("/api/rental-orders/:id/accept", async (req, res) => {
     const driver = await dbStorage.getDriver(session.driverId);
     const bodyMeeting =
       typeof req.body.meetingPoint === "string" ? req.body.meetingPoint.trim() : "";
+
+    let vehicleMeeting = "";
+    const loueurVehicleId = String(
+      currentRideOption?.loueurVehicleId || currentRideOption?.rentalData?.loueurVehicleId || ""
+    ).trim();
+    if (loueurVehicleId) {
+      try {
+        const [veh] = await db
+          .select({ defaultMeetingPoint: loueurVehicles.defaultMeetingPoint })
+          .from(loueurVehicles)
+          .where(eq(loueurVehicles.id, loueurVehicleId))
+          .limit(1);
+        vehicleMeeting = (veh?.defaultMeetingPoint || "").trim();
+      } catch (e) {
+        console.warn("[RENTAL] vehicle default meeting point skipped:", e);
+      }
+    }
+
     const meetingPoint =
       bodyMeeting ||
+      vehicleMeeting ||
       (driver?.defaultMeetingPoint || "").trim() ||
       (currentRideOption?.meetingPoint || "").trim() ||
       (currentRideOption?.pickupLocation || "").trim() ||

@@ -30,6 +30,10 @@ export async function ensureLoueurSubscriptionColumns(): Promise<void> {
       ALTER TABLE drivers
       ADD COLUMN IF NOT EXISTS subscription_amount REAL
     `);
+    await db.execute(sql`
+      ALTER TABLE loueur_vehicles
+      ADD COLUMN IF NOT EXISTS default_meeting_point TEXT
+    `);
     console.log("[DB] ✅ Colonnes abonnement / RDV loueur OK");
   } catch (e) {
     console.warn("[DB] ensureLoueurSubscriptionColumns:", e);
