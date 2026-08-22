@@ -8,7 +8,7 @@ import Stripe from "stripe";
 import { storage } from "./storage";
 import { verifyPassword, hashPassword, dbStorage } from "./db-storage";
 import { db } from "./db";
-import { insertOrderSchema, pushSubscriptionSchema, insertClientSchema, orders, driverSessions, drivers, collecteFrais, vehicleModels, loueurVehicles, prestataires, ratings, type Order, type OrderStatus, type DriverSession } from "@shared/schema";
+import { insertOrderSchema, pushSubscriptionSchema, insertClientSchema, orders, driverSessions, drivers, collecteFrais, vehicleModels, loueurVehicles, prestataires, ratings, clients, type Order, type OrderStatus, type DriverSession } from "@shared/schema";
 import { eq, and, sql as dsql, count, inArray } from "drizzle-orm";
 import cookieParser from "cookie-parser";
 import { driverNotifications, clientNotifications, notifyDriver, notifyClient, startClientLiveActivity, updateClientLiveActivity, endClientLiveActivity } from "./onesignal";
@@ -1943,9 +1943,41 @@ app.post("/api/rental-orders", async (req, res) => {
       }
     }
 
+    const headerSessionRaw = (req.headers["x-client-session-id"] as string | undefined) || "";
+    const headerSessionId = headerSessionRaw.split(",")[0].trim() || undefined;
+    const rawCookieSessionId = req.cookies?.clientSessionId as string | undefined;
+    const cookieSessionId = rawCookieSessionId?.split(",")[0].trim() || undefined;
+    const sessionId = headerSessionId || cookieSessionId;
+
+    let clientId: string | undefined = undefined;
+    let accountClient: Awaited<ReturnType<typeof dbStorage.getClient>> | undefined;
+    if (sessionId) {
+      const session = await dbStorage.getClientSession(sessionId);
+      if (session && new Date(session.expiresAt) > new Date()) {
+        clientId = session.clientId;
+        accountClient = await dbStorage.getClient(session.clientId);
+      }
+    }
+
+    // Source de vérité : profil compte authentifié (évite un vieux nom local type brouillon)
+    const resolvedFirstName = (accountClient?.firstName || body.client.firstName || "").trim();
+    const resolvedLastName = (accountClient?.lastName || body.client.lastName || "").trim();
+    const resolvedPhone = (accountClient?.phone || body.client.phone || "").trim();
+    if (!resolvedFirstName || !resolvedLastName || !resolvedPhone) {
+      return res.status(400).json({ success: false, error: "Informations client incomplètes" });
+    }
+
+    const orderClient = {
+      firstName: resolvedFirstName,
+      lastName: resolvedLastName,
+      phone: resolvedPhone,
+      email: (body.client.email || accountClient?.email || "").trim() || undefined,
+      age: body.client.age,
+    };
+
     const orderData = {
-      clientName: `${body.client.firstName} ${body.client.lastName}`,
-      clientPhone: body.client.phone,
+      clientName: `${resolvedFirstName} ${resolvedLastName}`,
+      clientPhone: resolvedPhone,
       addresses: [
         {
           id: "pickup",
@@ -1984,7 +2016,7 @@ app.post("/api/rental-orders", async (req, res) => {
         ...(body.signature ? {
           clientSignatureSvg: body.signature.clientSignatureSvg,
           clientSignedAt: body.signature.clientSignedAt,
-          clientSignatureName: body.signature.clientSignatureName,
+          clientSignatureName: `${resolvedFirstName} ${resolvedLastName}`,
         } : {}),
         ...(licenseFront || licenseBack ? {
           clientLicenseFront: licenseFront,
@@ -2002,20 +2034,6 @@ app.post("/api/rental-orders", async (req, res) => {
       isAdvanceBooking: true,
     };
 
-    const headerSessionRaw = (req.headers["x-client-session-id"] as string | undefined) || "";
-    const headerSessionId = headerSessionRaw.split(",")[0].trim() || undefined;
-    const rawCookieSessionId = req.cookies?.clientSessionId as string | undefined;
-    const cookieSessionId = rawCookieSessionId?.split(",")[0].trim() || undefined;
-    const sessionId = headerSessionId || cookieSessionId;
-
-    let clientId: string | undefined = undefined;
-    if (sessionId) {
-      const session = await dbStorage.getClientSession(sessionId);
-      if (session && new Date(session.expiresAt) > new Date()) {
-        clientId = session.clientId;
-      }
-    }
-
     const order = await dbStorage.createOrder(orderData as any, clientId);
 
     // Snapshot contrat permanent (HTML en base + URL Cloudinary si possible)
@@ -2032,6 +2050,7 @@ app.post("/api/rental-orders", async (req, res) => {
         const rideOpt = {
           ...(order.rideOption as any),
           contractHtmlSnapshot: html,
+          clientSignatureName: `${resolvedFirstName} ${resolvedLastName}`,
           ...(contractUrl ? { contractUrl } : {}),
         };
         await db.update(orders).set({ rideOption: rideOpt as any }).where(eq(orders.id, order.id));
@@ -2048,7 +2067,7 @@ app.post("/api/rental-orders", async (req, res) => {
     const sigPresent = !!(body.signature?.clientSignatureSvg);
     const docFront = !!licenseFront;
     const docBack = !!licenseBack;
-    console.log(`[RENTAL] New rental order ${order.id} → driver ${vehicleRow.driverId} (${ownerName}) — ${modelName} ${pricePerDay}XPF/j × ${days}j | sig:${sigPresent} docs:${docFront}/${docBack}`);
+    console.log(`[RENTAL] New rental order ${order.id} → driver ${vehicleRow.driverId} (${ownerName}) — ${modelName} ${pricePerDay}XPF/j × ${days}j | sig:${sigPresent} docs:${docFront}/${docBack} | client:${order.clientName}`);
 
     const rentalPayload = {
       id: order.id,
@@ -2063,7 +2082,7 @@ app.post("/api/rental-orders", async (req, res) => {
         seats: vehicleRow.seats,
         plate: vehicleRow.plate,
       },
-      client: body.client,
+      client: orderClient,
       rental: { ...body.rental, days },
       pricing: {
         pricePerDay,
@@ -2122,6 +2141,7 @@ app.get("/api/rental-orders/pending", async (req, res) => {
       })
       .map((o: any) => {
         const ro = o.rideOption as any;
+        // Nom affiché : compte lié si dispo (sera enrichi juste après)
         const nameParts = (o.clientName || "").split(" ");
         const firstName = nameParts[0] || "";
         const lastName = nameParts.slice(1).join(" ") || "";
@@ -2129,6 +2149,7 @@ app.get("/api/rental-orders/pending", async (req, res) => {
           id: o.id,
           type: "rental",
           status: o.status,
+          _clientId: o.clientId || null,
           vehicle: {
             model: (ro.title || "").replace(/\s*\d{4}\s*$/, ""),
             year: undefined,
@@ -2170,6 +2191,41 @@ app.get("/api/rental-orders/pending", async (req, res) => {
           expiresAt: o.expiresAt,
         };
       });
+
+    // Enrichir avec le vrai nom du compte client (corrige les anciens snapshots erronés)
+    const linkedIds = Array.from(
+      new Set(rentalOrders.map((o: any) => o._clientId).filter(Boolean))
+    ) as string[];
+    if (linkedIds.length > 0) {
+      try {
+        const rows = await db
+          .select({
+            id: clients.id,
+            firstName: clients.firstName,
+            lastName: clients.lastName,
+            phone: clients.phone,
+          })
+          .from(clients)
+          .where(inArray(clients.id, linkedIds));
+        const byId = new Map(rows.map((r) => [r.id, r]));
+        for (const o of rentalOrders as any[]) {
+          const c = o._clientId ? byId.get(o._clientId) : null;
+          if (c) {
+            o.client = {
+              firstName: c.firstName,
+              lastName: c.lastName,
+              phone: c.phone || o.client?.phone,
+            };
+          }
+          delete o._clientId;
+        }
+      } catch (e) {
+        console.warn("[RENTAL] enrich client names skipped:", e);
+        for (const o of rentalOrders as any[]) delete o._clientId;
+      }
+    } else {
+      for (const o of rentalOrders as any[]) delete o._clientId;
+    }
 
     console.log(`[RENTAL] GET /api/rental-orders/pending — ${rentalOrders.length} rental order(s) found`);
     res.json({ success: true, orders: rentalOrders });
@@ -3028,6 +3084,9 @@ app.post("/api/live-activities/end", async (req, res) => {
     
     res.json({
       ...order,
+      // Afficher le nom du compte (pas un ancien snapshot erroné)
+      clientName: clientInfo?.name || order.clientName,
+      clientPhone: clientInfo?.phone || order.clientPhone,
       driver: driverInfo,
       client: clientInfo,
     });
