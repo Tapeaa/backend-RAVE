@@ -901,7 +901,10 @@ export function registerPrestataireRoutes(app: Express) {
           dropoffAddress,
           stops,
           totalPrice: order.totalPrice,
-          driverEarnings: order.driverEarnings,
+          driverEarnings:
+            (order.rideOption as any)?.type === "rental" || (order.rideOption as any)?.isRentalOrder
+              ? order.totalPrice
+              : order.driverEarnings,
           commission: Math.round(order.totalPrice * fraisServicePercent / 100),
           status: order.status,
           paymentMethod: order.paymentMethod,
