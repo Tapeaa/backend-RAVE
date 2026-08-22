@@ -20,8 +20,35 @@ import {
   deleteAvailabilityBlock,
   listAvailabilityBlocks,
 } from "./availability-blocks";
+import {
+  aggregateRentalEarnings,
+  RENTAL_PIPELINE_STATUSES,
+} from "./rental-stats";
 
 const stripe = process.env.STRIPE_SECRET_KEY ? new Stripe(process.env.STRIPE_SECRET_KEY) : null;
+
+/** Drivers liés au prestataire (table drivers + véhicules loueur). */
+async function resolvePrestataireDriverIds(prestataireId: string): Promise<string[]> {
+  const [linkedDrivers, vehicleDrivers] = await Promise.all([
+    db
+      .select({ id: drivers.id })
+      .from(drivers)
+      .where(eq(drivers.prestataireId, prestataireId)),
+    db
+      .select({ driverId: loueurVehicles.driverId })
+      .from(loueurVehicles)
+      .where(eq(loueurVehicles.prestataireId, prestataireId)),
+  ]);
+
+  const ids = new Set<string>();
+  for (const d of linkedDrivers) {
+    if (d.id) ids.add(d.id);
+  }
+  for (const v of vehicleDrivers) {
+    if (v.driverId) ids.add(v.driverId);
+  }
+  return Array.from(ids);
+}
 
 export function registerPrestataireRoutes(app: Express) {
   
@@ -655,13 +682,15 @@ export function registerPrestataireRoutes(app: Express) {
 
       const limit = parseInt(req.query.limit as string) || 100;
 
-      // Récupérer les chauffeurs du prestataire avec leurs noms
-      const prestataireDrivers = await db
-        .select({ id: drivers.id, firstName: drivers.firstName, lastName: drivers.lastName })
-        .from(drivers)
-        .where(eq(drivers.prestataireId, req.prestataire.id));
+      const driverIds = await resolvePrestataireDriverIds(req.prestataire.id);
 
-      const driverIds = prestataireDrivers.map(d => d.id);
+      const prestataireDrivers = driverIds.length
+        ? await db
+            .select({ id: drivers.id, firstName: drivers.firstName, lastName: drivers.lastName })
+            .from(drivers)
+            .where(inArray(drivers.id, driverIds))
+        : [];
+
       const driverMap = new Map(prestataireDrivers.map(d => [d.id, `${d.firstName} ${d.lastName}`]));
 
       if (driverIds.length === 0) {
@@ -715,7 +744,11 @@ export function registerPrestataireRoutes(app: Express) {
             dropoffAddress,
             stops,
             totalPrice: o.totalPrice,
-            driverEarnings: o.driverEarnings,
+            // Location: CA = totalPrice (driverEarnings taxi reste à 0)
+            driverEarnings:
+              (o.rideOption as any)?.type === "rental" || (o.rideOption as any)?.isRentalOrder
+                ? o.totalPrice
+                : o.driverEarnings,
             commission: Math.round(o.totalPrice * fraisServicePercent / 100),
             status: o.status,
             paymentMethod: o.paymentMethod,
@@ -911,20 +944,14 @@ export function registerPrestataireRoutes(app: Express) {
 
   // ============ STATISTIQUES ============
 
-  // Stats du prestataire (revenus jour/semaine/mois)
+  // Stats du prestataire (revenus jour/semaine/mois) — aligné app Loueur
   app.get("/api/prestataire/stats", requirePrestataireAuth, async (req: AuthenticatedRequest, res) => {
     try {
       if (!req.prestataire) {
         return res.status(401).json({ error: "Non authentifié" });
       }
 
-      // Récupérer les IDs des chauffeurs du prestataire
-      const prestataireDrivers = await db
-        .select({ id: drivers.id })
-        .from(drivers)
-        .where(eq(drivers.prestataireId, req.prestataire.id));
-
-      const driverIds = prestataireDrivers.map(d => d.id);
+      const driverIds = await resolvePrestataireDriverIds(req.prestataire.id);
 
       if (driverIds.length === 0) {
         return res.json({
@@ -937,52 +964,24 @@ export function registerPrestataireRoutes(app: Express) {
             coursesSemaine: 0,
             coursesMois: 0,
             totalCourses: 0,
+            locationsTerminees: 0,
             commissionsDues: 0,
           },
         });
       }
 
-      // Dates de référence
-      const now = new Date();
-      const todayStart = new Date(now.getFullYear(), now.getMonth(), now.getDate());
-      const weekStart = new Date(now.getTime() - 7 * 24 * 60 * 60 * 1000);
-      const monthStart = new Date(now.getFullYear(), now.getMonth(), 1);
-
-      // Récupérer toutes les courses terminées (payment_confirmed = vraiment terminées)
-      const completedOrders = await db
+      // Locations pipeline (accepted/booked/completed/payment_confirmed) — pas seulement payment_confirmed taxi
+      const pipelineOrders = await db
         .select()
         .from(orders)
         .where(and(
           inArray(orders.assignedDriverId, driverIds),
-          eq(orders.status, "payment_confirmed")
+          inArray(orders.status, [...RENTAL_PIPELINE_STATUSES])
         ));
 
-      // Calculer les stats - utiliser totalPrice pour le CA total (pas driverEarnings)
-      let revenusGlobal = 0, revenusSemaine = 0, revenusMois = 0;
-      let coursesAujourdhui = 0, coursesSemaine = 0, coursesMois = 0;
+      const agg = aggregateRentalEarnings(pipelineOrders);
 
-      for (const order of completedOrders) {
-        const orderDate = new Date(order.createdAt);
-        // Utiliser totalPrice pour le CA total de la plateforme
-        const totalCA = order.totalPrice || 0;
-
-        // CA global = toutes les courses
-        revenusGlobal += totalCA;
-
-        if (orderDate >= todayStart) {
-          coursesAujourdhui++;
-        }
-        if (orderDate >= weekStart) {
-          revenusSemaine += totalCA;
-          coursesSemaine++;
-        }
-        if (orderDate >= monthStart) {
-          revenusMois += totalCA;
-          coursesMois++;
-        }
-      }
-
-      // Récupérer les commissions dues depuis collecteFrais (non payées)
+      // Commissions dues depuis collecteFrais (non payées)
       const unpaidCollecte = await db
         .select()
         .from(collecteFrais)
@@ -991,12 +990,10 @@ export function registerPrestataireRoutes(app: Express) {
           eq(collecteFrais.isPaid, false)
         ));
 
-      // Récupérer la config pour recalculer en temps réel
       const fraisConfig = await dbStorage.getFraisServiceConfig();
       const fraisServicePercent = fraisConfig?.fraisServicePrestataire || 15;
       const commissionPrestatairePercent = fraisConfig?.commissionPrestataire || 0;
 
-      // Recalculer les commissions dues en temps réel
       let commissionsDues = 0;
       for (const c of unpaidCollecte) {
         const orderIds = (c.orderIds as string[]) || [];
@@ -1013,13 +1010,14 @@ export function registerPrestataireRoutes(app: Express) {
       return res.json({
         stats: {
           totalChauffeurs: driverIds.length,
-          revenusGlobal: Math.round(revenusGlobal),
-          revenusSemaine: Math.round(revenusSemaine),
-          revenusMois: Math.round(revenusMois),
-          coursesAujourdhui,
-          coursesSemaine,
-          coursesMois,
-          totalCourses: completedOrders.length,
+          revenusGlobal: agg.total,
+          revenusSemaine: agg.week,
+          revenusMois: agg.month,
+          coursesAujourdhui: agg.countToday,
+          coursesSemaine: agg.countWeek,
+          coursesMois: agg.countMonth,
+          totalCourses: agg.totalCount,
+          locationsTerminees: agg.completedCount,
           commissionsDues: Math.round(commissionsDues),
         },
       });

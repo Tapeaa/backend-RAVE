@@ -269,14 +269,14 @@ export function PrestataireDashboard() {
                 <Link key={course.id} href={`/prestataire/courses/${course.id}`}>
                   <div className="flex items-start gap-4 px-6 py-4 transition-colors hover:bg-gray-50 cursor-pointer">
                     <div className={`flex h-10 w-10 flex-shrink-0 items-center justify-center rounded-xl ${
-                      course.status === 'payment_confirmed' 
+                      course.status === 'payment_confirmed' || course.status === 'completed'
                         ? 'bg-green-100' 
                         : course.status === 'cancelled' 
                           ? 'bg-red-100' 
                           : 'bg-gray-100'
                     }`}>
                       <Car className={`h-5 w-5 ${
-                        course.status === 'payment_confirmed' 
+                        course.status === 'payment_confirmed' || course.status === 'completed'
                           ? 'text-green-600' 
                           : course.status === 'cancelled' 
                             ? 'text-red-600' 
@@ -327,7 +327,7 @@ export function PrestataireDashboard() {
 
                     <div className="text-right flex-shrink-0">
                       <div className="font-semibold text-gray-900">
-                        {course.driverEarnings?.toLocaleString()} XPF
+                        {(course.totalPrice || course.driverEarnings)?.toLocaleString()} XPF
                       </div>
                       <div className="flex items-center justify-end gap-1 text-xs text-gray-500">
                         {course.paymentMethod === 'card' ? (

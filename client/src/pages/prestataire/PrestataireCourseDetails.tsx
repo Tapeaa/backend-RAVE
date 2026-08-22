@@ -200,7 +200,7 @@ export function PrestataireCourseDetails() {
   }
 
   const { course, driver, prestataire, ratings = { client: null, chauffeur: null } } = data;
-  const isCompleted = course.status === 'payment_confirmed';
+  const isCompleted = course.status === 'payment_confirmed' || course.status === 'completed';
   const isCancelled = course.status === 'cancelled';
 
   function renderStars(score: number) {

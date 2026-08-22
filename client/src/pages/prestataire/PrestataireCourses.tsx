@@ -30,6 +30,7 @@ interface FraisConfig {
 const statusLabels: Record<string, string> = {
   pending: 'En attente',
   accepted: 'Acceptée',
+  booked: 'Réservée',
   driver_enroute: 'En route',
   driver_arrived: 'Arrivé',
   in_progress: 'En cours',
@@ -42,6 +43,7 @@ const statusLabels: Record<string, string> = {
 const statusColors: Record<string, string> = {
   pending: 'bg-yellow-100 text-yellow-800',
   accepted: 'bg-blue-100 text-blue-800',
+  booked: 'bg-blue-100 text-blue-800',
   driver_enroute: 'bg-purple-100 text-purple-800',
   driver_arrived: 'bg-indigo-100 text-indigo-800',
   in_progress: 'bg-indigo-100 text-indigo-800',
@@ -91,19 +93,28 @@ export function PrestataireCourses() {
     }
   }
 
-  // Stats - seulement les courses payment_confirmed
-  const completedCourses = courses.filter(c => c.status === 'payment_confirmed');
-  const totalRevenu = completedCourses.reduce((sum, c) => sum + (c.driverEarnings || 0), 0);
+  // Stats - locations terminées / pipeline (pas payment_confirmed taxi seul)
+  const completedCourses = courses.filter(
+    (c) => c.status === 'completed' || c.status === 'payment_confirmed'
+  );
+  const pipelineCourses = courses.filter(
+    (c) =>
+      c.status === 'accepted' ||
+      c.status === 'booked' ||
+      c.status === 'completed' ||
+      c.status === 'payment_confirmed'
+  );
+  const totalRevenu = pipelineCourses.reduce((sum, c) => sum + (c.totalPrice || 0), 0);
   
   // Calculer les frais de service et commissions séparément en temps réel
   const fraisServicePercent = fraisConfig?.fraisServicePrestataire || 15;
   const commissionPrestatairePercent = fraisConfig?.commissionPrestataire || 0;
   
-  const totalFraisService = completedCourses.reduce((sum, c) => {
+  const totalFraisService = pipelineCourses.reduce((sum, c) => {
     return sum + Math.round(c.totalPrice * fraisServicePercent / 100);
   }, 0);
   
-  const totalCommissionSupplementaire = completedCourses.reduce((sum, c) => {
+  const totalCommissionSupplementaire = pipelineCourses.reduce((sum, c) => {
     return sum + Math.round(c.totalPrice * commissionPrestatairePercent / 100);
   }, 0);
   
@@ -174,14 +185,14 @@ export function PrestataireCourses() {
                 <div className="flex items-start gap-4 px-6 py-4 transition-colors hover:bg-gray-50 cursor-pointer">
                   {/* Status Icon */}
                   <div className={`flex h-12 w-12 flex-shrink-0 items-center justify-center rounded-xl ${
-                    course.status === 'payment_confirmed' 
+                    course.status === 'payment_confirmed' || course.status === 'completed'
                       ? 'bg-green-100' 
                       : course.status === 'cancelled' 
                         ? 'bg-red-100' 
                         : 'bg-gray-100'
                   }`}>
                     <Car className={`h-6 w-6 ${
-                      course.status === 'payment_confirmed' 
+                      course.status === 'payment_confirmed' || course.status === 'completed'
                         ? 'text-green-600' 
                         : course.status === 'cancelled' 
                           ? 'text-red-600' 
@@ -244,12 +255,9 @@ export function PrestataireCourses() {
                   </div>
 
                   {/* Price & Payment */}
-                  <div className="text-right flex-shrink-0">
+                    <div className="text-right flex-shrink-0">
                     <div className="text-lg font-bold text-gray-900">
                       {course.totalPrice?.toLocaleString()} XPF
-                    </div>
-                    <div className="text-sm text-green-600 font-medium">
-                      +{course.driverEarnings?.toLocaleString()} XPF
                     </div>
                     <div className="mt-1 flex items-center justify-end gap-1 text-xs text-gray-500">
                       {course.paymentMethod === 'card' ? (

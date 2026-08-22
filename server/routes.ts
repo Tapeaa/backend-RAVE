@@ -27,6 +27,10 @@ import {
   deleteAvailabilityBlock,
   listAvailabilityBlocks,
 } from "./availability-blocks";
+import {
+  aggregateRentalEarnings,
+  isRentalOrderLike,
+} from "./rental-stats";
 
 /**
  * Helper function to get driver session with database fallback.
@@ -115,11 +119,6 @@ function respondTaxiDisabled(res: { status: (code: number) => { json: (body: unk
     error: TAXI_DISABLED_MESSAGE,
     message: TAXI_DISABLED_MESSAGE,
   });
-}
-
-function isRentalOrderLike(order: { rideOption?: unknown } | null | undefined): boolean {
-  const ro = order?.rideOption as { type?: string; isRentalOrder?: boolean } | undefined;
-  return ro?.type === "rental" || ro?.isRentalOrder === true;
 }
 
 type LatLng = { lat: number; lng: number };
@@ -2762,6 +2761,15 @@ app.post("/api/rental-orders/:id/lifecycle", async (req, res) => {
 
     // Reload updated order
     const updatedOrder = await dbStorage.getOrder(id);
+
+    // Compteur locations du loueur (aligné profil / stats)
+    if (phase === "returned" && updatedOrder?.assignedDriverId) {
+      try {
+        await dbStorage.incrementDriverTotalRides(updatedOrder.assignedDriverId);
+      } catch (e) {
+        console.warn("[RENTAL] incrementDriverTotalRides failed:", e);
+      }
+    }
 
     // Emit socket event
     io.to(`order:${id}`).emit("rental-order:lifecycle-changed", {
@@ -7233,78 +7241,29 @@ const sessionId = headerSessionId || cookieSessionId;
     
     try {
       const orders = await dbStorage.getOrdersByDriver(driverId);
-
-      // Rental earnings: accepted / booked / completed locations (totalPrice)
-      const rentalEarningStatuses = ["accepted", "booked", "completed", "payment_confirmed"];
-      const rentalOrders = orders.filter(
-        (o) => isRentalOrderLike(o) && rentalEarningStatuses.includes(o.status)
-      );
-      const completedRentals = rentalOrders.filter((o) =>
-        ["completed", "payment_confirmed"].includes(o.status)
-      );
-
-      const now = new Date();
-      const todayStart = new Date(now.getFullYear(), now.getMonth(), now.getDate());
-      
-      // Week start (Monday)
-      const dayOfWeek = now.getDay();
-      const diffToMonday = dayOfWeek === 0 ? 6 : dayOfWeek - 1;
-      const weekStart = new Date(todayStart);
-      weekStart.setDate(weekStart.getDate() - diffToMonday);
-      
-      // Month start
-      const monthStart = new Date(now.getFullYear(), now.getMonth(), 1);
-      
-      let todayEarnings = 0;
-      let weekEarnings = 0;
-      let monthEarnings = 0;
-      let totalEarnings = 0;
-      
-      for (const order of rentalOrders) {
-        const orderDate = new Date(order.createdAt);
-        // Loueur gains = prix location (totalPrice), pas driverEarnings taxi
-        const earnings = order.totalPrice || 0;
-        
-        totalEarnings += earnings;
-        
-        if (orderDate >= todayStart) {
-          todayEarnings += earnings;
-        }
-        if (orderDate >= weekStart) {
-          weekEarnings += earnings;
-        }
-        if (orderDate >= monthStart) {
-          monthEarnings += earnings;
-        }
-      }
-
-      const totalLocations = rentalOrders.length;
-      const completedRentalsCount = completedRentals.length;
-      
+      const agg = aggregateRentalEarnings(orders);
       const driver = await dbStorage.getDriver(driverId);
-      
+
       res.json({
         success: true,
         earnings: {
-          today: todayEarnings,
-          week: weekEarnings,
-          month: monthEarnings,
-          total: totalEarnings,
+          today: agg.today,
+          week: agg.week,
+          month: agg.month,
+          total: agg.total,
         },
-        // Alias clairs location (backward compatible + nouveaux noms)
-        totalEarnings,
-        totalLocations,
-        completedRentals: completedRentalsCount,
+        totalEarnings: agg.total,
+        totalLocations: agg.totalCount,
+        completedRentals: agg.completedCount,
         stats: {
-          // Anciens champs (gains.tsx) mappés au sens location
-          totalRides: totalLocations,
+          totalRides: agg.totalCount,
           totalKm: 0,
           averageRating: driver?.averageRating || null,
-          allTimeRides: driver?.totalRides || totalLocations,
-          totalLocations,
-          completedRentals: completedRentalsCount,
+          allTimeRides: driver?.totalRides || agg.completedCount,
+          totalLocations: agg.totalCount,
+          completedRentals: agg.completedCount,
         },
-        orders: rentalOrders.slice(0, 10),
+        orders: agg.pipelineOrders.slice(0, 10),
       });
     } catch (error) {
       console.error("Error fetching driver earnings:", error);
