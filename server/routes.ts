@@ -1855,14 +1855,17 @@ app.post("/api/rental-orders", async (req, res) => {
       return res.status(409).json({ success: false, error: availability.error });
     }
 
-    let ownerName = vehicleRow.prestataireNom || "Loueur";
-    const [driver] = await db
-      .select({ firstName: drivers.firstName, lastName: drivers.lastName })
-      .from(drivers)
-      .where(eq(drivers.id, vehicleRow.driverId))
-      .limit(1);
-    if (driver) {
-      ownerName = `${driver.firstName} ${driver.lastName}`.trim();
+    // Raison sociale dashboard en priorité (sinon prénom/nom app)
+    let ownerName = (vehicleRow.prestataireNom || "").trim() || "Loueur";
+    if (!vehicleRow.prestataireNom) {
+      const [driver] = await db
+        .select({ firstName: drivers.firstName, lastName: drivers.lastName })
+        .from(drivers)
+        .where(eq(drivers.id, vehicleRow.driverId))
+        .limit(1);
+      if (driver) {
+        ownerName = `${driver.firstName} ${driver.lastName}`.trim() || ownerName;
+      }
     }
 
     const days = Math.max(1, Number(body.rental.days) || 1);
@@ -4140,8 +4143,8 @@ app.post("/api/live-activities/end", async (req, res) => {
 
         if (!matchesService) continue;
 
-        const ownerName = (row.driverId && driverNameById.get(row.driverId))
-          || row.prestataireNom
+        const ownerName = (row.prestataireNom || "").trim()
+          || (row.driverId && driverNameById.get(row.driverId))
           || 'Loueur';
 
         const imageUrls = resolveVehicleDisplayImages(
@@ -4251,14 +4254,14 @@ app.post("/api/live-activities/end", async (req, res) => {
       const result = [];
       for (const row of rows) {
         if (row.prestataireActive === false) continue;
-        let ownerName = row.prestataireNom || 'Loueur';
-        if (row.driverId) {
+        let ownerName = (row.prestataireNom || "").trim() || "Loueur";
+        if (!row.prestataireNom && row.driverId) {
           const [driver] = await db
             .select({ firstName: drivers.firstName, lastName: drivers.lastName })
             .from(drivers)
             .where(eq(drivers.id, row.driverId));
           if (driver) {
-            ownerName = `${driver.firstName} ${driver.lastName}`;
+            ownerName = `${driver.firstName} ${driver.lastName}`.trim() || ownerName;
           }
         }
         const imageUrls = resolveVehicleDisplayImages(
@@ -5996,13 +5999,26 @@ const sessionId = headerSessionId || cookieSessionId;
       if (!driverId) {
         return res.status(401).json({ success: false, error: "Session invalide ou expirée" });
       }
-      
-      const driver = await dbStorage.getDriver(driverId);
-      
+
+      let driver = await dbStorage.getDriver(driverId);
+
       if (!driver) {
         return res.status(404).json({ success: false, error: "Chauffeur non trouvé" });
       }
-      
+
+      // Si le dashboard a changé la raison sociale, aligner le nom app
+      if (driver.prestataireId) {
+        try {
+          const { healPrestataireAppNameIfNeeded } = await import("./sync-prestataire-app");
+          const healed = await healPrestataireAppNameIfNeeded(driver.prestataireId);
+          if (healed) {
+            driver = (await dbStorage.getDriver(driverId)) || driver;
+          }
+        } catch (healErr) {
+          console.warn("[Driver] heal name sync failed:", healErr);
+        }
+      }
+
       return res.json({
         success: true,
         driver: {

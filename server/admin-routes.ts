@@ -2065,6 +2065,20 @@ export function registerAdminRoutes(app: Express) {
         return res.status(404).json({ error: "Prestataire non trouvé" });
       }
 
+      // Sync app Loueur + sessions (nom / téléphone / statut)
+      try {
+        const { syncPrestataireToAppAccounts } = await import("./sync-prestataire-app");
+        await syncPrestataireToAppAccounts({
+          prestataireId: updated.id,
+          nom: updateData.nom,
+          phone: updateData.phone,
+          isActive: updateData.isActive,
+          matchCode: updated.code,
+        });
+      } catch (syncErr) {
+        console.warn("[Admin] prestataire→driver sync failed:", syncErr);
+      }
+
       console.log(`[Admin] Prestataire modifié: ${id}`);
 
       return res.json({

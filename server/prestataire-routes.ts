@@ -36,6 +36,14 @@ export function registerPrestataireRoutes(app: Express) {
         return res.status(404).json({ error: "Prestataire non trouvé" });
       }
 
+      // Répare un écart déjà en base (raison sociale dashboard ≠ nom app)
+      try {
+        const { healPrestataireAppNameIfNeeded } = await import("./sync-prestataire-app");
+        await healPrestataireAppNameIfNeeded(prestataire.id);
+      } catch (healErr) {
+        console.warn("[Prestataire] heal name sync failed:", healErr);
+      }
+
       // Compter les chauffeurs si c'est une société
       let totalChauffeurs = 0;
       if (isSociete(prestataire.type)) {
@@ -101,8 +109,18 @@ export function registerPrestataireRoutes(app: Express) {
         return res.status(404).json({ error: "Prestataire non trouvé" });
       }
 
+      // Sync app Loueur (drivers.firstName/lastName/phone) — sinon dashboard OK / app « TE TE »
+      const { syncPrestataireToAppAccounts } = await import("./sync-prestataire-app");
+      const sync = await syncPrestataireToAppAccounts({
+        prestataireId: updated.id,
+        nom: updates.nom as string | undefined,
+        phone: updates.phone as string | undefined,
+        matchCode: updated.code,
+      });
+
       return res.json({
         success: true,
+        syncedAppAccounts: sync.synced,
         prestataire: {
           id: updated.id,
           nom: updated.nom,
