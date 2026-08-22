@@ -20,7 +20,9 @@ import { computeDigressiveRentalPrice, validatePricingTiers, MAX_RENTAL_DAYS_CAP
 import { normalizeListingExtras, resolveVehicleSpecs } from "@shared/listing-extras";
 import { persistImageUri, persistContractHtml, isEphemeralLocalUri } from "./persist-media";
 import { buildRentalContractHtml } from "./rental-contract";
-import { LOUEUR_SUBSCRIPTION_PLANS } from "./ensure-loueur-subscription";
+import {
+  getLoueurSubscriptionPlans,
+} from "./ensure-loueur-subscription";
 import {
   assertVehicleOwnedByDriver,
   createAvailabilityBlock,
@@ -5357,6 +5359,17 @@ app.post("/api/live-activities/end", async (req, res) => {
     }
   });
 
+  // Plans abonnement loueur (public — app + dashboards)
+  app.get("/api/loueur-subscription-plans", async (_req, res) => {
+    try {
+      const plans = await getLoueurSubscriptionPlans();
+      return res.json({ success: true, plans });
+    } catch (error) {
+      console.error("Get loueur subscription plans error:", error);
+      return res.status(500).json({ success: false, error: "Erreur serveur" });
+    }
+  });
+
   // Update frais de service configuration (admin JWT only)
   const { requireAdminAuth: requireAdminForFrais } = await import("./admin-auth");
   app.post("/api/frais-service-config", requireAdminForFrais, async (req, res) => {
@@ -6540,6 +6553,8 @@ const sessionId = headerSessionId || cookieSessionId;
           .where(eq(drivers.id, driver.id));
       }
 
+      const plans = await getLoueurSubscriptionPlans();
+
       return res.json({
         success: true,
         subscription: {
@@ -6549,7 +6564,7 @@ const sessionId = headerSessionId || cookieSessionId;
           endsAt: resolved.endsAt,
           amount: driver.subscriptionAmount ?? null,
           daysRemaining: resolved.daysRemaining,
-          plans: LOUEUR_SUBSCRIPTION_PLANS,
+          plans,
         },
       });
     } catch (error) {
@@ -6558,7 +6573,7 @@ const sessionId = headerSessionId || cookieSessionId;
     }
   });
 
-  /** Active / renouvelle l'abonnement loueur (mensuel 5000 ou 6 mois 30000 XPF) */
+  /** Active / renouvelle l'abonnement loueur (prix depuis config admin) */
   app.post("/api/driver/subscription/subscribe", async (req, res) => {
     try {
       const sessionId = req.headers["x-driver-session"] as string;
@@ -6570,7 +6585,8 @@ const sessionId = headerSessionId || cookieSessionId;
       if (!planKey) {
         return res.status(400).json({ success: false, error: "Plan invalide (monthly | semiannual)" });
       }
-      const plan = LOUEUR_SUBSCRIPTION_PLANS[planKey];
+      const plans = await getLoueurSubscriptionPlans();
+      const plan = plans[planKey];
 
       const driver = await dbStorage.getDriver(session.driverId);
       if (!driver) return res.status(404).json({ success: false, error: "Loueur introuvable" });
@@ -6604,6 +6620,7 @@ const sessionId = headerSessionId || cookieSessionId;
           amount: plan.amountXpf,
           daysRemaining: plan.days,
           label: plan.label,
+          plans,
           message: `Abonnement ${plan.label} activé — ${plan.amountXpf.toLocaleString("fr-FR")} XPF à régler auprès de RAVE.`,
         },
       });

@@ -22,6 +22,7 @@ import {
   ChevronDown,
   ChevronRight,
   Upload,
+  CreditCard,
 } from 'lucide-react';
 import {
   Dialog,
@@ -53,6 +54,16 @@ interface PrestataireInfo {
   createdAt: string;
   documents?: PrestataireDocuments;
 }
+
+type SubPlan = { id: string; label: string; amountXpf: number; days: number };
+type SubscriptionInfo = {
+  plan: string | null;
+  status: string;
+  endsAt: string | null;
+  amount: number | null;
+  daysRemaining: number | null;
+  plans?: { monthly: SubPlan; semiannual: SubPlan };
+};
 
 const DOC_FIELDS = [
   { key: 'docNumeroTahiti', label: 'Numéro Tahiti ou K-BIS' },
@@ -89,10 +100,59 @@ export function PrestataireProfil() {
   const [isDeleting, setIsDeleting] = useState(false);
   const [docsExpanded, setDocsExpanded] = useState(false);
   const [uploadingDoc, setUploadingDoc] = useState<string | null>(null);
+  const [subscription, setSubscription] = useState<SubscriptionInfo | null>(null);
+  const [subscribing, setSubscribing] = useState<string | null>(null);
 
   useEffect(() => {
     fetchProfil();
+    fetchSubscription();
   }, []);
+
+  async function fetchSubscription() {
+    try {
+      const token = localStorage.getItem('admin_token');
+      const response = await fetch('/api/prestataire/subscription', {
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      if (response.ok) {
+        const data = await response.json();
+        setSubscription(data.subscription || null);
+      }
+    } catch (e) {
+      console.error(e);
+    }
+  }
+
+  async function handleSubscribe(plan: 'monthly' | 'semiannual') {
+    const def = subscription?.plans?.[plan];
+    const label = def?.label || (plan === 'monthly' ? 'Mensuel' : '6 mois');
+    const amount = def?.amountXpf ?? (plan === 'monthly' ? 5000 : 30000);
+    if (!confirm(`Confirmer l’abonnement ${label} — ${amount.toLocaleString('fr-FR')} XPF ?`)) return;
+    setSubscribing(plan);
+    try {
+      const token = localStorage.getItem('admin_token');
+      const response = await fetch('/api/prestataire/subscription/subscribe', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${token}`,
+        },
+        body: JSON.stringify({ plan }),
+      });
+      const data = await response.json();
+      if (response.ok) {
+        setSuccessMessage(data.subscription?.message || 'Abonnement activé');
+        setTimeout(() => setSuccessMessage(null), 5000);
+        await fetchSubscription();
+      } else {
+        alert(data.error || 'Erreur abonnement');
+      }
+    } catch {
+      alert('Erreur abonnement');
+    } finally {
+      setSubscribing(null);
+    }
+  }
 
   async function fetchProfil() {
     setIsLoading(true);
@@ -344,6 +404,51 @@ export function PrestataireProfil() {
           <span>{successMessage}</span>
         </div>
       )}
+
+      {/* Abonnement plateforme */}
+      <div className="mb-6 rounded-xl border border-gray-200 bg-white p-5 shadow-sm">
+        <div className="flex items-start gap-3 mb-4">
+          <div className="flex h-10 w-10 items-center justify-center rounded-lg bg-amber-100">
+            <CreditCard className="h-5 w-5 text-amber-700" />
+          </div>
+          <div>
+            <h2 className="font-semibold text-gray-900">Abonnement RAVE</h2>
+            <p className="text-sm text-gray-500">
+              {subscription?.status === 'active'
+                ? `En cours${subscription.daysRemaining != null ? ` · ${subscription.daysRemaining} j restants` : ''}`
+                : subscription?.status === 'expired'
+                  ? 'Expiré — renouvelez pour continuer'
+                  : 'Aucun abonnement actif'}
+            </p>
+          </div>
+        </div>
+        <div className="grid gap-3 sm:grid-cols-2">
+          {(['monthly', 'semiannual'] as const).map((key) => {
+            const plan = subscription?.plans?.[key];
+            const label = plan?.label || (key === 'monthly' ? 'Mensuel' : '6 mois');
+            const amount = plan?.amountXpf ?? (key === 'monthly' ? 5000 : 30000);
+            const days = plan?.days ?? (key === 'monthly' ? 30 : 180);
+            return (
+              <button
+                key={key}
+                type="button"
+                disabled={!!subscribing}
+                onClick={() => handleSubscribe(key)}
+                className="rounded-xl border border-gray-200 p-4 text-left hover:border-amber-400 hover:bg-amber-50/50 transition disabled:opacity-60"
+              >
+                <div className="flex justify-between items-baseline">
+                  <span className="font-semibold text-gray-900">{label}</span>
+                  <span className="font-bold text-gray-900">{amount.toLocaleString('fr-FR')} XPF</span>
+                </div>
+                <p className="mt-1 text-xs text-gray-500">{days} jours d’accès</p>
+                {subscribing === key ? (
+                  <p className="mt-2 text-xs text-amber-700">Activation…</p>
+                ) : null}
+              </button>
+            );
+          })}
+        </div>
+      </div>
 
       {/* Carte principale */}
       <div className="rounded-xl border border-gray-200 bg-white shadow-sm overflow-hidden">

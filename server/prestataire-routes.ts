@@ -24,6 +24,10 @@ import {
   aggregateRentalEarnings,
   RENTAL_PIPELINE_STATUSES,
 } from "./rental-stats";
+import {
+  getLoueurSubscriptionPlans,
+} from "./ensure-loueur-subscription";
+import { getLinkedAppDrivers } from "./sync-prestataire-app";
 
 const stripe = process.env.STRIPE_SECRET_KEY ? new Stripe(process.env.STRIPE_SECRET_KEY) : null;
 
@@ -110,6 +114,169 @@ export function registerPrestataireRoutes(app: Express) {
       });
     } catch (error) {
       console.error("Error fetching prestataire info:", error);
+      return res.status(500).json({ error: "Erreur serveur" });
+    }
+  });
+
+  // Abonnement plateforme (compte app lié + plans live admin)
+  app.get("/api/prestataire/subscription", requirePrestataireAuth, async (req: AuthenticatedRequest, res) => {
+    try {
+      if (!req.prestataire) return res.status(401).json({ error: "Non authentifié" });
+
+      const [prestataire] = await db
+        .select()
+        .from(prestataires)
+        .where(eq(prestataires.id, req.prestataire.id));
+      if (!prestataire) return res.status(404).json({ error: "Prestataire non trouvé" });
+
+      const plans = await getLoueurSubscriptionPlans();
+      let linked = await getLinkedAppDrivers(req.prestataire.id, {
+        matchCode: prestataire.code,
+        matchPhone: prestataire.phone,
+      });
+      if (linked.length === 0) {
+        linked = await getLinkedAppDrivers(req.prestataire.id);
+      }
+      const primary = linked[0];
+      if (!primary) {
+        return res.json({
+          success: true,
+          subscription: {
+            plan: null,
+            status: "none",
+            startsAt: null,
+            endsAt: null,
+            amount: null,
+            daysRemaining: null,
+            plans,
+            driverId: null,
+          },
+        });
+      }
+
+      const driver = await dbStorage.getDriver(primary.id);
+      if (!driver) {
+        return res.json({
+          success: true,
+          subscription: {
+            plan: null,
+            status: "none",
+            startsAt: null,
+            endsAt: null,
+            amount: null,
+            daysRemaining: null,
+            plans,
+            driverId: primary.id,
+          },
+        });
+      }
+
+      const endsAt = driver.subscriptionEndsAt || null;
+      let status = driver.subscriptionStatus || "none";
+      let daysRemaining: number | null = null;
+      if (endsAt) {
+        const end = new Date(endsAt).getTime();
+        const now = Date.now();
+        daysRemaining = Math.max(0, Math.ceil((end - now) / (24 * 60 * 60 * 1000)));
+        status = end > now ? "active" : "expired";
+        if (status !== (driver.subscriptionStatus || "none")) {
+          await db
+            .update(drivers)
+            .set({ subscriptionStatus: status } as any)
+            .where(eq(drivers.id, driver.id));
+        }
+      }
+
+      return res.json({
+        success: true,
+        subscription: {
+          plan: driver.subscriptionPlan || null,
+          status,
+          startsAt: driver.subscriptionStartsAt || null,
+          endsAt,
+          amount: driver.subscriptionAmount ?? null,
+          daysRemaining: status === "active" ? daysRemaining : status === "expired" ? 0 : null,
+          plans,
+          driverId: driver.id,
+        },
+      });
+    } catch (error) {
+      console.error("prestataire subscription GET:", error);
+      return res.status(500).json({ error: "Erreur serveur" });
+    }
+  });
+
+  app.post("/api/prestataire/subscription/subscribe", requirePrestataireAuth, async (req: AuthenticatedRequest, res) => {
+    try {
+      if (!req.prestataire) return res.status(401).json({ error: "Non authentifié" });
+
+      const planKey =
+        req.body?.plan === "semiannual" ? "semiannual" : req.body?.plan === "monthly" ? "monthly" : null;
+      if (!planKey) {
+        return res.status(400).json({ error: "Plan invalide (monthly | semiannual)" });
+      }
+
+      const [prestataire] = await db
+        .select()
+        .from(prestataires)
+        .where(eq(prestataires.id, req.prestataire.id));
+      if (!prestataire) return res.status(404).json({ error: "Prestataire non trouvé" });
+
+      const plans = await getLoueurSubscriptionPlans();
+      const plan = plans[planKey];
+
+      let linked = await getLinkedAppDrivers(req.prestataire.id, {
+        matchCode: prestataire.code,
+        matchPhone: prestataire.phone,
+      });
+      if (linked.length === 0) {
+        linked = await getLinkedAppDrivers(req.prestataire.id);
+      }
+      const primary = linked[0];
+      if (!primary) {
+        return res.status(404).json({
+          error: "Aucun compte app loueur lié. Connectez-vous d’abord à l’app RAVE Loueur.",
+        });
+      }
+
+      const driver = await dbStorage.getDriver(primary.id);
+      if (!driver) return res.status(404).json({ error: "Compte loueur introuvable" });
+
+      const now = new Date();
+      let start = now;
+      const currentEnd = driver.subscriptionEndsAt ? new Date(driver.subscriptionEndsAt) : null;
+      if (currentEnd && currentEnd.getTime() > now.getTime()) {
+        start = currentEnd;
+      }
+      const ends = new Date(start.getTime() + plan.days * 24 * 60 * 60 * 1000);
+
+      await db
+        .update(drivers)
+        .set({
+          subscriptionPlan: plan.id,
+          subscriptionStatus: "active",
+          subscriptionStartsAt: now,
+          subscriptionEndsAt: ends,
+          subscriptionAmount: plan.amountXpf,
+        } as any)
+        .where(eq(drivers.id, driver.id));
+
+      return res.json({
+        success: true,
+        subscription: {
+          plan: plan.id,
+          status: "active",
+          startsAt: now.toISOString(),
+          endsAt: ends.toISOString(),
+          amount: plan.amountXpf,
+          daysRemaining: plan.days,
+          plans,
+          driverId: driver.id,
+          message: `Abonnement ${plan.label} activé — ${plan.amountXpf.toLocaleString("fr-FR")} XPF à régler auprès de RAVE.`,
+        },
+      });
+    } catch (error) {
+      console.error("prestataire subscription subscribe:", error);
       return res.status(500).json({ error: "Erreur serveur" });
     }
   });
