@@ -50,6 +50,14 @@ export const drivers = pgTable("drivers", {
   prestataireId: varchar("prestataire_id").references(() => prestataires.id),
   // Commission du chauffeur (% qu'il garde de chaque course)
   commissionChauffeur: real("commission_chauffeur").default(95), // Par défaut 95%
+  /** Lieu de RDV proposé par défaut à l'acceptation d'une location */
+  defaultMeetingPoint: text("default_meeting_point"),
+  /** Abonnement plateforme RAVE Loueur */
+  subscriptionPlan: text("subscription_plan"), // monthly | semiannual
+  subscriptionStatus: text("subscription_status").default("none"), // none | active | expired
+  subscriptionStartsAt: timestamp("subscription_starts_at"),
+  subscriptionEndsAt: timestamp("subscription_ends_at"),
+  subscriptionAmount: real("subscription_amount"),
   // Champs légaux (CGU et politique de confidentialité)
   cguAccepted: boolean("cgu_accepted").default(false),
   cguAcceptedAt: timestamp("cgu_accepted_at"),
@@ -157,6 +165,12 @@ export const driverSchema = z.object({
   prestataireId: z.string().nullable().optional(),
   prestataireName: z.string().nullable().optional(), // Nom du prestataire (pour affichage)
   commissionChauffeur: z.number().optional(), // % que le chauffeur garde
+  defaultMeetingPoint: z.string().nullable().optional(),
+  subscriptionPlan: z.string().nullable().optional(),
+  subscriptionStatus: z.string().optional(),
+  subscriptionStartsAt: z.string().nullable().optional(),
+  subscriptionEndsAt: z.string().nullable().optional(),
+  subscriptionAmount: z.number().nullable().optional(),
   cguAccepted: z.boolean().optional(),
   cguAcceptedAt: z.string().nullable().optional(),
   cguVersion: z.string().nullable().optional(),
@@ -409,6 +423,7 @@ export const updateDriverProfileSchema = z.object({
   vehicleModel: z.string().nullable().optional(),
   vehicleColor: z.string().nullable().optional(),
   vehiclePlate: z.string().nullable().optional(),
+  defaultMeetingPoint: z.string().max(500).nullable().optional(),
 });
 
 export type UpdateDriverProfile = z.infer<typeof updateDriverProfileSchema>;

@@ -20,6 +20,7 @@ import { computeDigressiveRentalPrice, validatePricingTiers, MAX_RENTAL_DAYS_CAP
 import { normalizeListingExtras, resolveVehicleSpecs } from "@shared/listing-extras";
 import { persistImageUri, persistContractHtml, isEphemeralLocalUri } from "./persist-media";
 import { buildRentalContractHtml } from "./rental-contract";
+import { LOUEUR_SUBSCRIPTION_PLANS } from "./ensure-loueur-subscription";
 
 /**
  * Helper function to get driver session with database fallback.
@@ -208,6 +209,7 @@ const updateDriverProfileSchema = z.object({
   vehicleModel: z.string().max(100).optional().nullable(),
   vehicleColor: z.string().max(50).optional().nullable(),
   vehiclePlate: z.string().max(20).optional().nullable(),
+  defaultMeetingPoint: z.string().max(500).optional().nullable(),
 });
 
 // Configure web-push with VAPID keys
@@ -2202,14 +2204,31 @@ app.post("/api/rental-orders/:id/accept", async (req, res) => {
       return res.status(403).json({ success: false, error: "Cette commande est destinée à un autre loueur" });
     }
 
+    const driver = await dbStorage.getDriver(session.driverId);
+    const bodyMeeting =
+      typeof req.body.meetingPoint === "string" ? req.body.meetingPoint.trim() : "";
+    const meetingPoint =
+      bodyMeeting ||
+      (driver?.defaultMeetingPoint || "").trim() ||
+      (currentRideOption?.meetingPoint || "").trim() ||
+      (currentRideOption?.pickupLocation || "").trim() ||
+      "";
+
     const loueurSignature = req.body.loueurSignature || null;
+    const rideOptionPatch: Record<string, unknown> = {
+      ...currentRideOption,
+    };
+    if (meetingPoint) {
+      rideOptionPatch.meetingPoint = meetingPoint;
+      rideOptionPatch.meetingPointSetAt = new Date().toISOString();
+      rideOptionPatch.meetingPointSetBy = "driver";
+    }
     if (loueurSignature) {
-      const newRideOption = {
-        ...currentRideOption,
-        loueurSignatureSvg: loueurSignature,
-        loueurSignedAt: new Date().toISOString(),
-      };
-      await db.update(orders).set({ rideOption: newRideOption as any }).where(eq(orders.id, id));
+      rideOptionPatch.loueurSignatureSvg = loueurSignature;
+      rideOptionPatch.loueurSignedAt = new Date().toISOString();
+    }
+    if (loueurSignature || meetingPoint) {
+      await db.update(orders).set({ rideOption: rideOptionPatch as any }).where(eq(orders.id, id));
     }
 
     const updatedOrder = await dbStorage.tryAcceptOrderIfStillPending(id, session.driverId);
@@ -2223,20 +2242,76 @@ app.post("/api/rental-orders/:id/accept", async (req, res) => {
       driverName: session.driverName,
       driverId: session.driverId,
       status: "accepted",
+      meetingPoint: meetingPoint || null,
     });
     io.to(`order:${id}`).emit("order:booking:confirmed", {
       orderId: id,
       driverName: session.driverName,
       status: "accepted",
+      meetingPoint: meetingPoint || null,
     });
 
     // Notify other drivers this order is taken
     io.to("drivers:online").emit("rental-order:taken", { orderId: id });
 
     console.log(`[RENTAL] Order ${id} accepted by driver ${session.driverName} (${session.driverId})`);
-    res.json({ success: true, order: updatedOrder });
+    res.json({ success: true, order: updatedOrder, meetingPoint: meetingPoint || null });
   } catch (error) {
     console.error("[RENTAL] Error accepting rental order:", error);
+    res.status(500).json({ success: false, error: "Erreur serveur" });
+  }
+});
+
+/** Loueur : fixer / mettre à jour le lieu de RDV d'une commande acceptée */
+app.post("/api/rental-orders/:id/meeting-point", async (req, res) => {
+  try {
+    const { id } = req.params;
+    const sessionId = (req.headers["x-driver-session"] as string || req.body.sessionId || "").split(",")[0].trim();
+    if (!sessionId) {
+      return res.status(401).json({ success: false, error: "Session requise" });
+    }
+    const session = await getDriverSessionWithFallback(sessionId);
+    if (!session) {
+      return res.status(401).json({ success: false, error: "Session invalide" });
+    }
+
+    const meetingPoint =
+      typeof req.body.meetingPoint === "string" ? req.body.meetingPoint.trim() : "";
+    if (!meetingPoint || meetingPoint.length > 500) {
+      return res.status(400).json({ success: false, error: "Lieu de RDV invalide" });
+    }
+
+    const order = await dbStorage.getOrder(id);
+    if (!order) {
+      return res.status(404).json({ success: false, error: "Commande introuvable" });
+    }
+    if (order.assignedDriverId && order.assignedDriverId !== session.driverId) {
+      return res.status(403).json({ success: false, error: "Non autorisé" });
+    }
+    if (!["accepted", "booked", "in_progress"].includes(order.status)) {
+      return res.status(400).json({
+        success: false,
+        error: "Le lieu de RDV ne peut être fixé qu'après acceptation",
+      });
+    }
+
+    const rideOption = {
+      ...(order.rideOption as any),
+      meetingPoint,
+      meetingPointSetAt: new Date().toISOString(),
+      meetingPointSetBy: "driver",
+    };
+    await db.update(orders).set({ rideOption: rideOption as any }).where(eq(orders.id, id));
+
+    io.to(`order:${id}`).emit("rental-order:meeting-point", {
+      orderId: id,
+      meetingPoint,
+    });
+
+    const updated = await dbStorage.getOrder(id);
+    res.json({ success: true, meetingPoint, order: updated });
+  } catch (error) {
+    console.error("[RENTAL] Error setting meeting point:", error);
     res.status(500).json({ success: false, error: "Erreur serveur" });
   }
 });
@@ -6190,6 +6265,148 @@ const sessionId = headerSessionId || cookieSessionId;
   // ========================
   // DRIVER DATA ROUTES
   // ========================
+
+  /** Profil public loueur (fiche + avis) — accessible côté client */
+  app.get("/api/drivers/:id/public", async (req, res) => {
+    try {
+      const { id } = req.params;
+      if (!id) return res.status(400).json({ error: "ID requis" });
+
+      const driver = await dbStorage.getDriver(id);
+      if (!driver || !driver.isActive) {
+        return res.status(404).json({ error: "Loueur introuvable" });
+      }
+
+      const stats = await dbStorage.getRatingsStats("driver", id);
+      const reviews = await dbStorage.getPublicRatingsForDriver(id, 40);
+
+      const displayName =
+        (driver.prestataireName || "").trim() ||
+        `${driver.firstName || ""} ${driver.lastName || ""}`.trim() ||
+        "Loueur";
+
+      return res.json({
+        id: driver.id,
+        displayName,
+        firstName: driver.firstName,
+        photoUrl: driver.photoUrl || null,
+        averageRating: stats.average ?? driver.averageRating,
+        ratingsCount: stats.count,
+        totalRentals: driver.totalRides || 0,
+        memberSince: driver.createdAt,
+        reviews,
+      });
+    } catch (error) {
+      console.error("[API] public driver profile:", error);
+      return res.status(500).json({ error: "Erreur serveur" });
+    }
+  });
+
+  function resolveSubscriptionStatus(driver: {
+    subscriptionStatus?: string | null;
+    subscriptionEndsAt?: string | null;
+  }): { status: string; daysRemaining: number | null; endsAt: string | null } {
+    const endsAt = driver.subscriptionEndsAt || null;
+    if (!endsAt) {
+      return { status: driver.subscriptionStatus || "none", daysRemaining: null, endsAt: null };
+    }
+    const end = new Date(endsAt).getTime();
+    const now = Date.now();
+    const daysRemaining = Math.max(0, Math.ceil((end - now) / (24 * 60 * 60 * 1000)));
+    const status = end > now ? "active" : "expired";
+    return { status, daysRemaining: status === "active" ? daysRemaining : 0, endsAt };
+  }
+
+  app.get("/api/driver/subscription", async (req, res) => {
+    try {
+      const sessionId = req.headers["x-driver-session"] as string;
+      if (!sessionId) return res.status(401).json({ success: false, error: "Session requise" });
+      const session = await getDriverSessionWithFallback(sessionId);
+      if (!session) return res.status(401).json({ success: false, error: "Session invalide" });
+
+      const driver = await dbStorage.getDriver(session.driverId);
+      if (!driver) return res.status(404).json({ success: false, error: "Loueur introuvable" });
+
+      const resolved = resolveSubscriptionStatus(driver);
+      if (resolved.status !== (driver.subscriptionStatus || "none")) {
+        await db
+          .update(drivers)
+          .set({ subscriptionStatus: resolved.status } as any)
+          .where(eq(drivers.id, driver.id));
+      }
+
+      return res.json({
+        success: true,
+        subscription: {
+          plan: driver.subscriptionPlan || null,
+          status: resolved.status,
+          startsAt: driver.subscriptionStartsAt || null,
+          endsAt: resolved.endsAt,
+          amount: driver.subscriptionAmount ?? null,
+          daysRemaining: resolved.daysRemaining,
+          plans: LOUEUR_SUBSCRIPTION_PLANS,
+        },
+      });
+    } catch (error) {
+      console.error("[API] driver subscription GET:", error);
+      return res.status(500).json({ success: false, error: "Erreur serveur" });
+    }
+  });
+
+  /** Active / renouvelle l'abonnement loueur (mensuel 5000 ou 6 mois 30000 XPF) */
+  app.post("/api/driver/subscription/subscribe", async (req, res) => {
+    try {
+      const sessionId = req.headers["x-driver-session"] as string;
+      if (!sessionId) return res.status(401).json({ success: false, error: "Session requise" });
+      const session = await getDriverSessionWithFallback(sessionId);
+      if (!session) return res.status(401).json({ success: false, error: "Session invalide" });
+
+      const planKey = req.body?.plan === "semiannual" ? "semiannual" : req.body?.plan === "monthly" ? "monthly" : null;
+      if (!planKey) {
+        return res.status(400).json({ success: false, error: "Plan invalide (monthly | semiannual)" });
+      }
+      const plan = LOUEUR_SUBSCRIPTION_PLANS[planKey];
+
+      const driver = await dbStorage.getDriver(session.driverId);
+      if (!driver) return res.status(404).json({ success: false, error: "Loueur introuvable" });
+
+      const now = new Date();
+      let start = now;
+      const currentEnd = driver.subscriptionEndsAt ? new Date(driver.subscriptionEndsAt) : null;
+      if (currentEnd && currentEnd.getTime() > now.getTime()) {
+        start = currentEnd; // prolonger si déjà actif
+      }
+      const ends = new Date(start.getTime() + plan.days * 24 * 60 * 60 * 1000);
+
+      await db
+        .update(drivers)
+        .set({
+          subscriptionPlan: plan.id,
+          subscriptionStatus: "active",
+          subscriptionStartsAt: now,
+          subscriptionEndsAt: ends,
+          subscriptionAmount: plan.amountXpf,
+        } as any)
+        .where(eq(drivers.id, driver.id));
+
+      return res.json({
+        success: true,
+        subscription: {
+          plan: plan.id,
+          status: "active",
+          startsAt: now.toISOString(),
+          endsAt: ends.toISOString(),
+          amount: plan.amountXpf,
+          daysRemaining: plan.days,
+          label: plan.label,
+          message: `Abonnement ${plan.label} activé — ${plan.amountXpf.toLocaleString("fr-FR")} XPF à régler auprès de RAVE.`,
+        },
+      });
+    } catch (error) {
+      console.error("[API] driver subscription subscribe:", error);
+      return res.status(500).json({ success: false, error: "Erreur serveur" });
+    }
+  });
   
   // Get current driver profile (from session)
   app.get("/api/driver/profile", async (req, res) => {
@@ -6263,6 +6480,12 @@ const sessionId = headerSessionId || cookieSessionId;
           privacyPolicyRead: driver.privacyPolicyRead || false,
           privacyPolicyReadAt: driver.privacyPolicyReadAt || null,
           privacyPolicyVersion: driver.privacyPolicyVersion || null,
+          defaultMeetingPoint: driver.defaultMeetingPoint || null,
+          subscriptionPlan: driver.subscriptionPlan || null,
+          subscriptionStatus: driver.subscriptionStatus || "none",
+          subscriptionStartsAt: driver.subscriptionStartsAt || null,
+          subscriptionEndsAt: driver.subscriptionEndsAt || null,
+          subscriptionAmount: driver.subscriptionAmount ?? null,
         }
       });
     } catch (error) {
@@ -6507,7 +6730,7 @@ const sessionId = headerSessionId || cookieSessionId;
         });
       }
       
-      const { firstName, lastName, phone, vehicleModel, vehicleColor, vehiclePlate } = validationResult.data;
+      const { firstName, lastName, phone, vehicleModel, vehicleColor, vehiclePlate, defaultMeetingPoint } = validationResult.data;
 
       if (phone) {
         const [phoneTaken] = await db
@@ -6526,7 +6749,8 @@ const sessionId = headerSessionId || cookieSessionId;
         phone: phone?.trim(),
         vehicleModel,
         vehicleColor,
-        vehiclePlate
+        vehiclePlate,
+        defaultMeetingPoint,
       });
       
       if (!updatedDriver) {
@@ -6555,6 +6779,7 @@ const sessionId = headerSessionId || cookieSessionId;
           vehiclePlate: updatedDriver.vehiclePlate,
           prestataireId: updatedDriver.prestataireId || null,
           prestataireName: updatedDriver.prestataireName || null,
+          defaultMeetingPoint: updatedDriver.defaultMeetingPoint || null,
         }
       });
     } catch (error) {

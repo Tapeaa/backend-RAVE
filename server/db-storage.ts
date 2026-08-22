@@ -302,7 +302,15 @@ export class DbStorage {
     };
   }
 
-  async updateDriverProfile(driverId: string, data: { firstName?: string; lastName?: string; phone?: string; vehicleModel?: string | null; vehicleColor?: string | null; vehiclePlate?: string | null }): Promise<Driver | undefined> {
+  async updateDriverProfile(driverId: string, data: {
+    firstName?: string;
+    lastName?: string;
+    phone?: string;
+    vehicleModel?: string | null;
+    vehicleColor?: string | null;
+    vehiclePlate?: string | null;
+    defaultMeetingPoint?: string | null;
+  }): Promise<Driver | undefined> {
     const updateData: Record<string, unknown> = {};
     if (data.firstName !== undefined) updateData.firstName = data.firstName;
     if (data.lastName !== undefined) updateData.lastName = data.lastName;
@@ -310,6 +318,7 @@ export class DbStorage {
     if (data.vehicleModel !== undefined) updateData.vehicleModel = data.vehicleModel;
     if (data.vehicleColor !== undefined) updateData.vehicleColor = data.vehicleColor;
     if (data.vehiclePlate !== undefined) updateData.vehiclePlate = data.vehiclePlate;
+    if (data.defaultMeetingPoint !== undefined) updateData.defaultMeetingPoint = data.defaultMeetingPoint;
     
     if (Object.keys(updateData).length === 0) {
       return this.getDriver(driverId);
@@ -925,6 +934,19 @@ export class DbStorage {
       prestataireId: driver.prestataireId || null,
       prestataireName: prestataireName,
       commissionChauffeur: driver.commissionChauffeur ?? 95,
+      defaultMeetingPoint: (driver as any).defaultMeetingPoint ?? null,
+      subscriptionPlan: (driver as any).subscriptionPlan ?? null,
+      subscriptionStatus: (driver as any).subscriptionStatus ?? "none",
+      subscriptionStartsAt: (driver as any).subscriptionStartsAt
+        ? new Date((driver as any).subscriptionStartsAt).toISOString()
+        : null,
+      subscriptionEndsAt: (driver as any).subscriptionEndsAt
+        ? new Date((driver as any).subscriptionEndsAt).toISOString()
+        : null,
+      subscriptionAmount:
+        (driver as any).subscriptionAmount != null
+          ? Number((driver as any).subscriptionAmount)
+          : null,
       cguAccepted: driver.cguAccepted || false,
       cguAcceptedAt: driver.cguAcceptedAt?.toISOString() || null,
       cguVersion: driver.cguVersion || null,
@@ -2036,6 +2058,27 @@ export class DbStorage {
     const average =
       row?.avg_score != null && count > 0 ? Math.round(Number(row.avg_score) * 10) / 10 : null;
     return { average, count };
+  }
+
+  async getPublicRatingsForDriver(
+    driverId: string,
+    limit = 30
+  ): Promise<Array<{ score: number; comment: string | null; createdAt: string }>> {
+    const rows = await db
+      .select({
+        score: ratings.score,
+        comment: ratings.comment,
+        createdAt: ratings.createdAt,
+      })
+      .from(ratings)
+      .where(and(eq(ratings.ratedType, "driver"), eq(ratings.ratedId, driverId)))
+      .orderBy(desc(ratings.createdAt))
+      .limit(limit);
+    return rows.map((r) => ({
+      score: r.score,
+      comment: r.comment,
+      createdAt: r.createdAt.toISOString(),
+    }));
   }
 
   /**

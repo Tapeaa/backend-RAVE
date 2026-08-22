@@ -19,6 +19,7 @@ import { ensureHomeCategoriesTable } from "./ensure-home-categories";
 import { ensureBackofficeTables } from "./ensure-backoffice-tables";
 import { ensurePricingTiersColumns } from "./ensure-pricing-tiers";
 import { ensureListingExtrasColumn } from "./ensure-listing-extras";
+import { ensureLoueurSubscriptionColumns } from "./ensure-loueur-subscription";
 import { assertProductionSecrets } from "./assert-production-secrets";
 import { syncTahitiVehicleCatalog } from "./sync-vehicle-catalog";
 
@@ -111,6 +112,9 @@ app.use((req, res, next) => {
 
     // Termes fiche véhicule (annulation, km, assurance, etc.)
     await ensureListingExtrasColumn();
+
+    // Abonnement loueur + lieu de RDV par défaut
+    await ensureLoueurSubscriptionColumns();
     
     const server = await registerRoutes(app);
 
