@@ -1484,8 +1484,8 @@ export function registerPrestataireRoutes(app: Express) {
           maxRentalDays: validated.maxRentalDays,
           listingExtras: normalizeListingExtras(listingExtras),
           availableForRental: availableForRental ?? true,
-          availableForDelivery: availableForDelivery ?? false,
-          availableForLongTerm: availableForLongTerm ?? false,
+          availableForDelivery: false,
+          availableForLongTerm: false,
           customImageUrl: customImageUrl || null,
           rentalContractMode: contractMode,
           isActive: true,
@@ -1552,6 +1552,14 @@ export function registerPrestataireRoutes(app: Express) {
 
       if (req.body.listingExtras !== undefined) {
         updates.listingExtras = normalizeListingExtras(req.body.listingExtras);
+      }
+
+      // Services retirés de l’offre
+      if (req.body.availableForDelivery !== undefined) {
+        updates.availableForDelivery = false;
+      }
+      if (req.body.availableForLongTerm !== undefined) {
+        updates.availableForLongTerm = false;
       }
 
       if (Object.keys(updates).length === 0) {

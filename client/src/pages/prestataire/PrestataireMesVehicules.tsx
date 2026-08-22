@@ -9,9 +9,13 @@ import {
   DEFAULT_LISTING_EXTRAS,
   FEATURE_PRESETS,
   INCLUDED_PRESETS,
+  FUEL_OPTIONS,
+  TRANSMISSION_OPTIONS,
   normalizeListingExtras,
   type VehicleListingExtras,
   type IncludedItem,
+  type FuelCode,
+  type TransmissionCode,
 } from '@shared/listing-extras';
 
 interface VehicleModel {
@@ -40,8 +44,6 @@ interface LoueurVehicle {
   maxRentalDays?: number | null;
   listingExtras?: VehicleListingExtras | Record<string, unknown> | null;
   availableForRental: boolean;
-  availableForDelivery: boolean;
-  availableForLongTerm: boolean;
   customImageUrl: string | null;
   isActive: boolean;
   createdAt: string;
@@ -83,8 +85,26 @@ function syncTierEdges(tiers: PricingTier[], maxRentalDays: number): PricingTier
   return next;
 }
 
-function cloneExtras(extras?: VehicleListingExtras | Record<string, unknown> | null): VehicleListingExtras {
-  return normalizeListingExtras(extras);
+function cloneExtras(
+  extras?: VehicleListingExtras | Record<string, unknown> | null,
+  model?: { seats?: number; transmission?: string; fuel?: string } | null
+): VehicleListingExtras {
+  const base = normalizeListingExtras(extras);
+  const seats = base.seats ?? model?.seats ?? null;
+  const transmission =
+    base.transmission ??
+    (model?.transmission === 'manual' || model?.transmission === 'auto'
+      ? (model.transmission as TransmissionCode)
+      : null);
+  const fuel =
+    base.fuel ??
+    (model?.fuel === 'essence' ||
+    model?.fuel === 'diesel' ||
+    model?.fuel === 'electrique' ||
+    model?.fuel === 'hybride'
+      ? (model.fuel as FuelCode)
+      : null);
+  return { ...base, seats, transmission, fuel };
 }
 
 type FormState = {
@@ -93,8 +113,6 @@ type FormState = {
   maxRentalDays: number;
   pricingTiers: PricingTier[];
   availableForRental: boolean;
-  availableForDelivery: boolean;
-  availableForLongTerm: boolean;
   listingExtras: VehicleListingExtras;
 };
 
@@ -113,8 +131,6 @@ export function PrestataireMesVehicules() {
     maxRentalDays: 90,
     pricingTiers: defaultTiers(),
     availableForRental: true,
-    availableForDelivery: false,
-    availableForLongTerm: false,
     listingExtras: cloneExtras(),
   });
 
@@ -158,15 +174,14 @@ export function PrestataireMesVehicules() {
 
   function openCreateModal() {
     setEditingVehicle(null);
+    const model = models[0];
     setFormData({
-      vehicleModelId: models[0]?.id || '',
+      vehicleModelId: model?.id || '',
       plate: '',
       maxRentalDays: 90,
       pricingTiers: defaultTiers(5000, 90),
       availableForRental: true,
-      availableForDelivery: false,
-      availableForLongTerm: false,
-      listingExtras: cloneExtras(DEFAULT_LISTING_EXTRAS),
+      listingExtras: cloneExtras(DEFAULT_LISTING_EXTRAS, model),
     });
     setShowModal(true);
   }
@@ -184,9 +199,11 @@ export function PrestataireMesVehicules() {
       maxRentalDays: maxDays,
       pricingTiers: tiers,
       availableForRental: vehicle.availableForRental,
-      availableForDelivery: vehicle.availableForDelivery,
-      availableForLongTerm: vehicle.availableForLongTerm,
-      listingExtras: cloneExtras(vehicle.listingExtras),
+      listingExtras: cloneExtras(vehicle.listingExtras, {
+        seats: vehicle.modelSeats,
+        transmission: vehicle.modelTransmission,
+        fuel: vehicle.modelFuel,
+      }),
     });
     setShowModal(true);
   }
@@ -313,8 +330,8 @@ export function PrestataireMesVehicules() {
         maxRentalDays: formData.maxRentalDays,
         plate: formData.plate || null,
         availableForRental: formData.availableForRental,
-        availableForDelivery: formData.availableForDelivery,
-        availableForLongTerm: formData.availableForLongTerm,
+        availableForDelivery: false,
+        availableForLongTerm: false,
         listingExtras: formData.listingExtras,
       };
 
@@ -406,7 +423,7 @@ export function PrestataireMesVehicules() {
         </button>
       </div>
 
-      <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+      <div className="grid grid-cols-2 md:grid-cols-3 gap-3">
         <div className="p-3 rounded-xl border bg-white">
           <p className="text-xs text-gray-500">Total</p>
           <p className="text-xl font-bold">{vehicles.length}</p>
@@ -416,12 +433,8 @@ export function PrestataireMesVehicules() {
           <p className="text-xl font-bold text-green-700">{vehicles.filter((v) => v.isActive).length}</p>
         </div>
         <div className="p-3 rounded-xl border bg-blue-50 border-blue-200">
-          <p className="text-xs text-gray-500">Location</p>
+          <p className="text-xs text-gray-500">En location</p>
           <p className="text-xl font-bold text-blue-700">{vehicles.filter((v) => v.availableForRental).length}</p>
-        </div>
-        <div className="p-3 rounded-xl border bg-amber-50 border-amber-200">
-          <p className="text-xs text-gray-500">Livraison</p>
-          <p className="text-xl font-bold text-amber-700">{vehicles.filter((v) => v.availableForDelivery).length}</p>
         </div>
       </div>
 
@@ -499,12 +512,6 @@ export function PrestataireMesVehicules() {
                     {vehicle.availableForRental && (
                       <span className="text-xs bg-blue-50 text-blue-700 px-2 py-0.5 rounded-full">Location</span>
                     )}
-                    {vehicle.availableForDelivery && (
-                      <span className="text-xs bg-violet-50 text-violet-700 px-2 py-0.5 rounded-full">Livraison</span>
-                    )}
-                    {vehicle.availableForLongTerm && (
-                      <span className="text-xs bg-amber-50 text-amber-700 px-2 py-0.5 rounded-full">Long terme</span>
-                    )}
                   </div>
                 </div>
 
@@ -549,7 +556,15 @@ export function PrestataireMesVehicules() {
                   <label className="block text-sm font-medium text-gray-700 mb-1">Modèle de véhicule *</label>
                   <select
                     value={formData.vehicleModelId}
-                    onChange={(e) => setFormData((prev) => ({ ...prev, vehicleModelId: e.target.value }))}
+                    onChange={(e) => {
+                      const id = e.target.value;
+                      const model = models.find((m) => m.id === id);
+                      setFormData((prev) => ({
+                        ...prev,
+                        vehicleModelId: id,
+                        listingExtras: cloneExtras(prev.listingExtras, model),
+                      }));
+                    }}
                     className="w-full px-3 py-2 border rounded-lg focus:outline-none focus:ring-2 focus:ring-black/20"
                   >
                     {models.map((model) => (
@@ -801,6 +816,47 @@ export function PrestataireMesVehicules() {
 
                 <div className="border-t pt-3 space-y-3">
                   <p className="text-xs font-semibold text-gray-800 uppercase tracking-wide">Caractéristiques</p>
+                  <div className="grid grid-cols-3 gap-3">
+                    <div>
+                      <label className="block text-xs text-gray-600 mb-1">Places</label>
+                      <input
+                        type="number"
+                        min={1}
+                        max={20}
+                        value={extras.seats ?? ''}
+                        onChange={(e) =>
+                          updateExtras({
+                            seats: e.target.value === '' ? null : Math.max(1, Number(e.target.value) || 1),
+                          })
+                        }
+                        className="w-full px-3 py-2 border rounded-lg text-sm"
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-xs text-gray-600 mb-1">Boîte</label>
+                      <select
+                        value={extras.transmission || 'auto'}
+                        onChange={(e) => updateExtras({ transmission: e.target.value as TransmissionCode })}
+                        className="w-full px-3 py-2 border rounded-lg text-sm"
+                      >
+                        {TRANSMISSION_OPTIONS.map((o) => (
+                          <option key={o.value} value={o.value}>{o.label}</option>
+                        ))}
+                      </select>
+                    </div>
+                    <div>
+                      <label className="block text-xs text-gray-600 mb-1">Carburant</label>
+                      <select
+                        value={extras.fuel || 'essence'}
+                        onChange={(e) => updateExtras({ fuel: e.target.value as FuelCode })}
+                        className="w-full px-3 py-2 border rounded-lg text-sm"
+                      >
+                        {FUEL_OPTIONS.map((o) => (
+                          <option key={o.value} value={o.value}>{o.label}</option>
+                        ))}
+                      </select>
+                    </div>
+                  </div>
                   {(
                     [
                       { key: 'featuresSafety' as const, title: 'Sécurité', presets: FEATURE_PRESETS.safety },
@@ -909,24 +965,15 @@ export function PrestataireMesVehicules() {
               </div>
 
               <div>
-                <label className="block text-sm font-medium text-gray-700 mb-2">Services disponibles</label>
-                <div className="space-y-2">
-                  {[
-                    { key: 'availableForRental' as const, label: 'Location classique' },
-                    { key: 'availableForDelivery' as const, label: 'Livraison' },
-                    { key: 'availableForLongTerm' as const, label: 'Location longue durée' },
-                  ].map(({ key, label }) => (
-                    <label key={key} className="flex items-center gap-3 p-2 rounded-lg hover:bg-gray-50 cursor-pointer">
-                      <input
-                        type="checkbox"
-                        checked={formData[key]}
-                        onChange={(e) => setFormData((prev) => ({ ...prev, [key]: e.target.checked }))}
-                        className="w-4 h-4 rounded border-gray-300"
-                      />
-                      <span className="text-sm text-gray-700">{label}</span>
-                    </label>
-                  ))}
-                </div>
+                <label className="flex items-center gap-3 p-2 rounded-lg hover:bg-gray-50 cursor-pointer">
+                  <input
+                    type="checkbox"
+                    checked={formData.availableForRental}
+                    onChange={(e) => setFormData((prev) => ({ ...prev, availableForRental: e.target.checked }))}
+                    className="w-4 h-4 rounded border-gray-300"
+                  />
+                  <span className="text-sm text-gray-700">Disponible à la location</span>
+                </label>
               </div>
             </div>
 

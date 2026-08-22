@@ -5,7 +5,7 @@
 
 import { db } from "./db";
 import { orders, vehicleAvailabilityBlocks } from "@shared/schema";
-import { and, eq, ne, sql } from "drizzle-orm";
+import { eq, ne, sql } from "drizzle-orm";
 
 const INACTIVE_STATUSES = new Set(["cancelled"]);
 
@@ -15,51 +15,46 @@ function parseDate(value: unknown): Date | null {
   return Number.isNaN(d.getTime()) ? null : d;
 }
 
-/** Inclusive overlap: [aStart, aEnd] overlaps [bStart, bEnd] */
+/**
+ * Chevauchement semi-ouvert [start, end) :
+ * la fin d'une location libère le véhicule → une nouvelle résa peut commencer
+ * exactement à l'heure de restitution (ex. fin 10h → début OK à 10h).
+ */
 export function datesOverlap(aStart: Date, aEnd: Date, bStart: Date, bEnd: Date): boolean {
-  return aStart.getTime() <= bEnd.getTime() && bStart.getTime() <= aEnd.getTime();
+  return aStart.getTime() < bEnd.getTime() && bStart.getTime() < aEnd.getTime();
 }
 
-export async function assertVehicleAvailableForRental(params: {
-  loueurVehicleId: string;
-  startDate: string | Date;
-  endDate: string | Date;
-  excludeOrderId?: string;
-}): Promise<{ ok: true } | { ok: false; error: string }> {
-  const start = parseDate(params.startDate);
-  const end = parseDate(params.endDate);
-  if (!start || !end) {
-    return { ok: false, error: "Dates de location invalides" };
-  }
-  if (end.getTime() < start.getTime()) {
-    return { ok: false, error: "La date de fin doit être après la date de début" };
-  }
+export type BusyRange = {
+  startDate: string;
+  endDate: string;
+  reason?: string | null;
+  orderId?: string;
+};
+
+/** Plages occupées (commandes actives + blocs admin) pour un véhicule. */
+export async function getVehicleBusyRanges(loueurVehicleId: string): Promise<BusyRange[]> {
+  const ranges: BusyRange[] = [];
 
   const blocks = await db
     .select({
-      id: vehicleAvailabilityBlocks.id,
       startDate: vehicleAvailabilityBlocks.startDate,
       endDate: vehicleAvailabilityBlocks.endDate,
       reason: vehicleAvailabilityBlocks.reason,
     })
     .from(vehicleAvailabilityBlocks)
-    .where(eq(vehicleAvailabilityBlocks.loueurVehicleId, params.loueurVehicleId));
+    .where(eq(vehicleAvailabilityBlocks.loueurVehicleId, loueurVehicleId));
 
   for (const block of blocks) {
     const bStart = parseDate(block.startDate);
     const bEnd = parseDate(block.endDate);
     if (!bStart || !bEnd) continue;
-    if (datesOverlap(start, end, bStart, bEnd)) {
-      return {
-        ok: false,
-        error: block.reason
-          ? `Véhicule indisponible sur ces dates (${block.reason})`
-          : "Véhicule bloqué sur ces dates",
-      };
-    }
+    ranges.push({
+      startDate: bStart.toISOString(),
+      endDate: bEnd.toISOString(),
+      reason: block.reason || "Indisponible",
+    });
   }
 
-  // Scan recent/active orders — ride_option JSONB holds loueurVehicleId + dates
   const candidates = await db
     .select({
       id: orders.id,
@@ -67,11 +62,7 @@ export async function assertVehicleAvailableForRental(params: {
       rideOption: orders.rideOption,
     })
     .from(orders)
-    .where(
-      params.excludeOrderId
-        ? and(ne(orders.status, "cancelled"), ne(orders.id, params.excludeOrderId))
-        : ne(orders.status, "cancelled")
-    )
+    .where(ne(orders.status, "cancelled"))
     .orderBy(sql`${orders.createdAt} DESC`)
     .limit(800);
 
@@ -88,16 +79,58 @@ export async function assertVehicleAvailableForRental(params: {
       (ro.loueurVehicleId as string | undefined) ||
       ((ro.rentalData as any)?.loueurVehicleId as string | undefined) ||
       ((ro.rentalDispatch as any)?.loueurVehicleId as string | undefined);
-    if (!orderVehicleId || orderVehicleId !== params.loueurVehicleId) continue;
+    if (!orderVehicleId || orderVehicleId !== loueurVehicleId) continue;
 
-    const oStart = parseDate(ro.startDate);
-    const oEnd = parseDate(ro.endDate);
+    const oStart =
+      parseDate(ro.startDate) ||
+      parseDate((ro.rental as any)?.startDate) ||
+      parseDate((ro.rentalData as any)?.startDate);
+    const oEnd =
+      parseDate(ro.endDate) ||
+      parseDate((ro.rental as any)?.endDate) ||
+      parseDate((ro.rentalData as any)?.endDate);
     if (!oStart || !oEnd) continue;
 
-    if (datesOverlap(start, end, oStart, oEnd)) {
+    ranges.push({
+      startDate: oStart.toISOString(),
+      endDate: oEnd.toISOString(),
+      reason: "Réservé",
+      orderId: order.id,
+    });
+  }
+
+  return ranges;
+}
+
+export async function assertVehicleAvailableForRental(params: {
+  loueurVehicleId: string;
+  startDate: string | Date;
+  endDate: string | Date;
+  excludeOrderId?: string;
+}): Promise<{ ok: true } | { ok: false; error: string }> {
+  const start = parseDate(params.startDate);
+  const end = parseDate(params.endDate);
+  if (!start || !end) {
+    return { ok: false, error: "Dates de location invalides" };
+  }
+  if (end.getTime() <= start.getTime()) {
+    return { ok: false, error: "La date de fin doit être après la date de début" };
+  }
+
+  const ranges = await getVehicleBusyRanges(params.loueurVehicleId);
+
+  for (const range of ranges) {
+    if (params.excludeOrderId && range.orderId === params.excludeOrderId) continue;
+    const bStart = parseDate(range.startDate);
+    const bEnd = parseDate(range.endDate);
+    if (!bStart || !bEnd) continue;
+    if (datesOverlap(start, end, bStart, bEnd)) {
       return {
         ok: false,
-        error: "Ce véhicule est déjà réservé sur ces dates",
+        error:
+          range.reason && range.reason !== "Réservé"
+            ? `Véhicule indisponible sur ces dates (${range.reason})`
+            : "Désolé, ce véhicule est déjà réservé pour ces dates",
       };
     }
   }

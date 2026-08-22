@@ -15,9 +15,9 @@ import { driverNotifications, clientNotifications, notifyDriver, notifyClient, s
 import { sendVerificationCode, verifyCode, isTwilioConfigured, sendSMSMessage } from "./twilio";
 import { generateInvoicePDF } from "./pdf-generator";
 import { sendSupportMessageNotification } from "./email";
-import { assertVehicleAvailableForRental } from "./rental-availability";
+import { assertVehicleAvailableForRental, getVehicleBusyRanges } from "./rental-availability";
 import { computeDigressiveRentalPrice, validatePricingTiers, MAX_RENTAL_DAYS_CAP } from "./rental-pricing";
-import { normalizeListingExtras } from "@shared/listing-extras";
+import { normalizeListingExtras, resolveVehicleSpecs } from "@shared/listing-extras";
 import { persistImageUri, persistContractHtml, isEphemeralLocalUri } from "./persist-media";
 import { buildRentalContractHtml } from "./rental-contract";
 
@@ -4139,10 +4139,9 @@ app.post("/api/live-activities/end", async (req, res) => {
         if (row.driverId && driverActiveById.get(row.driverId) === false) continue;
 
         const matchesService =
-          serviceType === 'rental' ? !!row.availableForRental :
-          serviceType === 'delivery' ? !!row.availableForDelivery :
-          serviceType === 'longterm' ? !!row.availableForLongTerm :
-          !!(row.availableForRental || row.availableForDelivery || row.availableForLongTerm);
+          serviceType === 'delivery' || serviceType === 'longterm'
+            ? false // services retirés
+            : !!row.availableForRental;
 
         if (!matchesService) continue;
 
@@ -4156,6 +4155,13 @@ app.post("/api/live-activities/end", async (req, res) => {
           row.modelImageUrl,
         );
 
+        const listingExtras = normalizeListingExtras(row.listingExtras);
+        const specs = resolveVehicleSpecs(listingExtras, {
+          seats: row.seats,
+          transmission: row.transmission,
+          fuel: row.fuel,
+        });
+
         result.push({
           id: row.loueurVehicleId,
           loueurVehicleId: row.loueurVehicleId,
@@ -4168,18 +4174,18 @@ app.post("/api/live-activities/end", async (req, res) => {
           imageUrls,
           modelImageUrl: row.modelImageUrl || null,
           description: row.description,
-          seats: row.seats ?? 5,
-          transmission: row.transmission || 'auto',
-          fuel: row.fuel || 'essence',
+          seats: specs.seats,
+          transmission: specs.transmission,
+          fuel: specs.fuel,
           pricePerDay: typeof row.pricePerDay === 'number' ? row.pricePerDay : Number(row.pricePerDay) || 0,
           pricingTiers: Array.isArray(row.pricingTiers) ? row.pricingTiers : [],
           maxRentalDays: Number(row.maxRentalDays) || 90,
-          listingExtras: normalizeListingExtras(row.listingExtras),
+          listingExtras,
           availableCount: 1,
           services: {
             rental: !!row.availableForRental,
-            delivery: !!row.availableForDelivery,
-            longTerm: !!row.availableForLongTerm,
+            delivery: false,
+            longTerm: false,
           },
         });
       }
@@ -4274,6 +4280,12 @@ app.post("/api/live-activities/end", async (req, res) => {
           row.customImageUrl,
           row.modelImageUrl,
         );
+        const listingExtras = normalizeListingExtras(row.listingExtras);
+        const specs = resolveVehicleSpecs(listingExtras, {
+          seats: row.seats,
+          transmission: row.transmission,
+          fuel: row.fuel,
+        });
         result.push({
           loueurVehicleId: row.loueurVehicleId,
           plate: row.plate,
@@ -4281,7 +4293,7 @@ app.post("/api/live-activities/end", async (req, res) => {
           pricePerDayLongTerm: row.pricePerDayLongTerm,
           pricingTiers: Array.isArray(row.pricingTiers) ? row.pricingTiers : [],
           maxRentalDays: Number(row.maxRentalDays) || 90,
-          listingExtras: normalizeListingExtras(row.listingExtras),
+          listingExtras,
           rentalContractMode: row.rentalContractMode,
           customContractText: row.customContractText,
           customImageUrl: imageUrls[0] || null,
@@ -4289,9 +4301,9 @@ app.post("/api/live-activities/end", async (req, res) => {
           modelImageUrl: row.modelImageUrl || null,
           ownerName,
           driverId: row.driverId,
-          transmission: row.transmission,
-          fuel: row.fuel,
-          seats: row.seats,
+          transmission: specs.transmission,
+          fuel: specs.fuel,
+          seats: specs.seats,
           modelName: row.modelName,
           modelCategory: row.modelCategory,
         });
@@ -4323,6 +4335,81 @@ app.post("/api/live-activities/end", async (req, res) => {
         return res.json([]);
       }
       return res.status(500).json({ error: "Erreur serveur" });
+    }
+  });
+
+  // GET /api/loueur-vehicles/:id/availability?startDate=&endDate=
+  app.get("/api/loueur-vehicles/:id/availability", async (req, res) => {
+    try {
+      const loueurVehicleId = String(req.params.id || "").trim();
+      const startDate = String(req.query.startDate || "").trim();
+      const endDate = String(req.query.endDate || "").trim();
+      if (!loueurVehicleId) {
+        return res.status(400).json({ available: false, error: "Véhicule requis" });
+      }
+      if (!startDate || !endDate) {
+        return res.status(400).json({ available: false, error: "Dates de location requises" });
+      }
+
+      const [vehicleRow] = await db
+        .select({
+          id: loueurVehicles.id,
+          isActive: loueurVehicles.isActive,
+          availableForRental: loueurVehicles.availableForRental,
+          prestataireActive: prestataires.isActive,
+        })
+        .from(loueurVehicles)
+        .leftJoin(prestataires, eq(loueurVehicles.prestataireId, prestataires.id))
+        .where(eq(loueurVehicles.id, loueurVehicleId))
+        .limit(1);
+
+      if (!vehicleRow) {
+        return res.status(404).json({ available: false, error: "Véhicule introuvable" });
+      }
+      if (!vehicleRow.isActive || !vehicleRow.availableForRental || vehicleRow.prestataireActive === false) {
+        return res.json({
+          available: false,
+          error: "Ce véhicule n'est plus disponible à la location",
+        });
+      }
+
+      const availability = await assertVehicleAvailableForRental({
+        loueurVehicleId,
+        startDate,
+        endDate,
+      });
+      if (!availability.ok) {
+        return res.status(409).json({
+          available: false,
+          error: "Désolé, ce véhicule est déjà réservé pour ces dates. Choisissez d'autres dates.",
+          detail: availability.error,
+        });
+      }
+      return res.json({ available: true });
+    } catch (error) {
+      console.error("Vehicle availability check error:", error);
+      return res.status(500).json({ available: false, error: "Erreur serveur" });
+    }
+  });
+
+  // GET /api/loueur-vehicles/:id/busy-ranges — plages déjà réservées (calendrier client)
+  app.get("/api/loueur-vehicles/:id/busy-ranges", async (req, res) => {
+    try {
+      const loueurVehicleId = String(req.params.id || "").trim();
+      if (!loueurVehicleId) {
+        return res.status(400).json({ ranges: [], error: "Véhicule requis" });
+      }
+      const ranges = await getVehicleBusyRanges(loueurVehicleId);
+      return res.json({
+        ranges: ranges.map((r) => ({
+          startDate: r.startDate,
+          endDate: r.endDate,
+          reason: r.reason || "Réservé",
+        })),
+      });
+    } catch (error) {
+      console.error("Vehicle busy ranges error:", error);
+      return res.status(500).json({ ranges: [], error: "Erreur serveur" });
     }
   });
 
@@ -4561,8 +4648,8 @@ app.post("/api/live-activities/end", async (req, res) => {
         pricingTiers: validatedPricing.tiers,
         maxRentalDays: validatedPricing.maxRentalDays,
         availableForRental: availableForRental ?? true,
-        availableForDelivery: availableForDelivery ?? false,
-        availableForLongTerm: availableForLongTerm ?? false,
+        availableForDelivery: false,
+        availableForLongTerm: false,
         customImageUrl: imageUrls[0] || null,
         rentalContractMode: contractMode,
         isActive: true,
@@ -4656,6 +4743,9 @@ app.post("/api/live-activities/end", async (req, res) => {
           updates[field] = req.body[field];
         }
       }
+      // Services livraison / longue durée retirés
+      updates.availableForDelivery = false;
+      updates.availableForLongTerm = false;
 
       if (req.body.pricingTiers !== undefined || req.body.maxRentalDays !== undefined) {
         const tiersInput = req.body.pricingTiers !== undefined

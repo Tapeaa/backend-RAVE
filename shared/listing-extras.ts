@@ -9,8 +9,14 @@ export type IncludedItem = {
 };
 
 export type InsuranceMode = "included" | "extra" | "none";
+export type TransmissionCode = "auto" | "manual";
+export type FuelCode = "essence" | "diesel" | "electrique" | "hybride";
 
 export type VehicleListingExtras = {
+  /** Override fiche loueur (null = valeur du modèle catalogue) */
+  seats: number | null;
+  transmission: TransmissionCode | null;
+  fuel: FuelCode | null;
   cancellationTitle: string;
   cancellationDesc: string;
   paymentTitle: string;
@@ -29,6 +35,18 @@ export type VehicleListingExtras = {
   depositAmount: number | null;
   depositNote: string;
 };
+
+export const TRANSMISSION_OPTIONS: { value: TransmissionCode; label: string }[] = [
+  { value: "auto", label: "Automatique" },
+  { value: "manual", label: "Manuelle" },
+];
+
+export const FUEL_OPTIONS: { value: FuelCode; label: string }[] = [
+  { value: "essence", label: "Essence" },
+  { value: "diesel", label: "Diesel" },
+  { value: "electrique", label: "Électrique" },
+  { value: "hybride", label: "Hybride" },
+];
 
 export const FEATURE_PRESETS = {
   safety: [
@@ -80,6 +98,9 @@ export const INCLUDED_PRESETS: IncludedItem[] = [
 ];
 
 export const DEFAULT_LISTING_EXTRAS: VehicleListingExtras = {
+  seats: null,
+  transmission: null,
+  fuel: null,
   cancellationTitle: "Annulation gratuite",
   cancellationDesc:
     "Remboursement complet dans les 24 heures suivant la réservation. Options plus flexibles lors du paiement.",
@@ -135,7 +156,20 @@ export function normalizeListingExtras(raw: unknown): VehicleListingExtras {
   const insuranceMode: InsuranceMode =
     mode === "extra" || mode === "none" || mode === "included" ? mode : d.insuranceMode;
 
+  const seatsRaw = asNullableNumber(o.seats);
+  const transmissionRaw = typeof o.transmission === "string" ? o.transmission : null;
+  const fuelRaw = typeof o.fuel === "string" ? o.fuel : null;
+  const transmission: TransmissionCode | null =
+    transmissionRaw === "auto" || transmissionRaw === "manual" ? transmissionRaw : null;
+  const fuel: FuelCode | null =
+    fuelRaw === "essence" || fuelRaw === "diesel" || fuelRaw === "electrique" || fuelRaw === "hybride"
+      ? fuelRaw
+      : null;
+
   return {
+    seats: seatsRaw != null && seatsRaw >= 1 ? Math.floor(seatsRaw) : null,
+    transmission,
+    fuel,
     cancellationTitle: asString(o.cancellationTitle, d.cancellationTitle) || d.cancellationTitle,
     cancellationDesc: asString(o.cancellationDesc, d.cancellationDesc),
     paymentTitle: asString(o.paymentTitle, d.paymentTitle) || d.paymentTitle,
@@ -161,5 +195,29 @@ export function normalizeListingExtras(raw: unknown): VehicleListingExtras {
     depositRequired: o.depositRequired === true,
     depositAmount: asNullableNumber(o.depositAmount),
     depositNote: asString(o.depositNote, d.depositNote),
+  };
+}
+
+/** Specs affichées client : override loueur sinon modèle catalogue. */
+export function resolveVehicleSpecs(
+  extras: VehicleListingExtras | unknown,
+  model: { seats?: number | null; transmission?: string | null; fuel?: string | null }
+): { seats: number; transmission: string; fuel: string } {
+  const e = normalizeListingExtras(extras);
+  const transmission =
+    e.transmission ||
+    (model.transmission === "manual" || model.transmission === "auto" ? model.transmission : "auto");
+  const fuel =
+    e.fuel ||
+    (model.fuel === "essence" ||
+    model.fuel === "diesel" ||
+    model.fuel === "electrique" ||
+    model.fuel === "hybride"
+      ? model.fuel
+      : "essence");
+  return {
+    seats: e.seats != null && e.seats >= 1 ? e.seats : Number(model.seats) || 5,
+    transmission,
+    fuel,
   };
 }
