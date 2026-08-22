@@ -991,3 +991,10 @@ export const adminAuditLogs = pgTable("admin_audit_logs", {
   details: jsonb("details").$type<Record<string, unknown>>(),
   createdAt: timestamp("created_at").defaultNow().notNull(),
 });
+/** Rappels réservation déjà envoyés (survit aux restarts) */
+export const reservationRemindersSent = pgTable("reservation_reminders_sent", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  orderId: varchar("order_id").notNull(),
+  reminderType: text("reminder_type").notNull(), // '1h' | '30m'
+  sentAt: timestamp("sent_at").defaultNow().notNull(),
+});

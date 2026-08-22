@@ -97,6 +97,16 @@ export async function ensureBackofficeTables() {
       );
     `);
 
+    await db.execute(sql`
+      CREATE TABLE IF NOT EXISTS reservation_reminders_sent (
+        id VARCHAR PRIMARY KEY DEFAULT gen_random_uuid(),
+        order_id VARCHAR NOT NULL,
+        reminder_type TEXT NOT NULL,
+        sent_at TIMESTAMP DEFAULT NOW() NOT NULL,
+        UNIQUE(order_id, reminder_type)
+      );
+    `);
+
     console.log("[MIGRATION] Back-office extension tables ready");
     return true;
   } catch (error) {

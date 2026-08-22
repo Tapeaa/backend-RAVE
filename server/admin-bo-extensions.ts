@@ -145,7 +145,11 @@ export function registerAdminBoExtensions(app: Express) {
       const order = await dbStorage.getOrder(req.params.id);
       if (!order) return res.status(404).json({ error: "Commande introuvable" });
 
-      const rideOption: Record<string, unknown> = { ...(order.rideOption || {}), rentalPhase: phase };
+      const rideOption: Record<string, unknown> = {
+        ...(order.rideOption || {}),
+        rentalLifecyclePhase: phase,
+        rentalPhase: phase, // legacy alias (read fallback)
+      };
       if (phase === "with_client") rideOption.handedOverAt = new Date().toISOString();
       if (phase === "returned") rideOption.returnedAt = new Date().toISOString();
 
