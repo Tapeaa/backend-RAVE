@@ -9,6 +9,7 @@ import {
   DEFAULT_LISTING_EXTRAS,
   FEATURE_PRESETS,
   INCLUDED_PRESETS,
+  SUPPLEMENT_PRESETS,
   FUEL_OPTIONS,
   TRANSMISSION_OPTIONS,
   normalizeListingExtras,
@@ -764,54 +765,273 @@ export function PrestataireMesVehicules() {
                   )}
                 </div>
 
-                <div className="border-t pt-3 space-y-2">
+                <div className="border-t pt-3 space-y-3">
                   <p className="text-xs font-semibold text-gray-800 uppercase tracking-wide">Assurance</p>
-                  <div className="flex flex-wrap gap-3 text-sm">
-                    {(
-                      [
-                        { value: 'included', label: 'Incluse' },
-                        { value: 'extra', label: 'Supplément (prix)' },
-                        { value: 'none', label: 'Non incluse' },
-                      ] as const
-                    ).map((opt) => (
-                      <label key={opt.value} className="flex items-center gap-2">
-                        <input
-                          type="radio"
-                          name="insuranceMode"
-                          checked={extras.insuranceMode === opt.value}
-                          onChange={() => updateExtras({ insuranceMode: opt.value })}
-                        />
-                        {opt.label}
-                      </label>
-                    ))}
-                  </div>
-                  <div className="grid grid-cols-2 gap-3">
+
+                  <label className="flex items-center gap-2 text-sm">
+                    <input
+                      type="checkbox"
+                      checked={extras.insuranceIncluded}
+                      onChange={(e) =>
+                        updateExtras({
+                          insuranceIncluded: e.target.checked,
+                          insuranceMode: e.target.checked
+                            ? 'included'
+                            : extras.insuranceOptions.length > 0
+                              ? 'extra'
+                              : 'none',
+                        })
+                      }
+                      className="w-4 h-4 rounded"
+                    />
+                    Assurance de base incluse dans le prix
+                  </label>
+                  {extras.insuranceIncluded && (
                     <div>
-                      <label className="block text-xs text-gray-600 mb-1">Libellé</label>
+                      <label className="block text-xs text-gray-600 mb-1">Libellé assurance incluse</label>
                       <input
                         type="text"
-                        value={extras.insuranceLabel}
-                        onChange={(e) => updateExtras({ insuranceLabel: e.target.value })}
+                        value={extras.insuranceIncludedLabel}
+                        onChange={(e) =>
+                          updateExtras({
+                            insuranceIncludedLabel: e.target.value,
+                            insuranceLabel: e.target.value,
+                          })
+                        }
+                        placeholder="Ex: Assurance tous risques"
                         className="w-full px-3 py-2 border rounded-lg text-sm"
                       />
                     </div>
-                    {extras.insuranceMode === 'extra' && (
-                      <div>
-                        <label className="block text-xs text-gray-600 mb-1">Prix / jour (XPF)</label>
-                        <input
-                          type="number"
-                          min={0}
-                          value={extras.insurancePricePerDay ?? ''}
-                          onChange={(e) =>
-                            updateExtras({
-                              insurancePricePerDay: e.target.value === '' ? null : Number(e.target.value),
-                            })
-                          }
-                          className="w-full px-3 py-2 border rounded-lg text-sm"
-                        />
+                  )}
+
+                  <div className="space-y-2">
+                    <div className="flex items-center justify-between gap-2">
+                      <p className="text-xs font-medium text-gray-700">
+                        Options payantes proposées au client
+                      </p>
+                      <button
+                        type="button"
+                        onClick={() => {
+                          const id = `ins_${Date.now()}`;
+                          updateExtras({
+                            insuranceOptions: [
+                              ...extras.insuranceOptions,
+                              {
+                                id,
+                                label: 'Assurance complémentaire',
+                                desc: '',
+                                pricePerDay: 1500,
+                              },
+                            ],
+                            insuranceMode: extras.insuranceIncluded ? 'included' : 'extra',
+                          });
+                        }}
+                        className="text-xs font-medium px-2.5 py-1.5 rounded-lg bg-black text-white hover:bg-gray-800"
+                      >
+                        + Option
+                      </button>
+                    </div>
+                    <p className="text-[11px] text-gray-500">
+                      Le client pourra cocher ces assurances à la réservation. Laissez vide si vous n’en proposez pas.
+                    </p>
+                    {extras.insuranceOptions.map((opt, index) => (
+                      <div key={opt.id} className="space-y-2 bg-white rounded-lg border p-3">
+                        <div className="grid grid-cols-1 sm:grid-cols-12 gap-2 items-end">
+                          <div className="sm:col-span-4">
+                            <label className="text-[10px] uppercase text-gray-500">Libellé</label>
+                            <input
+                              type="text"
+                              value={opt.label}
+                              onChange={(e) => {
+                                const next = extras.insuranceOptions.map((x, i) =>
+                                  i === index ? { ...x, label: e.target.value } : x
+                                );
+                                updateExtras({ insuranceOptions: next });
+                              }}
+                              className="w-full px-2 py-1.5 border rounded-lg text-sm"
+                              placeholder="Ex: Franchise réduite"
+                            />
+                          </div>
+                          <div className="sm:col-span-4">
+                            <label className="text-[10px] uppercase text-gray-500">Description</label>
+                            <input
+                              type="text"
+                              value={opt.desc || ''}
+                              onChange={(e) => {
+                                const next = extras.insuranceOptions.map((x, i) =>
+                                  i === index ? { ...x, desc: e.target.value } : x
+                                );
+                                updateExtras({ insuranceOptions: next });
+                              }}
+                              className="w-full px-2 py-1.5 border rounded-lg text-sm"
+                              placeholder="Optionnel"
+                            />
+                          </div>
+                          <div className="sm:col-span-3">
+                            <label className="text-[10px] uppercase text-gray-500">XPF / jour</label>
+                            <input
+                              type="number"
+                              min={1}
+                              value={opt.pricePerDay}
+                              onChange={(e) => {
+                                const next = extras.insuranceOptions.map((x, i) =>
+                                  i === index
+                                    ? { ...x, pricePerDay: Math.max(1, Number(e.target.value) || 1) }
+                                    : x
+                                );
+                                updateExtras({ insuranceOptions: next });
+                              }}
+                              className="w-full px-2 py-1.5 border rounded-lg text-sm"
+                            />
+                          </div>
+                          <div className="sm:col-span-1 flex justify-end">
+                            <button
+                              type="button"
+                              onClick={() => {
+                                const next = extras.insuranceOptions.filter((_, i) => i !== index);
+                                updateExtras({
+                                  insuranceOptions: next,
+                                  insuranceMode: extras.insuranceIncluded
+                                    ? 'included'
+                                    : next.length > 0
+                                      ? 'extra'
+                                      : 'none',
+                                });
+                              }}
+                              className="p-2 text-red-500 hover:bg-red-50 rounded-lg"
+                              title="Supprimer"
+                            >
+                              <Trash2 className="w-4 h-4" />
+                            </button>
+                          </div>
+                        </div>
                       </div>
-                    )}
+                    ))}
                   </div>
+                </div>
+
+                <div className="border-t pt-3 space-y-3">
+                  <p className="text-xs font-semibold text-gray-800 uppercase tracking-wide">
+                    Suppléments
+                  </p>
+                  <p className="text-[11px] text-gray-500">
+                    Proposés au client à la réservation (GPS, siège bébé…). Laissez vide si aucun.
+                  </p>
+                  <div className="flex flex-wrap gap-2">
+                    {SUPPLEMENT_PRESETS.map((preset) => {
+                      const already = (extras.supplementOptions || []).some(
+                        (s) => s.label.toLowerCase() === preset.label.toLowerCase()
+                      );
+                      return (
+                        <button
+                          key={preset.label}
+                          type="button"
+                          disabled={already}
+                          onClick={() => {
+                            updateExtras({
+                              supplementOptions: [
+                                ...(extras.supplementOptions || []),
+                                {
+                                  id: `sup_${Date.now()}_${preset.label}`,
+                                  label: preset.label,
+                                  desc: '',
+                                  pricePerDay: preset.pricePerDay,
+                                },
+                              ],
+                            });
+                          }}
+                          className="text-[11px] px-2.5 py-1.5 rounded-lg border border-gray-200 hover:bg-gray-50 disabled:opacity-40 disabled:cursor-not-allowed"
+                        >
+                          + {preset.label}
+                        </button>
+                      );
+                    })}
+                    <button
+                      type="button"
+                      onClick={() => {
+                        updateExtras({
+                          supplementOptions: [
+                            ...(extras.supplementOptions || []),
+                            {
+                              id: `sup_${Date.now()}`,
+                              label: 'Supplément',
+                              desc: '',
+                              pricePerDay: 500,
+                            },
+                          ],
+                        });
+                      }}
+                      className="text-[11px] font-medium px-2.5 py-1.5 rounded-lg bg-black text-white hover:bg-gray-800"
+                    >
+                      + Personnalisé
+                    </button>
+                  </div>
+                  {(extras.supplementOptions || []).map((opt, index) => (
+                    <div key={opt.id} className="space-y-2 bg-white rounded-lg border p-3">
+                      <div className="grid grid-cols-1 sm:grid-cols-12 gap-2 items-end">
+                        <div className="sm:col-span-4">
+                          <label className="text-[10px] uppercase text-gray-500">Libellé</label>
+                          <input
+                            type="text"
+                            value={opt.label}
+                            onChange={(e) => {
+                              const next = extras.supplementOptions.map((x, i) =>
+                                i === index ? { ...x, label: e.target.value } : x
+                              );
+                              updateExtras({ supplementOptions: next });
+                            }}
+                            className="w-full px-2 py-1.5 border rounded-lg text-sm"
+                          />
+                        </div>
+                        <div className="sm:col-span-4">
+                          <label className="text-[10px] uppercase text-gray-500">Description</label>
+                          <input
+                            type="text"
+                            value={opt.desc || ''}
+                            onChange={(e) => {
+                              const next = extras.supplementOptions.map((x, i) =>
+                                i === index ? { ...x, desc: e.target.value } : x
+                              );
+                              updateExtras({ supplementOptions: next });
+                            }}
+                            className="w-full px-2 py-1.5 border rounded-lg text-sm"
+                            placeholder="Optionnel"
+                          />
+                        </div>
+                        <div className="sm:col-span-3">
+                          <label className="text-[10px] uppercase text-gray-500">XPF / jour</label>
+                          <input
+                            type="number"
+                            min={1}
+                            value={opt.pricePerDay}
+                            onChange={(e) => {
+                              const next = extras.supplementOptions.map((x, i) =>
+                                i === index
+                                  ? { ...x, pricePerDay: Math.max(1, Number(e.target.value) || 1) }
+                                  : x
+                              );
+                              updateExtras({ supplementOptions: next });
+                            }}
+                            className="w-full px-2 py-1.5 border rounded-lg text-sm"
+                          />
+                        </div>
+                        <div className="sm:col-span-1 flex justify-end">
+                          <button
+                            type="button"
+                            onClick={() => {
+                              updateExtras({
+                                supplementOptions: extras.supplementOptions.filter((_, i) => i !== index),
+                              });
+                            }}
+                            className="p-2 text-red-500 hover:bg-red-50 rounded-lg"
+                            title="Supprimer"
+                          >
+                            <Trash2 className="w-4 h-4" />
+                          </button>
+                        </div>
+                      </div>
+                    </div>
+                  ))}
                 </div>
 
                 <div className="border-t pt-3 space-y-3">

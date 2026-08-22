@@ -8,12 +8,22 @@ export type IncludedItem = {
   desc?: string;
 };
 
+export type InsuranceOption = {
+  id: string;
+  label: string;
+  desc?: string;
+  pricePerDay: number;
+};
+
+/** Supplément payant (GPS, siège bébé, etc.) — même forme qu’une option assurance */
+export type SupplementOption = InsuranceOption;
+
+/** @deprecated conservé pour rétrocompat lecture anciennes fiches */
 export type InsuranceMode = "included" | "extra" | "none";
 export type TransmissionCode = "auto" | "manual";
 export type FuelCode = "essence" | "diesel" | "electrique" | "hybride";
 
 export type VehicleListingExtras = {
-  /** Override fiche loueur (null = valeur du modèle catalogue) */
   seats: number | null;
   transmission: TransmissionCode | null;
   fuel: FuelCode | null;
@@ -24,9 +34,17 @@ export type VehicleListingExtras = {
   mileageUnlimited: boolean;
   mileageKmPerDay: number | null;
   mileageExtraPricePerKm: number | null;
+  /** Assurance de base incluse dans le prix */
+  insuranceIncluded: boolean;
+  insuranceIncludedLabel: string;
+  /** Options payantes proposées au client (0..n) */
+  insuranceOptions: InsuranceOption[];
+  /** Legacy — dérivé à la normalisation */
   insuranceMode: InsuranceMode;
   insuranceLabel: string;
   insurancePricePerDay: number | null;
+  /** Suppléments payants configurés par le loueur (0..n) */
+  supplementOptions: SupplementOption[];
   featuresSafety: string[];
   featuresConnectivity: string[];
   featuresComfort: string[];
@@ -97,6 +115,14 @@ export const INCLUDED_PRESETS: IncludedItem[] = [
   },
 ];
 
+/** Suggestions rapides dashboard (le loueur choisit lesquels ajouter) */
+export const SUPPLEMENT_PRESETS: { label: string; pricePerDay: number }[] = [
+  { label: "GPS portable", pricePerDay: 500 },
+  { label: "Siège bébé", pricePerDay: 800 },
+  { label: "Galerie de toit", pricePerDay: 1000 },
+  { label: "Glacière", pricePerDay: 300 },
+];
+
 export const DEFAULT_LISTING_EXTRAS: VehicleListingExtras = {
   seats: null,
   transmission: null,
@@ -110,9 +136,13 @@ export const DEFAULT_LISTING_EXTRAS: VehicleListingExtras = {
   mileageUnlimited: false,
   mileageKmPerDay: 200,
   mileageExtraPricePerKm: 50,
-  insuranceMode: "included",
+  insuranceIncluded: false,
+  insuranceIncludedLabel: "Assurance tous risques",
+  insuranceOptions: [],
+  insuranceMode: "none",
   insuranceLabel: "Assurance tous risques",
   insurancePricePerDay: null,
+  supplementOptions: [],
   featuresSafety: [...FEATURE_PRESETS.safety],
   featuresConnectivity: [...FEATURE_PRESETS.connectivity],
   featuresComfort: [...FEATURE_PRESETS.comfort],
@@ -147,14 +177,65 @@ function asIncludedItems(v: unknown): IncludedItem[] {
     .filter((i) => i.label);
 }
 
+function asPaidOptions(v: unknown, idPrefix: string): InsuranceOption[] {
+  if (!Array.isArray(v)) return [];
+  return v
+    .map((item: any, i: number) => {
+      const label = String(item?.label || "").trim();
+      const pricePerDay = Math.round(Number(item?.pricePerDay) || 0);
+      if (!label || pricePerDay < 1) return null;
+      return {
+        id: String(item?.id || `${idPrefix}_${i}_${label}`).trim() || `${idPrefix}_${i}`,
+        label,
+        desc: item?.desc ? String(item.desc).trim() : undefined,
+        pricePerDay,
+      };
+    })
+    .filter(Boolean) as InsuranceOption[];
+}
+
+function asInsuranceOptions(v: unknown): InsuranceOption[] {
+  return asPaidOptions(v, "ins");
+}
+
+function asSupplementOptions(v: unknown): SupplementOption[] {
+  return asPaidOptions(v, "sup");
+}
+
+function deriveInsuranceFromLegacy(o: Record<string, unknown>, d: VehicleListingExtras): {
+  insuranceIncluded: boolean;
+  insuranceIncludedLabel: string;
+  insuranceOptions: InsuranceOption[];
+} {
+  const mode = o.insuranceMode;
+  const label = asString(o.insuranceLabel, d.insuranceIncludedLabel) || d.insuranceIncludedLabel;
+  const price = asNullableNumber(o.insurancePricePerDay);
+
+  if (mode === "extra") {
+    const options: InsuranceOption[] =
+      price != null && price > 0
+        ? [{ id: "ins_legacy", label, desc: undefined, pricePerDay: price }]
+        : [];
+    return { insuranceIncluded: false, insuranceIncludedLabel: label, insuranceOptions: options };
+  }
+  if (mode === "included") {
+    return { insuranceIncluded: true, insuranceIncludedLabel: label, insuranceOptions: [] };
+  }
+  return { insuranceIncluded: false, insuranceIncludedLabel: label, insuranceOptions: [] };
+}
+
 export function normalizeListingExtras(raw: unknown): VehicleListingExtras {
   const d = DEFAULT_LISTING_EXTRAS;
-  if (!raw || typeof raw !== "object") return { ...d, includedItems: d.includedItems.map((i) => ({ ...i })) };
+  if (!raw || typeof raw !== "object") {
+    return {
+      ...d,
+      includedItems: d.includedItems.map((i) => ({ ...i })),
+      insuranceOptions: [],
+      supplementOptions: [],
+    };
+  }
 
   const o = raw as Record<string, unknown>;
-  const mode = o.insuranceMode;
-  const insuranceMode: InsuranceMode =
-    mode === "extra" || mode === "none" || mode === "included" ? mode : d.insuranceMode;
 
   const seatsRaw = asNullableNumber(o.seats);
   const transmissionRaw = typeof o.transmission === "string" ? o.transmission : null;
@@ -165,6 +246,37 @@ export function normalizeListingExtras(raw: unknown): VehicleListingExtras {
     fuelRaw === "essence" || fuelRaw === "diesel" || fuelRaw === "electrique" || fuelRaw === "hybride"
       ? fuelRaw
       : null;
+
+  const hasNewInsurance =
+    Object.prototype.hasOwnProperty.call(o, "insuranceIncluded") ||
+    Object.prototype.hasOwnProperty.call(o, "insuranceOptions");
+
+  let insuranceIncluded: boolean;
+  let insuranceIncludedLabel: string;
+  let insuranceOptions: InsuranceOption[];
+
+  if (hasNewInsurance) {
+    insuranceIncluded = o.insuranceIncluded === true;
+    insuranceIncludedLabel =
+      asString(o.insuranceIncludedLabel, d.insuranceIncludedLabel) ||
+      asString(o.insuranceLabel, d.insuranceIncludedLabel) ||
+      d.insuranceIncludedLabel;
+    insuranceOptions = asInsuranceOptions(o.insuranceOptions);
+  } else {
+    const derived = deriveInsuranceFromLegacy(o, d);
+    insuranceIncluded = derived.insuranceIncluded;
+    insuranceIncludedLabel = derived.insuranceIncludedLabel;
+    insuranceOptions = derived.insuranceOptions;
+  }
+
+  // Legacy mirrors
+  let insuranceMode: InsuranceMode = "none";
+  let insurancePricePerDay: number | null = null;
+  if (insuranceIncluded) insuranceMode = "included";
+  else if (insuranceOptions.length > 0) {
+    insuranceMode = "extra";
+    insurancePricePerDay = insuranceOptions[0].pricePerDay;
+  }
 
   return {
     seats: seatsRaw != null && seatsRaw >= 1 ? Math.floor(seatsRaw) : null,
@@ -177,9 +289,13 @@ export function normalizeListingExtras(raw: unknown): VehicleListingExtras {
     mileageUnlimited: o.mileageUnlimited === true,
     mileageKmPerDay: asNullableNumber(o.mileageKmPerDay) ?? d.mileageKmPerDay,
     mileageExtraPricePerKm: asNullableNumber(o.mileageExtraPricePerKm) ?? d.mileageExtraPricePerKm,
+    insuranceIncluded,
+    insuranceIncludedLabel,
+    insuranceOptions,
     insuranceMode,
-    insuranceLabel: asString(o.insuranceLabel, d.insuranceLabel) || d.insuranceLabel,
-    insurancePricePerDay: asNullableNumber(o.insurancePricePerDay),
+    insuranceLabel: insuranceIncludedLabel,
+    insurancePricePerDay,
+    supplementOptions: asSupplementOptions(o.supplementOptions),
     featuresSafety: Object.prototype.hasOwnProperty.call(o, "featuresSafety")
       ? asStringArray(o.featuresSafety)
       : [...d.featuresSafety],
@@ -196,6 +312,10 @@ export function normalizeListingExtras(raw: unknown): VehicleListingExtras {
     depositAmount: asNullableNumber(o.depositAmount),
     depositNote: asString(o.depositNote, d.depositNote),
   };
+}
+
+export function hasInsuranceSection(extras: VehicleListingExtras): boolean {
+  return extras.insuranceIncluded || extras.insuranceOptions.length > 0;
 }
 
 /** Specs affichées client : override loueur sinon modèle catalogue. */
