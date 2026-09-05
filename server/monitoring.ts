@@ -71,16 +71,20 @@ async function collectMetrics(): Promise<SystemMetrics> {
 
 /**
  * Endpoint /health amélioré avec métriques
+ *
+ * Note: heapUsed/heapTotal est souvent >90% en Node (V8 remplit le heap alloué).
+ * On ne doit PAS marquer le service unhealthy pour ça — sinon Render/load balancers
+ * relancent ou coupent le service à tort. Seule la DB décide du 503.
  */
 export async function healthCheck(req: Request, res: Response) {
   try {
     const metrics = await collectMetrics();
     lastHealthCheck = metrics;
+    const rssMb = Math.round(process.memoryUsage().rss / 1024 / 1024);
 
-    // Déterminer le statut global
-    const isHealthy = metrics.database.connected && metrics.memory.percentage < 90;
-
-    const statusCode = isHealthy ? 200 : 503; // 503 Service Unavailable si problème
+    // Seule la connectivité DB détermine la santé (mémoire heap = info, pas échec)
+    const isHealthy = metrics.database.connected;
+    const statusCode = isHealthy ? 200 : 503;
 
     res.status(statusCode).json({
       status: isHealthy ? 'healthy' : 'unhealthy',
@@ -90,12 +94,12 @@ export async function healthCheck(req: Request, res: Response) {
         used: `${metrics.memory.used}MB`,
         total: `${metrics.memory.total}MB`,
         percentage: `${metrics.memory.percentage}%`,
+        rss: `${rssMb}MB`,
       },
       database: {
         connected: metrics.database.connected,
         latency: metrics.database.latency ? `${metrics.database.latency}ms` : undefined,
       },
-      // En développement, inclure plus de détails
       ...(process.env.NODE_ENV === 'development' && {
         nodeVersion: process.version,
         platform: process.platform,
