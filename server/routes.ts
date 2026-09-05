@@ -7463,7 +7463,7 @@ const sessionId = headerSessionId || cookieSessionId;
 
       const { decryptOsbCertificate } = await import("./osb-crypto");
       const { verifyPayzenIpnHash, markOrderPayzenPaid } = await import("./payzen");
-      const certificate = decryptOsbCertificate(
+      const certificate = await decryptOsbCertificate(
         String((prestataire as any).osbCertificateEncrypted)
       );
       const algo =
@@ -7526,7 +7526,7 @@ const sessionId = headerSessionId || cookieSessionId;
       const { decryptOsbCertificate } = await import("./osb-crypto");
       const { getPayzenApiBase, markOrderPayzenPaid } = await import("./payzen");
       const shopId = String((prestataire as any).osbShopId).trim();
-      const certificate = decryptOsbCertificate(
+      const certificate = await decryptOsbCertificate(
         String((prestataire as any).osbCertificateEncrypted)
       );
       const auth =

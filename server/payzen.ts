@@ -81,7 +81,7 @@ export async function createPayzenPaymentForOrder(params: {
 
   const shopId = String((prestataire as any).osbShopId).trim();
   const publicKey = ((prestataire as any).osbPublicKey as string | null) || null;
-  const certificate = decryptOsbCertificate(
+  const certificate = await decryptOsbCertificate(
     String((prestataire as any).osbCertificateEncrypted)
   );
 

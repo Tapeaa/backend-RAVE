@@ -611,7 +611,8 @@ export function PrestataireProfil() {
               autoComplete="new-password"
             />
             <p className="mt-1 text-xs text-gray-500">
-              Jamais affiché après enregistrement. Stocké chiffré sur le serveur.
+              Jamais affiché après enregistrement. Chiffrement enveloppe AES-256-GCM côté serveur
+              (clé data unique + wrap KMS ou clé maître).
             </p>
           </label>
           <div className="flex flex-wrap gap-2">

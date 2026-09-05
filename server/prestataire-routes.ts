@@ -189,7 +189,7 @@ export function registerPrestataireRoutes(app: Express) {
               "Chiffrement OSB non configuré sur le serveur (OSB_CREDENTIALS_ENCRYPTION_KEY)",
           });
         }
-        updates.osbCertificateEncrypted = encryptOsbCertificate(certificate);
+        updates.osbCertificateEncrypted = await encryptOsbCertificate(certificate);
       }
 
       if (Object.keys(updates).length === 0) {

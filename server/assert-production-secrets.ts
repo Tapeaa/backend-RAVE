@@ -21,4 +21,14 @@ export function assertProductionSecrets(): void {
     );
     process.exit(1);
   }
+
+  if (!process.env.OSB_CREDENTIALS_ENCRYPTION_KEY) {
+    console.warn(
+      "[WARN] OSB_CREDENTIALS_ENCRYPTION_KEY unset — les loueurs ne pourront pas enregistrer de certificat PayZen."
+    );
+  } else if (process.env.OSB_AWS_KMS_KEY_ID || process.env.AWS_KMS_KEY_ID) {
+    console.log("[OSB] Envelope encryption + AWS KMS wrap activé");
+  } else {
+    console.log("[OSB] Envelope encryption locale (KEK env) — optionnel: OSB_AWS_KMS_KEY_ID pour KMS");
+  }
 }
