@@ -53,6 +53,9 @@ interface PrestataireInfo {
   totalChauffeurs?: number;
   createdAt: string;
   documents?: PrestataireDocuments;
+  osbShopId?: string | null;
+  osbPublicKey?: string | null;
+  osbConfigured?: boolean;
 }
 
 type SubPlan = { id: string; label: string; amountXpf: number; days: number };
@@ -102,6 +105,8 @@ export function PrestataireProfil() {
   const [uploadingDoc, setUploadingDoc] = useState<string | null>(null);
   const [subscription, setSubscription] = useState<SubscriptionInfo | null>(null);
   const [subscribing, setSubscribing] = useState<string | null>(null);
+  const [osbForm, setOsbForm] = useState({ shopId: '', publicKey: '', certificate: '' });
+  const [savingOsb, setSavingOsb] = useState(false);
 
   useEffect(() => {
     fetchProfil();
@@ -154,6 +159,94 @@ export function PrestataireProfil() {
     }
   }
 
+  async function handleSaveOsb() {
+    if (!osbForm.shopId.trim()) {
+      alert('Shop ID requis');
+      return;
+    }
+    setSavingOsb(true);
+    setSuccessMessage(null);
+    try {
+      const token = localStorage.getItem('admin_token');
+      const body: Record<string, string> = {
+        shopId: osbForm.shopId.trim(),
+        publicKey: osbForm.publicKey.trim(),
+      };
+      if (osbForm.certificate.trim()) {
+        body.certificate = osbForm.certificate.trim();
+      } else if (!prestataire?.osbConfigured) {
+        alert('Certificat (clé API) requis pour la première configuration');
+        setSavingOsb(false);
+        return;
+      }
+      const response = await fetch('/api/prestataire/me/osb-credentials', {
+        method: 'PATCH',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${token}`,
+        },
+        body: JSON.stringify(body),
+      });
+      const data = await response.json();
+      if (response.ok) {
+        setPrestataire((prev) =>
+          prev
+            ? {
+                ...prev,
+                osbShopId: data.osbShopId,
+                osbPublicKey: data.osbPublicKey,
+                osbConfigured: data.osbConfigured,
+              }
+            : prev
+        );
+        setOsbForm((f) => ({ ...f, certificate: '' }));
+        setSuccessMessage(data.message || 'Paiement OSB enregistré');
+        setTimeout(() => setSuccessMessage(null), 4000);
+      } else {
+        alert(data.error || 'Erreur enregistrement OSB');
+      }
+    } catch {
+      alert('Erreur enregistrement OSB');
+    } finally {
+      setSavingOsb(false);
+    }
+  }
+
+  async function handleClearOsb() {
+    if (!confirm('Supprimer la configuration de paiement OSB ? Les clients repasseront en paiement hors app.')) {
+      return;
+    }
+    setSavingOsb(true);
+    try {
+      const token = localStorage.getItem('admin_token');
+      const response = await fetch('/api/prestataire/me/osb-credentials', {
+        method: 'PATCH',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${token}`,
+        },
+        body: JSON.stringify({ clear: true }),
+      });
+      const data = await response.json();
+      if (response.ok) {
+        setPrestataire((prev) =>
+          prev
+            ? { ...prev, osbShopId: null, osbPublicKey: null, osbConfigured: false }
+            : prev
+        );
+        setOsbForm({ shopId: '', publicKey: '', certificate: '' });
+        setSuccessMessage(data.message || 'Configuration OSB supprimée');
+        setTimeout(() => setSuccessMessage(null), 4000);
+      } else {
+        alert(data.error || 'Erreur');
+      }
+    } catch {
+      alert('Erreur');
+    } finally {
+      setSavingOsb(false);
+    }
+  }
+
   async function fetchProfil() {
     setIsLoading(true);
     try {
@@ -169,6 +262,11 @@ export function PrestataireProfil() {
           numeroTahiti: data.prestataire.numeroTahiti || '',
           email: data.prestataire.email || '',
           phone: data.prestataire.phone || '',
+        });
+        setOsbForm({
+          shopId: data.prestataire.osbShopId || '',
+          publicKey: data.prestataire.osbPublicKey || '',
+          certificate: '',
         });
         localStorage.setItem('prestataire_info', JSON.stringify(data.prestataire));
       }
@@ -447,6 +545,96 @@ export function PrestataireProfil() {
               </button>
             );
           })}
+        </div>
+      </div>
+
+      {/* Configuration de Paiement (OSB) */}
+      <div className="mb-6 rounded-xl border border-gray-200 bg-white p-5 shadow-sm">
+        <div className="flex items-start gap-3 mb-4">
+          <div className="flex h-10 w-10 items-center justify-center rounded-lg bg-emerald-100">
+            <KeyRound className="h-5 w-5 text-emerald-700" />
+          </div>
+          <div className="flex-1">
+            <h2 className="font-semibold text-gray-900">Configuration de Paiement (OSB)</h2>
+            <p className="text-sm text-gray-500">
+              {prestataire.osbConfigured
+                ? 'Paiement en ligne actif — les clients peuvent payer par carte sur vos comptes.'
+                : 'Sans credentials, les réservations restent en paiement hors app (cash).'}
+            </p>
+          </div>
+          {prestataire.osbConfigured ? (
+            <span className="rounded-full bg-emerald-50 px-2.5 py-1 text-xs font-medium text-emerald-700">
+              Configuré
+            </span>
+          ) : (
+            <span className="rounded-full bg-gray-100 px-2.5 py-1 text-xs font-medium text-gray-600">
+              Non configuré
+            </span>
+          )}
+        </div>
+
+        <div className="space-y-4">
+          <label className="block text-sm">
+            <span className="font-medium text-gray-700">Shop ID</span>
+            <input
+              type="text"
+              className="mt-1 w-full rounded-lg border border-gray-200 px-3 py-2"
+              value={osbForm.shopId}
+              onChange={(e) => setOsbForm({ ...osbForm, shopId: e.target.value })}
+              placeholder="Identifiant boutique PayZen / OSB"
+              autoComplete="off"
+            />
+          </label>
+          <label className="block text-sm">
+            <span className="font-medium text-gray-700">Clé publique</span>
+            <input
+              type="text"
+              className="mt-1 w-full rounded-lg border border-gray-200 px-3 py-2 font-mono text-sm"
+              value={osbForm.publicKey}
+              onChange={(e) => setOsbForm({ ...osbForm, publicKey: e.target.value })}
+              placeholder="Clé publique KR (front)"
+              autoComplete="off"
+            />
+          </label>
+          <label className="block text-sm">
+            <span className="font-medium text-gray-700">Certificat (Clé API)</span>
+            <input
+              type="password"
+              className="mt-1 w-full rounded-lg border border-gray-200 px-3 py-2 font-mono text-sm"
+              value={osbForm.certificate}
+              onChange={(e) => setOsbForm({ ...osbForm, certificate: e.target.value })}
+              placeholder={
+                prestataire.osbConfigured
+                  ? '•••••••• (laisser vide pour conserver)'
+                  : 'Certificat API (chiffré côté serveur)'
+              }
+              autoComplete="new-password"
+            />
+            <p className="mt-1 text-xs text-gray-500">
+              Jamais affiché après enregistrement. Stocké chiffré sur le serveur.
+            </p>
+          </label>
+          <div className="flex flex-wrap gap-2">
+            <button
+              type="button"
+              disabled={savingOsb}
+              onClick={handleSaveOsb}
+              className="inline-flex items-center gap-2 rounded-lg bg-emerald-600 px-4 py-2 text-sm font-medium text-white hover:bg-emerald-700 disabled:opacity-60"
+            >
+              <Save className="h-4 w-4" />
+              {savingOsb ? 'Enregistrement…' : 'Enregistrer le paiement'}
+            </button>
+            {prestataire.osbConfigured ? (
+              <button
+                type="button"
+                disabled={savingOsb}
+                onClick={handleClearOsb}
+                className="rounded-lg border border-red-200 px-4 py-2 text-sm font-medium text-red-600 hover:bg-red-50 disabled:opacity-60"
+              >
+                Supprimer
+              </button>
+            ) : null}
+          </div>
         </div>
       </div>
 

@@ -2033,13 +2033,25 @@ app.post("/api/rental-orders", async (req, res) => {
       routeInfo: undefined,
       passengers: 1,
       supplements: rentalSupplements,
-      paymentMethod: "cash" as const,
+      paymentMethod: (() => {
+        // Déterminé juste avant createOrder — placeholder remplacé ci-dessous
+        return "cash" as "cash" | "card";
+      })(),
       totalPrice: grandTotal,
       driverEarnings: 0,
       driverComment: `LOCATION ${days}j — ${categoryLabel} — ${modelName} — ${ownerName}`,
       scheduledTime: body.rental.startDate,
       isAdvanceBooking: true,
     };
+
+    // Paiement carte uniquement si le loueur a configuré OSB ; sinon cash (fallback)
+    {
+      const { getPrestataireOsbForVehicle } = await import("./payzen");
+      const osb = await getPrestataireOsbForVehicle(vehicleRow.id);
+      const wantCard = String(body.paymentMethod || "").toLowerCase() === "card";
+      (orderData as any).paymentMethod =
+        wantCard && osb.paymentOnlineAvailable ? "card" : "cash";
+    }
 
     const order = await dbStorage.createOrder(orderData as any, clientId);
 
@@ -4512,6 +4524,8 @@ app.post("/api/live-activities/end", async (req, res) => {
         customImageUrl: loueurVehicles.customImageUrl,
         prestataireNom: prestataires.nom,
         prestataireActive: prestataires.isActive,
+        osbShopId: prestataires.osbShopId,
+        osbCertificateEncrypted: prestataires.osbCertificateEncrypted,
         driverId: loueurVehicles.driverId,
         transmission: vehicleModels.transmission,
         fuel: vehicleModels.fuel,
@@ -4553,6 +4567,7 @@ app.post("/api/live-activities/end", async (req, res) => {
       }
 
       const result = [];
+      const { prestataireHasOsbCredentials } = await import("./osb-crypto");
       for (const row of rows) {
         if (row.prestataireActive === false) continue;
         let ownerName = (row.prestataireNom || "").trim() || "Loueur";
@@ -4617,6 +4632,10 @@ app.post("/api/live-activities/end", async (req, res) => {
           seats: specs.seats,
           modelName: row.modelName,
           modelCategory: row.modelCategory,
+          paymentOnlineAvailable: prestataireHasOsbCredentials({
+            osbShopId: row.osbShopId,
+            osbCertificateEncrypted: row.osbCertificateEncrypted,
+          }),
         });
       }
 
@@ -7331,6 +7350,211 @@ const sessionId = headerSessionId || cookieSessionId;
 
     return session.clientId;
   }
+
+  // ============ PAYZEN / OSB (paiement multi-tenant loueur) ============
+
+  app.get("/api/loueur-vehicles/:id/payment-options", async (req, res) => {
+    try {
+      const { getPrestataireOsbForVehicle } = await import("./payzen");
+      const info = await getPrestataireOsbForVehicle(req.params.id);
+      return res.json({
+        success: true,
+        paymentOnlineAvailable: info.paymentOnlineAvailable,
+        methods: info.paymentOnlineAvailable ? ["card", "cash"] : ["cash"],
+      });
+    } catch (error) {
+      console.error("payment-options error:", error);
+      return res.status(500).json({ success: false, error: "Erreur serveur" });
+    }
+  });
+
+  app.post("/api/payzen/create-payment", async (req, res) => {
+    try {
+      const authClientId = await getAuthenticatedClient(req);
+      if (!authClientId) {
+        return res.status(401).json({ success: false, error: "Session client requise" });
+      }
+      const orderId = String(req.body?.orderId || "").trim();
+      if (!orderId) {
+        return res.status(400).json({ success: false, error: "orderId requis" });
+      }
+
+      const publicBase =
+        process.env.PUBLIC_API_URL ||
+        process.env.RENDER_EXTERNAL_URL ||
+        `${req.protocol}://${req.get("host")}`;
+
+      const { createPayzenPaymentForOrder } = await import("./payzen");
+      const result = await createPayzenPaymentForOrder({
+        orderId,
+        clientId: authClientId,
+        ipnUrl: `${publicBase.replace(/\/$/, "")}/api/payzen/ipn`,
+      });
+
+      return res.json({
+        success: true,
+        formToken: result.formToken,
+        publicKey: result.publicKey,
+        shopId: result.shopId,
+        orderId: result.orderId,
+      });
+    } catch (error: any) {
+      const status = error?.status || 500;
+      const code = error?.code || "SERVER_ERROR";
+      console.error("[PayZen] create-payment:", code, error?.message);
+      return res.status(status).json({
+        success: false,
+        error: error?.message || "Erreur PayZen",
+        code,
+      });
+    }
+  });
+
+  /** IPN PayZen — body form: kr-answer, kr-hash, kr-hash-algorithm */
+  app.post("/api/payzen/ipn", async (req, res) => {
+    try {
+      const krAnswer = String(req.body?.["kr-answer"] || req.body?.krAnswer || "");
+      const krHash = String(req.body?.["kr-hash"] || req.body?.krHash || "");
+      if (!krAnswer) {
+        return res.status(400).send("KO");
+      }
+
+      let answer: any;
+      try {
+        answer = JSON.parse(krAnswer);
+      } catch {
+        return res.status(400).send("KO");
+      }
+
+      const orderId = String(answer?.orderDetails?.orderId || answer?.orderId || "").trim();
+      if (!orderId) {
+        return res.status(400).send("KO");
+      }
+
+      const [order] = await db.select().from(orders).where(eq(orders.id, orderId));
+      if (!order) {
+        return res.status(404).send("KO");
+      }
+
+      const ro = (order.rideOption || {}) as any;
+      const loueurVehicleId = String(ro.loueurVehicleId || "").trim();
+      if (!loueurVehicleId) {
+        return res.status(400).send("KO");
+      }
+
+      const [vehicle] = await db
+        .select({ prestataireId: loueurVehicles.prestataireId })
+        .from(loueurVehicles)
+        .where(eq(loueurVehicles.id, loueurVehicleId))
+        .limit(1);
+      if (!vehicle?.prestataireId) {
+        return res.status(404).send("KO");
+      }
+
+      const [prestataire] = await db
+        .select()
+        .from(prestataires)
+        .where(eq(prestataires.id, vehicle.prestataireId))
+        .limit(1);
+
+      if (!prestataire || !(await import("./osb-crypto")).prestataireHasOsbCredentials(prestataire as any)) {
+        return res.status(400).send("KO");
+      }
+
+      const { decryptOsbCertificate } = await import("./osb-crypto");
+      const { verifyPayzenIpnHash, markOrderPayzenPaid } = await import("./payzen");
+      const certificate = decryptOsbCertificate(
+        String((prestataire as any).osbCertificateEncrypted)
+      );
+      const algo =
+        String(req.body?.["kr-hash-algorithm"] || "").toLowerCase() === "sha1"
+          ? "sha1"
+          : "sha256";
+
+      if (!verifyPayzenIpnHash(krAnswer, krHash, certificate, algo as "sha256" | "sha1")) {
+        console.warn("[PayZen] IPN hash invalid for order", orderId);
+        return res.status(403).send("KO");
+      }
+
+      const status = String(answer?.orderStatus || answer?.transactions?.[0]?.status || "");
+      if (status === "PAID" || status === "AUTHORISED") {
+        await markOrderPayzenPaid(orderId, { payzenIpnStatus: status });
+      }
+
+      return res.status(200).send("OK");
+    } catch (error) {
+      console.error("[PayZen] IPN error:", error);
+      return res.status(500).send("KO");
+    }
+  });
+
+  /** Confirm client-side after KR success (re-check via GetOrder) */
+  app.post("/api/payzen/confirm", async (req, res) => {
+    try {
+      const authClientId = await getAuthenticatedClient(req);
+      if (!authClientId) {
+        return res.status(401).json({ success: false, error: "Session client requise" });
+      }
+      const orderId = String(req.body?.orderId || "").trim();
+      if (!orderId) {
+        return res.status(400).json({ success: false, error: "orderId requis" });
+      }
+
+      const [order] = await db.select().from(orders).where(eq(orders.id, orderId));
+      if (!order || (order.clientId && order.clientId !== authClientId)) {
+        return res.status(404).json({ success: false, error: "Commande introuvable" });
+      }
+
+      const ro = (order.rideOption || {}) as any;
+      const loueurVehicleId = String(ro.loueurVehicleId || "").trim();
+      const [vehicle] = await db
+        .select({ prestataireId: loueurVehicles.prestataireId })
+        .from(loueurVehicles)
+        .where(eq(loueurVehicles.id, loueurVehicleId))
+        .limit(1);
+      const [prestataire] = vehicle?.prestataireId
+        ? await db.select().from(prestataires).where(eq(prestataires.id, vehicle.prestataireId)).limit(1)
+        : [null];
+
+      if (
+        !prestataire ||
+        !(await import("./osb-crypto")).prestataireHasOsbCredentials(prestataire as any)
+      ) {
+        return res.status(400).json({ success: false, code: "OSB_NOT_CONFIGURED" });
+      }
+
+      const { decryptOsbCertificate } = await import("./osb-crypto");
+      const { getPayzenApiBase, markOrderPayzenPaid } = await import("./payzen");
+      const shopId = String((prestataire as any).osbShopId).trim();
+      const certificate = decryptOsbCertificate(
+        String((prestataire as any).osbCertificateEncrypted)
+      );
+      const auth =
+        "Basic " + Buffer.from(`${shopId}:${certificate}`, "utf8").toString("base64");
+
+      const pzRes = await fetch(`${getPayzenApiBase()}/V4/Order/Get`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json", Authorization: auth },
+        body: JSON.stringify({ orderId }),
+      });
+      const pzJson = (await pzRes.json().catch(() => null)) as any;
+      const orderStatus = pzJson?.answer?.orderStatus || pzJson?.answer?.transactions?.[0]?.status;
+      if (pzJson?.status === "SUCCESS" && (orderStatus === "PAID" || orderStatus === "AUTHORISED")) {
+        await markOrderPayzenPaid(orderId, { payzenConfirmStatus: orderStatus });
+        return res.json({ success: true, paid: true, status: orderStatus });
+      }
+
+      return res.json({
+        success: true,
+        paid: false,
+        status: orderStatus || "UNKNOWN",
+      });
+    } catch (error: any) {
+      console.error("[PayZen] confirm:", error);
+      return res.status(500).json({ success: false, error: error?.message || "Erreur serveur" });
+    }
+  });
+
   // Zod validation schemas for Stripe endpoints
   const setupIntentBodySchema = z.object({
     clientId: z.string().min(1),

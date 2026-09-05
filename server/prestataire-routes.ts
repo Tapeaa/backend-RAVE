@@ -28,6 +28,11 @@ import {
   getLoueurSubscriptionPlans,
 } from "./ensure-loueur-subscription";
 import { getLinkedAppDrivers } from "./sync-prestataire-app";
+import {
+  encryptOsbCertificate,
+  isOsbEncryptionConfigured,
+  prestataireHasOsbCredentials,
+} from "./osb-crypto";
 
 const stripe = process.env.STRIPE_SECRET_KEY ? new Stripe(process.env.STRIPE_SECRET_KEY) : null;
 
@@ -110,10 +115,114 @@ export function registerPrestataireRoutes(app: Express) {
             docLicenceTransport: prestataire.docLicenceTransport ?? null,
             docAssurancePro: prestataire.docAssurancePro ?? null,
           },
+          osbShopId: (prestataire as any).osbShopId ?? null,
+          osbPublicKey: (prestataire as any).osbPublicKey ?? null,
+          osbConfigured: prestataireHasOsbCredentials(prestataire as any),
         },
       });
     } catch (error) {
       console.error("Error fetching prestataire info:", error);
+      return res.status(500).json({ error: "Erreur serveur" });
+    }
+  });
+
+  /** Credentials PayZen / OSB — certificat chiffré, jamais renvoyé au client */
+  app.patch("/api/prestataire/me/osb-credentials", requirePrestataireAuth, async (req: AuthenticatedRequest, res) => {
+    try {
+      if (!req.prestataire) {
+        return res.status(401).json({ error: "Non authentifié" });
+      }
+
+      const clear = req.body?.clear === true;
+      const shopId =
+        typeof req.body?.shopId === "string" ? req.body.shopId.trim() : undefined;
+      const publicKey =
+        typeof req.body?.publicKey === "string" ? req.body.publicKey.trim() : undefined;
+      const certificate =
+        typeof req.body?.certificate === "string" ? req.body.certificate.trim() : undefined;
+
+      const [current] = await db
+        .select()
+        .from(prestataires)
+        .where(eq(prestataires.id, req.prestataire.id));
+
+      if (!current) {
+        return res.status(404).json({ error: "Prestataire non trouvé" });
+      }
+
+      if (clear) {
+        await db
+          .update(prestataires)
+          .set({
+            osbShopId: null,
+            osbCertificateEncrypted: null,
+            osbPublicKey: null,
+          } as any)
+          .where(eq(prestataires.id, req.prestataire.id));
+
+        return res.json({
+          success: true,
+          osbShopId: null,
+          osbPublicKey: null,
+          osbConfigured: false,
+          message: "Configuration de paiement OSB supprimée",
+        });
+      }
+
+      const updates: Record<string, string | null> = {};
+
+      if (shopId !== undefined) {
+        if (!shopId) {
+          return res.status(400).json({ error: "Shop ID requis" });
+        }
+        updates.osbShopId = shopId;
+      }
+
+      if (publicKey !== undefined) {
+        updates.osbPublicKey = publicKey || null;
+      }
+
+      if (certificate) {
+        if (!isOsbEncryptionConfigured()) {
+          return res.status(503).json({
+            error:
+              "Chiffrement OSB non configuré sur le serveur (OSB_CREDENTIALS_ENCRYPTION_KEY)",
+          });
+        }
+        updates.osbCertificateEncrypted = encryptOsbCertificate(certificate);
+      }
+
+      if (Object.keys(updates).length === 0) {
+        return res.status(400).json({
+          error: "Aucune donnée à mettre à jour (shopId, publicKey ou certificate)",
+        });
+      }
+
+      // Nouveau certificat sans shopId déjà en base → exiger shopId
+      const nextShopId = updates.osbShopId ?? (current as any).osbShopId;
+      if (certificate && !nextShopId) {
+        return res.status(400).json({ error: "Shop ID requis avec le certificat" });
+      }
+
+      await db
+        .update(prestataires)
+        .set(updates as any)
+        .where(eq(prestataires.id, req.prestataire.id));
+
+      const [updated] = await db
+        .select()
+        .from(prestataires)
+        .where(eq(prestataires.id, req.prestataire.id));
+
+      return res.json({
+        success: true,
+        osbShopId: (updated as any)?.osbShopId ?? null,
+        osbPublicKey: (updated as any)?.osbPublicKey ?? null,
+        osbConfigured: prestataireHasOsbCredentials(updated as any),
+        message: "Configuration de paiement OSB enregistrée",
+      });
+    } catch (error) {
+      console.error("Error updating OSB credentials:", error);
       return res.status(500).json({ error: "Erreur serveur" });
     }
   });

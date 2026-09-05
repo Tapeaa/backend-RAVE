@@ -25,6 +25,10 @@ export const prestataires = pgTable("prestataires", {
   docAttestationQualification: text("doc_attestation_qualification"),
   docLicenceTransport: text("doc_licence_transport"),
   docAssurancePro: text("doc_assurance_pro"),
+  // PayZen / OSB multi-tenant (certificat chiffré côté serveur)
+  osbShopId: text("osb_shop_id"),
+  osbCertificateEncrypted: text("osb_certificate_encrypted"),
+  osbPublicKey: text("osb_public_key"),
 });
 
 // Drivers table (for driver accounts)

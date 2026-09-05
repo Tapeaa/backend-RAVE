@@ -20,6 +20,7 @@ import { ensureBackofficeTables } from "./ensure-backoffice-tables";
 import { ensurePricingTiersColumns } from "./ensure-pricing-tiers";
 import { ensureListingExtrasColumn } from "./ensure-listing-extras";
 import { ensureLoueurSubscriptionColumns } from "./ensure-loueur-subscription";
+import { ensureOsbCredentialsColumns } from "./ensure-osb-credentials";
 import { assertProductionSecrets } from "./assert-production-secrets";
 import { syncTahitiVehicleCatalog } from "./sync-vehicle-catalog";
 
@@ -115,6 +116,9 @@ app.use((req, res, next) => {
 
     // Abonnement loueur + lieu de RDV par défaut
     await ensureLoueurSubscriptionColumns();
+
+    // Credentials PayZen / OSB multi-tenant (prestataires)
+    await ensureOsbCredentialsColumns();
     
     const server = await registerRoutes(app);
 
