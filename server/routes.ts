@@ -2452,8 +2452,85 @@ app.post("/api/rental-orders/:id/decline", async (req, res) => {
       return res.status(401).json({ success: false, error: "Session invalide" });
     }
 
+    const order = await dbStorage.getOrder(id);
+    if (!order) {
+      return res.status(404).json({ success: false, error: "Commande introuvable" });
+    }
+
+    const ro = (order.rideOption || {}) as any;
+    if (ro?.type !== "rental") {
+      return res.status(400).json({ success: false, error: "Pas une commande location" });
+    }
+
+    if (ro?.targetDriverId && ro.targetDriverId !== session.driverId) {
+      return res.status(403).json({
+        success: false,
+        error: "Cette commande est destinée à un autre loueur",
+      });
+    }
+
+    const loueurVehicleId = String(
+      ro?.loueurVehicleId || ro?.rentalData?.loueurVehicleId || ""
+    ).trim();
+    // Si pas de targetDriverId, vérifier que le véhicule appartient au loueur
+    if (loueurVehicleId && !ro?.targetDriverId) {
+      const [veh] = await db
+        .select({ driverId: loueurVehicles.driverId })
+        .from(loueurVehicles)
+        .where(eq(loueurVehicles.id, loueurVehicleId))
+        .limit(1);
+      if (veh?.driverId && veh.driverId !== session.driverId) {
+        return res.status(403).json({
+          success: false,
+          error: "Vous n'êtes pas le propriétaire de ce véhicule",
+        });
+      }
+    }
+
+    const isTargeted = !!(ro?.targetDriverId || loueurVehicleId);
+
+    // Location ciblée (cas RAVE) : refuser = statut declined visible côté client
+    if (isTargeted) {
+      if (!["pending", "payment_pending"].includes(order.status)) {
+        return res.status(409).json({
+          success: false,
+          error: "Cette demande ne peut plus être refusée",
+        });
+      }
+
+      const updatedOrder = await dbStorage.updateOrderStatus(id, "declined");
+      const payload = {
+        orderId: id,
+        status: "declined",
+        declinedBy: "driver",
+        driverName: session.driverName,
+        reason: "Le loueur a refusé votre demande de location",
+      };
+
+      io.to(`order:${id}`).emit("rental-order:declined", payload);
+      io.to("drivers:online").emit("rental-order:declined", payload);
+
+      if (order.clientId) {
+        try {
+          await clientNotifications.rentalDeclined(
+            order.clientId,
+            session.driverName,
+            id
+          );
+        } catch (e) {
+          console.warn("[RENTAL] decline push:", e);
+        }
+      }
+
+      console.log(
+        `[RENTAL] Order ${id} declined (status=declined) by ${session.driverName} (${session.driverId})`
+      );
+      return res.json({ success: true, order: updatedOrder });
+    }
+
+    // Mode diffusion (legacy) : masquer seulement pour ce chauffeur
     await dbStorage.appendRentalBroadcastDecline(id, session.driverId);
-    console.log(`[RENTAL] Order ${id} declined by driver ${session.driverName} (${session.driverId})`);
+    console.log(`[RENTAL] Order ${id} broadcast-declined by driver ${session.driverName} (${session.driverId})`);
     res.json({ success: true });
   } catch (error) {
     console.error("[RENTAL] Error declining rental order:", error);

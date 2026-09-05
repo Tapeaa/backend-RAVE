@@ -259,6 +259,18 @@ export const clientNotifications = {
         meetingPoint,
       }
     ),
+
+  /** Loueur a refusé la demande de location */
+  rentalDeclined: (clientId: string, driverName: string, orderId: string) =>
+    notifyClient(
+      clientId,
+      'Demande refusée',
+      `${driverName || 'Le loueur'} a refusé votre demande de location.`,
+      {
+        type: 'rental_declined',
+        orderId,
+      }
+    ),
 };
 
 /**
