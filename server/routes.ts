@@ -1832,6 +1832,8 @@ app.post("/api/rental-orders", async (req, res) => {
         availableForRental: loueurVehicles.availableForRental,
         pricingTiers: loueurVehicles.pricingTiers,
         maxRentalDays: loueurVehicles.maxRentalDays,
+        rentalContractMode: loueurVehicles.rentalContractMode,
+        customContractText: loueurVehicles.customContractText,
         prestataireNom: prestataires.nom,
         prestataireActive: prestataires.isActive,
         modelId: vehicleModels.id,
@@ -2020,6 +2022,8 @@ app.post("/api/rental-orders", async (req, res) => {
         pricingBreakdown: priced.breakdown,
         pricingSubtotal: priced.total,
         maxRentalDays,
+        rentalContractMode: (vehicleRow as any).rentalContractMode || "app_default",
+        customContractText: (vehicleRow as any).customContractText || null,
         ...(body.signature ? {
           clientSignatureSvg: body.signature.clientSignatureSvg,
           clientSignedAt: body.signature.clientSignedAt,

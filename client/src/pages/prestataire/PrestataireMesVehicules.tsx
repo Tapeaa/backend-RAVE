@@ -6,6 +6,11 @@
 import { useEffect, useState } from 'react';
 import { CarFront, Plus, X, Check, Edit, Trash2, Eye, EyeOff, Search, CalendarOff, FileText } from 'lucide-react';
 import {
+  buildCustomRentalContractHtml,
+  buildDefaultRentalContractHtml,
+  CUSTOM_CONTRACT_HINT,
+} from '@shared/rental-contract-html';
+import {
   DEFAULT_LISTING_EXTRAS,
   FEATURE_PRESETS,
   INCLUDED_PRESETS,
@@ -824,36 +829,35 @@ export function PrestataireMesVehicules() {
                 </button>
 
                 {formData.rentalContractMode === 'app_default' && (
-                  <div className="rounded-lg border border-gray-200 bg-white p-3">
+                  <div className="rounded-lg border border-gray-200 bg-white p-3 space-y-2">
                     <button
                       type="button"
                       onClick={() => setShowContractPreview((v) => !v)}
                       className="text-xs font-medium text-violet-700 hover:underline"
                     >
-                      {showContractPreview ? 'Masquer l’aperçu' : 'Voir le contrat type RAVE'}
+                      {showContractPreview ? 'Masquer l’aperçu' : 'Voir le contrat (identique à la signature client)'}
                     </button>
                     {showContractPreview ? (
-                      <div className="mt-2 max-h-48 overflow-y-auto rounded-md bg-gray-50 p-3 text-xs text-gray-700 whitespace-pre-wrap leading-relaxed">
-                        {`CONTRAT DE LOCATION DE VÉHICULE — RAVE
-Véhicule : ${selectedModel?.name || editingVehicle?.modelName || '—'}
-Immatriculation : ${formData.plate || '[plaque]'}
-Tarif de base : ${formData.pricingTiers[0]?.pricePerDay?.toLocaleString('fr-FR') || '—'} XPF / jour
-
-Article 1 — Parties
-Le Loueur met à disposition le véhicule décrit ci-dessus au Locataire, via la plateforme RAVE.
-
-Article 2 — Durée et tarif
-La location est conclue pour la durée et le prix indiqués lors de la réservation (paliers dégressifs le cas échéant).
-
-Article 3 — État du véhicule
-Le Locataire s’engage à restituer le véhicule dans l’état où il l’a reçu, hors usure normale.
-
-Article 4 — Responsabilité
-Le Locataire est responsable des amendes, dommages et franchises pendant la période de location.
-
-Article 5 — Résiliation
-Chaque partie peut résilier avec un préavis de 24 heures, selon les conditions affichées sur la fiche.`}
-                      </div>
+                      <iframe
+                        title="Aperçu contrat RAVE"
+                        className="w-full h-80 rounded-md border border-gray-100 bg-white"
+                        srcDoc={buildDefaultRentalContractHtml({
+                          ref: 'APERCU',
+                          contractDate: new Date().toLocaleDateString('fr-FR'),
+                          loueurName: 'Votre nom (loueur)',
+                          clientName: '[Nom du client]',
+                          clientInfo: '[Coordonnées client]',
+                          vehicleName: selectedModel?.name || editingVehicle?.modelName || 'Véhicule',
+                          vehicleMeta: formData.plate ? `Immat. ${formData.plate}` : undefined,
+                          startLabel: '[Date début]',
+                          endLabel: '[Date fin]',
+                          days: 3,
+                          pickupLocation: formData.defaultMeetingPoint || '[Lieu]',
+                          pricePerDayLabel: `${(formData.pricingTiers[0]?.pricePerDay || 0).toLocaleString('fr-FR')} XPF`,
+                          totalLabel: `${((formData.pricingTiers[0]?.pricePerDay || 0) * 3).toLocaleString('fr-FR')} XPF`,
+                          previewMode: true,
+                        })}
+                      />
                     ) : null}
                   </div>
                 )}
@@ -887,7 +891,7 @@ Chaque partie peut résilier avec un préavis de 24 heures, selon les conditions
                     <div>
                       <p className="text-sm font-semibold text-gray-900">Contrat personnalisé</p>
                       <p className="text-xs text-gray-500">
-                        Rédigez vos propres conditions pour ce véhicule uniquement
+                        Rédigez vos conditions — utilisez ## pour des titres verts comme le contrat RAVE
                       </p>
                     </div>
                   </div>
@@ -895,6 +899,50 @@ Chaque partie peut résilier avec un préavis de 24 heures, selon les conditions
 
                 {formData.rentalContractMode === 'custom' && (
                   <div className="space-y-2">
+                    <div className="flex flex-wrap gap-2">
+                      <button
+                        type="button"
+                        className="text-xs px-2.5 py-1.5 rounded-lg bg-violet-600 text-white font-medium"
+                        onClick={() =>
+                          setFormData((prev) => ({
+                            ...prev,
+                            customContractText:
+                              (prev.customContractText ? prev.customContractText + '\n\n' : '') +
+                              '## Article — Titre\nVotre texte ici…',
+                          }))
+                        }
+                      >
+                        + Titre coloré (##)
+                      </button>
+                      <button
+                        type="button"
+                        className="text-xs px-2.5 py-1.5 rounded-lg border border-gray-200 bg-white"
+                        onClick={() =>
+                          setFormData((prev) => ({
+                            ...prev,
+                            customContractText:
+                              (prev.customContractText ? prev.customContractText + '\n' : '') +
+                              '- Point important',
+                          }))
+                        }
+                      >
+                        + Liste
+                      </button>
+                      <button
+                        type="button"
+                        className="text-xs px-2.5 py-1.5 rounded-lg border border-gray-200 bg-white"
+                        onClick={() =>
+                          setFormData((prev) => ({
+                            ...prev,
+                            customContractText:
+                              (prev.customContractText ? prev.customContractText : '') + ' **texte**',
+                          }))
+                        }
+                      >
+                        Gras **
+                      </button>
+                    </div>
+                    <p className="text-xs text-gray-500 whitespace-pre-wrap">{CUSTOM_CONTRACT_HINT}</p>
                     <textarea
                       value={formData.customContractText}
                       onChange={(e) =>
@@ -904,27 +952,50 @@ Chaque partie peut résilier avec un préavis de 24 heures, selon les conditions
                         }))
                       }
                       rows={12}
-                      placeholder={`CONTRAT DE LOCATION — ${selectedModel?.name || editingVehicle?.modelName || 'Véhicule'}
-
-Article 1 — Parties
-Le Loueur : …
+                      placeholder={`## Article 1 — Parties
+Le Loueur : **Votre nom**
 Le Locataire : …
 
-Article 2 — Véhicule
-Modèle : …
+## Article 2 — Véhicule
+Modèle : ${selectedModel?.name || '…'}
 Immatriculation : ${formData.plate || '…'}
 
-Article 3 — Tarif
-…
-
-Article 4 — Conditions
-…`}
+## Article 3 — Conditions
+- Restituer le véhicule propre
+- Permis valide`}
                       className="w-full px-3 py-2 border border-violet-200 rounded-lg text-sm font-mono leading-relaxed focus:outline-none focus:ring-2 focus:ring-violet-300"
                     />
                     <p className="text-xs text-gray-500 text-right">
                       {formData.customContractText.length} caractère
                       {formData.customContractText.length > 1 ? 's' : ''}
                     </p>
+                    <button
+                      type="button"
+                      onClick={() => setShowContractPreview((v) => !v)}
+                      className="text-xs font-medium text-violet-700 hover:underline"
+                    >
+                      {showContractPreview ? 'Masquer l’aperçu formaté' : 'Aperçu formaté (comme le client)'}
+                    </button>
+                    {showContractPreview && formData.customContractText.trim() ? (
+                      <iframe
+                        title="Aperçu contrat perso"
+                        className="w-full h-72 rounded-md border border-violet-100 bg-white"
+                        srcDoc={buildCustomRentalContractHtml({
+                          ref: 'APERCU',
+                          contractDate: new Date().toLocaleDateString('fr-FR'),
+                          loueurName: 'Votre nom',
+                          clientName: '[Client]',
+                          vehicleName: selectedModel?.name || editingVehicle?.modelName || 'Véhicule',
+                          startLabel: '[Début]',
+                          endLabel: '[Fin]',
+                          days: 1,
+                          pricePerDayLabel: `${(formData.pricingTiers[0]?.pricePerDay || 0).toLocaleString('fr-FR')} XPF`,
+                          totalLabel: `${(formData.pricingTiers[0]?.pricePerDay || 0).toLocaleString('fr-FR')} XPF`,
+                          customBody: formData.customContractText,
+                          isCustom: true,
+                        })}
+                      />
+                    ) : null}
                   </div>
                 )}
               </div>
