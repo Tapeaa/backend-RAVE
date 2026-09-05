@@ -82,6 +82,7 @@ export function buildRentalContractHtml(order: {
     ref,
     contractDate: signedDate,
     loueurName,
+    loueurNumeroTahiti: rideOpt.ownerNumeroTahiti || rideOpt.numeroTahiti || null,
     clientName,
     vehicleName: String(rd.vehicleName || rideOpt.title || "Véhicule"),
     vehicleMeta: String(rd.vehicleCategory || rideOpt.categoryLabel || ""),

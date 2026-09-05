@@ -954,6 +954,7 @@ export function PrestataireMesVehicules() {
                           ref: 'APERCU',
                           contractDate: new Date().toLocaleDateString('fr-FR'),
                           loueurName: 'Votre nom (loueur)',
+                          loueurNumeroTahiti: '[Votre N° Tahiti / K-BIS]',
                           clientName: '[Nom du client]',
                           clientInfo: '[Coordonnées client]',
                           vehicleName: selectedModel?.name || editingVehicle?.modelName || 'Véhicule',
