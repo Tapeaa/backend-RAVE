@@ -31,4 +31,10 @@ export function assertProductionSecrets(): void {
   } else {
     console.log("[OSB] Envelope encryption locale (KEK env) — optionnel: OSB_AWS_KMS_KEY_ID pour KMS");
   }
+
+  if (!process.env.YOUSIGN_API_KEY) {
+    console.warn(
+      "[WARN] YOUSIGN_API_KEY unset — la signature électronique Yousign sera indisponible."
+    );
+  }
 }

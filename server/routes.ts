@@ -21,6 +21,12 @@ import { normalizeListingExtras, resolveVehicleSpecs } from "@shared/listing-ext
 import { persistImageUri, persistContractHtml, isEphemeralLocalUri } from "./persist-media";
 import { buildRentalContractHtml } from "./rental-contract";
 import {
+  getYousignPublicConfig,
+  isYousignConfigured,
+  prepareEmbeddedSignature,
+  getSignatureRequestStatus,
+} from "./yousign";
+import {
   getLoueurSubscriptionPlans,
 } from "./ensure-loueur-subscription";
 import {
@@ -1802,6 +1808,65 @@ const sessionId = headerSessionId || cookieSessionId;
 });
 
 // ============================================
+// YOUSIGN — signature électronique SES
+// ============================================
+app.get("/api/yousign/config", (_req, res) => {
+  return res.json(getYousignPublicConfig());
+});
+
+app.post("/api/yousign/signature-requests", async (req, res) => {
+  try {
+    if (!isYousignConfigured()) {
+      return res.status(503).json({
+        error: "Yousign non configuré. Ajoutez YOUSIGN_API_KEY sur le serveur.",
+      });
+    }
+    const {
+      pdfBase64,
+      firstName,
+      lastName,
+      email,
+      phone,
+      name,
+    } = req.body || {};
+    if (!pdfBase64 || typeof pdfBase64 !== "string") {
+      return res.status(400).json({ error: "pdfBase64 requis" });
+    }
+    const result = await prepareEmbeddedSignature({
+      pdfBase64,
+      firstName: String(firstName || ""),
+      lastName: String(lastName || ""),
+      email: String(email || ""),
+      phone: phone ? String(phone) : undefined,
+      name: name ? String(name) : undefined,
+    });
+    console.log(
+      `[YOUSIGN] SR ${result.signatureRequestId} créée (sandbox=${result.isSandbox})`
+    );
+    return res.json(result);
+  } catch (error: any) {
+    console.error("[YOUSIGN] prepare error:", error?.body || error);
+    return res.status(error?.status && error.status < 500 ? error.status : 502).json({
+      error: error?.message || "Erreur Yousign",
+      details: error?.body || undefined,
+    });
+  }
+});
+
+app.get("/api/yousign/signature-requests/:id", async (req, res) => {
+  try {
+    if (!isYousignConfigured()) {
+      return res.status(503).json({ error: "Yousign non configuré" });
+    }
+    const status = await getSignatureRequestStatus(String(req.params.id));
+    return res.json(status);
+  } catch (error: any) {
+    console.error("[YOUSIGN] status error:", error?.body || error);
+    return res.status(502).json({ error: error?.message || "Erreur Yousign" });
+  }
+});
+
+// ============================================
 // COMMANDES DE LOCATION DE VÉHICULE (RAVE)
 // ============================================
 app.post("/api/rental-orders", async (req, res) => {
@@ -2027,9 +2092,13 @@ app.post("/api/rental-orders", async (req, res) => {
         rentalContractMode: (vehicleRow as any).rentalContractMode || "app_default",
         customContractText: (vehicleRow as any).customContractText || null,
         ...(body.signature ? {
-          clientSignatureSvg: body.signature.clientSignatureSvg,
+          clientSignatureSvg: body.signature.clientSignatureSvg || null,
           clientSignedAt: body.signature.clientSignedAt,
           clientSignatureName: `${resolvedFirstName} ${resolvedLastName}`,
+          yousignSignatureRequestId: body.signature.yousignSignatureRequestId || null,
+          yousignSignerId: body.signature.yousignSignerId || null,
+          yousignDocumentId: body.signature.yousignDocumentId || null,
+          signedVia: body.signature.yousignSignatureRequestId ? "yousign" : "canvas",
         } : {}),
         ...(licenseFront || licenseBack ? {
           clientLicenseFront: licenseFront,
@@ -2062,7 +2131,7 @@ app.post("/api/rental-orders", async (req, res) => {
     const order = await dbStorage.createOrder(orderData as any, clientId);
 
     // Snapshot contrat permanent (HTML en base + URL Cloudinary si possible)
-    if (body.signature?.clientSignatureSvg) {
+    if (body.signature?.clientSignatureSvg || body.signature?.yousignSignatureRequestId) {
       try {
         const html = buildRentalContractHtml({
           id: order.id,
@@ -2089,7 +2158,7 @@ app.post("/api/rental-orders", async (req, res) => {
     const clientToken = generateClientToken();
     orderClientTokens.set(order.id, { token: clientToken, socketId: null });
 
-    const sigPresent = !!(body.signature?.clientSignatureSvg);
+    const sigPresent = !!(body.signature?.clientSignatureSvg || body.signature?.yousignSignatureRequestId);
     const docFront = !!licenseFront;
     const docBack = !!licenseBack;
     console.log(`[RENTAL] New rental order ${order.id} → driver ${vehicleRow.driverId} (${ownerName}) — ${modelName} ${pricePerDay}XPF/j × ${days}j | sig:${sigPresent} docs:${docFront}/${docBack} | client:${order.clientName}`);
