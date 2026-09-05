@@ -1016,35 +1016,35 @@ export function PrestataireMesVehicules() {
                     <div className="flex flex-wrap gap-2">
                       <button
                         type="button"
-                        className="inline-flex items-center gap-1.5 text-xs px-2.5 py-1.5 rounded-lg bg-violet-600 text-white font-medium"
+                        className="inline-flex items-center gap-1.5 text-xs px-2.5 py-1.5 rounded-lg border border-gray-200 bg-white font-medium hover:bg-gray-50"
                         onClick={insertTitle}
                       >
                         <Heading2 className="h-3.5 w-3.5" />
-                        Titre
+                        + Titre
                       </button>
                       <button
                         type="button"
-                        className="inline-flex items-center gap-1.5 text-xs px-2.5 py-1.5 rounded-lg border border-gray-200 bg-white font-medium"
+                        className="inline-flex items-center gap-1.5 text-xs px-2.5 py-1.5 rounded-lg border border-gray-200 bg-white font-medium hover:bg-gray-50"
                         onClick={() => wrapSelection('**', '**', 'texte important')}
                       >
                         <Bold className="h-3.5 w-3.5" />
-                        Gras
+                        + Gras
                       </button>
                       <button
                         type="button"
-                        className="inline-flex items-center gap-1.5 text-xs px-2.5 py-1.5 rounded-lg border border-gray-200 bg-white font-medium"
+                        className="inline-flex items-center gap-1.5 text-xs px-2.5 py-1.5 rounded-lg border border-gray-200 bg-white font-medium hover:bg-gray-50"
                         onClick={insertBullet}
                       >
                         <List className="h-3.5 w-3.5" />
-                        Liste
+                        + Liste
                       </button>
                       <button
                         type="button"
-                        className="inline-flex items-center gap-1.5 text-xs px-2.5 py-1.5 rounded-lg border border-gray-200 bg-white font-medium"
+                        className="inline-flex items-center gap-1.5 text-xs px-2.5 py-1.5 rounded-lg border border-gray-200 bg-white font-medium hover:bg-gray-50"
                         onClick={insertContractTemplate}
                       >
                         <FilePlus2 className="h-3.5 w-3.5" />
-                        Modèle prêt
+                        + Modèle
                       </button>
                     </div>
                     <textarea
