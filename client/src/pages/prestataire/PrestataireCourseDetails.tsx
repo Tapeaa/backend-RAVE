@@ -639,6 +639,5 @@ export function PrestataireCourseDetails() {
         </div>
       </div>
     </div>
-    </div>
   );
 }

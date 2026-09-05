@@ -5,7 +5,9 @@
   "license": "MIT",
   "scripts": {
     "dev": "cross-env NODE_ENV=development NODE_OPTIONS=--max-old-space-size=512 tsx server/index.ts",
-    "build": "vite build && esbuild server/index.ts --platform=node --packages=external --bundle --format=esm --outdir=dist && mkdir -p dist/data && cp -r server/data/* dist/data/ 2>/dev/null || true",
+    "build": "npm run build:client && npm run build:server",
+    "build:client": "vite build",
+    "build:server": "esbuild server/index.ts --platform=node --packages=external --bundle --format=esm --outdir=dist && node -e \"const fs=require('fs'); if(!fs.existsSync('dist/index.js')) { console.error('ERROR: dist/index.js missing after esbuild'); process.exit(1);} console.log('OK dist/index.js');\"",
     "start": "node dist/index.js",
     "check": "tsc",
     "db:push": "drizzle-kit push",
