@@ -1846,8 +1846,16 @@ app.post("/api/yousign/signature-requests", async (req, res) => {
     return res.json(result);
   } catch (error: any) {
     console.error("[YOUSIGN] prepare error:", error?.body || error);
+    const detail =
+      error?.body?.detail ||
+      error?.message ||
+      "Erreur Yousign";
+    const friendly =
+      typeof detail === "string" && /organization|sandbox/i.test(detail)
+        ? "En mode test Yousign (sandbox), l’e-mail du signataire doit être celui de votre compte Yousign. Utilisez cet e-mail dans le formulaire, ou passez en production (YOUSIGN_SANDBOX=false)."
+        : String(detail);
     return res.status(error?.status && error.status < 500 ? error.status : 502).json({
-      error: error?.message || "Erreur Yousign",
+      error: friendly,
       details: error?.body || undefined,
     });
   }
