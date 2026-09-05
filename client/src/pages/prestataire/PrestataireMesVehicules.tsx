@@ -4,7 +4,7 @@
  */
 
 import { useEffect, useState } from 'react';
-import { CarFront, Plus, X, Check, Edit, Trash2, Eye, EyeOff, Search, CalendarOff } from 'lucide-react';
+import { CarFront, Plus, X, Check, Edit, Trash2, Eye, EyeOff, Search, CalendarOff, FileText } from 'lucide-react';
 import {
   DEFAULT_LISTING_EXTRAS,
   FEATURE_PRESETS,
@@ -47,6 +47,8 @@ interface LoueurVehicle {
   availableForRental: boolean;
   customImageUrl: string | null;
   defaultMeetingPoint?: string | null;
+  rentalContractMode?: 'app_default' | 'custom' | string | null;
+  customContractText?: string | null;
   isActive: boolean;
   createdAt: string;
   modelName: string;
@@ -151,6 +153,8 @@ type FormState = {
   availableForRental: boolean;
   listingExtras: VehicleListingExtras;
   defaultMeetingPoint: string;
+  rentalContractMode: 'app_default' | 'custom';
+  customContractText: string;
 };
 
 export function PrestataireMesVehicules() {
@@ -170,8 +174,10 @@ export function PrestataireMesVehicules() {
     availableForRental: true,
     listingExtras: cloneExtras(),
     defaultMeetingPoint: '',
+    rentalContractMode: 'app_default',
+    customContractText: '',
   });
-
+  const [showContractPreview, setShowContractPreview] = useState(false);
   const [availabilityBlocks, setAvailabilityBlocks] = useState<AvailabilityBlock[]>([]);
   const [blockStart, setBlockStart] = useState(todayYmd());
   const [blockEnd, setBlockEnd] = useState(todayYmd());
@@ -297,6 +303,7 @@ export function PrestataireMesVehicules() {
   function openCreateModal() {
     setEditingVehicle(null);
     setAvailabilityBlocks([]);
+    setShowContractPreview(false);
     const model = models[0];
     setFormData({
       vehicleModelId: model?.id || '',
@@ -306,12 +313,15 @@ export function PrestataireMesVehicules() {
       availableForRental: true,
       listingExtras: cloneExtras(DEFAULT_LISTING_EXTRAS, model),
       defaultMeetingPoint: '',
+      rentalContractMode: 'app_default',
+      customContractText: '',
     });
     setShowModal(true);
   }
 
   function openEditModal(vehicle: LoueurVehicle) {
     setEditingVehicle(vehicle);
+    setShowContractPreview(false);
     setBlockStart(todayYmd());
     setBlockEnd(todayYmd());
     setBlockReason('');
@@ -333,6 +343,8 @@ export function PrestataireMesVehicules() {
         fuel: vehicle.modelFuel,
       }),
       defaultMeetingPoint: vehicle.defaultMeetingPoint || '',
+      rentalContractMode: vehicle.rentalContractMode === 'custom' ? 'custom' : 'app_default',
+      customContractText: vehicle.customContractText || '',
     });
     setShowModal(true);
   }
@@ -444,6 +456,10 @@ export function PrestataireMesVehicules() {
       alert('Chaque palier doit avoir un prix > 0');
       return;
     }
+    if (formData.rentalContractMode === 'custom' && !formData.customContractText.trim()) {
+      alert('Rédigez votre contrat personnalisé, ou choisissez le contrat RAVE par défaut.');
+      return;
+    }
 
     setIsSaving(true);
     try {
@@ -463,6 +479,9 @@ export function PrestataireMesVehicules() {
         availableForLongTerm: false,
         listingExtras: formData.listingExtras,
         defaultMeetingPoint: formData.defaultMeetingPoint.trim() || null,
+        rentalContractMode: formData.rentalContractMode,
+        customContractText:
+          formData.rentalContractMode === 'custom' ? formData.customContractText.trim() : null,
       };
 
       if (!editingVehicle) {
@@ -647,6 +666,15 @@ export function PrestataireMesVehicules() {
                     {vehicle.availableForRental && (
                       <span className="text-xs bg-blue-50 text-blue-700 px-2 py-0.5 rounded-full">Location</span>
                     )}
+                    <span
+                      className={`text-xs px-2 py-0.5 rounded-full ${
+                        vehicle.rentalContractMode === 'custom'
+                          ? 'bg-violet-50 text-violet-700'
+                          : 'bg-gray-100 text-gray-600'
+                      }`}
+                    >
+                      {vehicle.rentalContractMode === 'custom' ? 'Contrat perso' : 'Contrat RAVE'}
+                    </span>
                   </div>
                 </div>
 
@@ -744,6 +772,161 @@ export function PrestataireMesVehicules() {
                   Envoyé automatiquement au client quand vous acceptez une location de ce véhicule.
                   Vous pourrez aussi en envoyer un autre depuis l’app loueur.
                 </p>
+              </div>
+
+              {/* Contrat de location — par véhicule */}
+              <div className="rounded-xl border border-violet-200 bg-violet-50/40 p-4 space-y-3">
+                <div className="flex items-start gap-2">
+                  <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-violet-100">
+                    <FileText className="h-4 w-4 text-violet-700" />
+                  </div>
+                  <div>
+                    <h3 className="text-sm font-semibold text-gray-900">Contrat de location</h3>
+                    <p className="text-xs text-gray-600">
+                      Choisissez le contrat présenté au client pour ce véhicule (comme dans l’app loueur).
+                    </p>
+                  </div>
+                </div>
+
+                <button
+                  type="button"
+                  onClick={() =>
+                    setFormData((prev) => ({
+                      ...prev,
+                      rentalContractMode: 'app_default',
+                    }))
+                  }
+                  className={`w-full text-left rounded-xl border p-3 transition ${
+                    formData.rentalContractMode === 'app_default'
+                      ? 'border-violet-500 bg-white ring-1 ring-violet-200'
+                      : 'border-gray-200 bg-white hover:border-gray-300'
+                  }`}
+                >
+                  <div className="flex items-center gap-2">
+                    <span
+                      className={`flex h-5 w-5 items-center justify-center rounded-full border ${
+                        formData.rentalContractMode === 'app_default'
+                          ? 'border-violet-600 bg-violet-600 text-white'
+                          : 'border-gray-300'
+                      }`}
+                    >
+                      {formData.rentalContractMode === 'app_default' ? (
+                        <Check className="h-3 w-3" />
+                      ) : null}
+                    </span>
+                    <div>
+                      <p className="text-sm font-semibold text-gray-900">Contrat RAVE (par défaut)</p>
+                      <p className="text-xs text-gray-500">
+                        Contrat standard — compatible diffusion multi-loueurs sur le même modèle
+                      </p>
+                    </div>
+                  </div>
+                </button>
+
+                {formData.rentalContractMode === 'app_default' && (
+                  <div className="rounded-lg border border-gray-200 bg-white p-3">
+                    <button
+                      type="button"
+                      onClick={() => setShowContractPreview((v) => !v)}
+                      className="text-xs font-medium text-violet-700 hover:underline"
+                    >
+                      {showContractPreview ? 'Masquer l’aperçu' : 'Voir le contrat type RAVE'}
+                    </button>
+                    {showContractPreview ? (
+                      <div className="mt-2 max-h-48 overflow-y-auto rounded-md bg-gray-50 p-3 text-xs text-gray-700 whitespace-pre-wrap leading-relaxed">
+                        {`CONTRAT DE LOCATION DE VÉHICULE — RAVE
+Véhicule : ${selectedModel?.name || editingVehicle?.modelName || '—'}
+Immatriculation : ${formData.plate || '[plaque]'}
+Tarif de base : ${formData.pricingTiers[0]?.pricePerDay?.toLocaleString('fr-FR') || '—'} XPF / jour
+
+Article 1 — Parties
+Le Loueur met à disposition le véhicule décrit ci-dessus au Locataire, via la plateforme RAVE.
+
+Article 2 — Durée et tarif
+La location est conclue pour la durée et le prix indiqués lors de la réservation (paliers dégressifs le cas échéant).
+
+Article 3 — État du véhicule
+Le Locataire s’engage à restituer le véhicule dans l’état où il l’a reçu, hors usure normale.
+
+Article 4 — Responsabilité
+Le Locataire est responsable des amendes, dommages et franchises pendant la période de location.
+
+Article 5 — Résiliation
+Chaque partie peut résilier avec un préavis de 24 heures, selon les conditions affichées sur la fiche.`}
+                      </div>
+                    ) : null}
+                  </div>
+                )}
+
+                <button
+                  type="button"
+                  onClick={() =>
+                    setFormData((prev) => ({
+                      ...prev,
+                      rentalContractMode: 'custom',
+                    }))
+                  }
+                  className={`w-full text-left rounded-xl border p-3 transition ${
+                    formData.rentalContractMode === 'custom'
+                      ? 'border-violet-500 bg-white ring-1 ring-violet-200'
+                      : 'border-gray-200 bg-white hover:border-gray-300'
+                  }`}
+                >
+                  <div className="flex items-center gap-2">
+                    <span
+                      className={`flex h-5 w-5 items-center justify-center rounded-full border ${
+                        formData.rentalContractMode === 'custom'
+                          ? 'border-violet-600 bg-violet-600 text-white'
+                          : 'border-gray-300'
+                      }`}
+                    >
+                      {formData.rentalContractMode === 'custom' ? (
+                        <Check className="h-3 w-3" />
+                      ) : null}
+                    </span>
+                    <div>
+                      <p className="text-sm font-semibold text-gray-900">Contrat personnalisé</p>
+                      <p className="text-xs text-gray-500">
+                        Rédigez vos propres conditions pour ce véhicule uniquement
+                      </p>
+                    </div>
+                  </div>
+                </button>
+
+                {formData.rentalContractMode === 'custom' && (
+                  <div className="space-y-2">
+                    <textarea
+                      value={formData.customContractText}
+                      onChange={(e) =>
+                        setFormData((prev) => ({
+                          ...prev,
+                          customContractText: e.target.value,
+                        }))
+                      }
+                      rows={12}
+                      placeholder={`CONTRAT DE LOCATION — ${selectedModel?.name || editingVehicle?.modelName || 'Véhicule'}
+
+Article 1 — Parties
+Le Loueur : …
+Le Locataire : …
+
+Article 2 — Véhicule
+Modèle : …
+Immatriculation : ${formData.plate || '…'}
+
+Article 3 — Tarif
+…
+
+Article 4 — Conditions
+…`}
+                      className="w-full px-3 py-2 border border-violet-200 rounded-lg text-sm font-mono leading-relaxed focus:outline-none focus:ring-2 focus:ring-violet-300"
+                    />
+                    <p className="text-xs text-gray-500 text-right">
+                      {formData.customContractText.length} caractère
+                      {formData.customContractText.length > 1 ? 's' : ''}
+                    </p>
+                  </div>
+                )}
               </div>
 
               {editingVehicle && (

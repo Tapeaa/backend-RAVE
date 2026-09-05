@@ -1748,6 +1748,7 @@ export function registerPrestataireRoutes(app: Express) {
           customImageUrl: loueurVehicles.customImageUrl,
           defaultMeetingPoint: loueurVehicles.defaultMeetingPoint,
           rentalContractMode: loueurVehicles.rentalContractMode,
+          customContractText: loueurVehicles.customContractText,
           isActive: loueurVehicles.isActive,
           createdAt: loueurVehicles.createdAt,
           // Infos du modèle
@@ -1784,7 +1785,7 @@ export function registerPrestataireRoutes(app: Express) {
       const {
         vehicleModelId, plate, pricePerDay, pricePerDayLongTerm,
         availableForRental, availableForDelivery, availableForLongTerm, customImageUrl,
-        rentalContractMode, pricingTiers, maxRentalDays, listingExtras, defaultMeetingPoint,
+        rentalContractMode, customContractText, pricingTiers, maxRentalDays, listingExtras, defaultMeetingPoint,
       } = req.body;
 
       if (!vehicleModelId) {
@@ -1813,6 +1814,10 @@ export function registerPrestataireRoutes(app: Express) {
 
       const contractMode =
         rentalContractMode === "custom" ? "custom" : "app_default";
+      const contractText =
+        contractMode === "custom" && typeof customContractText === "string"
+          ? customContractText.trim() || null
+          : null;
 
       let tiersPayload = pricingTiers;
       let maxDaysPayload = maxRentalDays ?? MAX_RENTAL_DAYS_CAP;
@@ -1850,6 +1855,7 @@ export function registerPrestataireRoutes(app: Express) {
               ? defaultMeetingPoint.trim()
               : null,
           rentalContractMode: contractMode,
+          customContractText: contractText,
           isActive: true,
         })
         .returning();
@@ -1895,6 +1901,7 @@ export function registerPrestataireRoutes(app: Express) {
         "customImageUrl",
         "isActive",
         "rentalContractMode",
+        "customContractText",
         "defaultMeetingPoint",
       ];
       for (const field of allowedFields) {
@@ -1911,6 +1918,19 @@ export function registerPrestataireRoutes(app: Express) {
 
       if (updates.rentalContractMode !== undefined) {
         updates.rentalContractMode = updates.rentalContractMode === "custom" ? "custom" : "app_default";
+      }
+
+      // Mode RAVE → effacer le texte custom ; mode custom → trim
+      if (updates.rentalContractMode === "app_default") {
+        updates.customContractText = null;
+      } else if (updates.customContractText !== undefined) {
+        updates.customContractText =
+          typeof updates.customContractText === "string" && updates.customContractText.trim()
+            ? updates.customContractText.trim()
+            : null;
+      } else if (updates.rentalContractMode === "custom" && req.body.customContractText !== undefined) {
+        const t = req.body.customContractText;
+        updates.customContractText = typeof t === "string" && t.trim() ? t.trim() : null;
       }
 
       if (req.body.pricingTiers !== undefined || req.body.maxRentalDays !== undefined) {
