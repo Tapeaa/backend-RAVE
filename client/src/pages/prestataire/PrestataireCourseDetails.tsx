@@ -9,7 +9,7 @@ import html2pdf from 'html2pdf.js';
 import { 
   ArrowLeft, MapPin, User, Car, Clock, 
   CreditCard, Banknote, FileText, Download,
-  CheckCircle, XCircle, Navigation, Star, DollarSign
+  CheckCircle, XCircle, Navigation, Star, DollarSign, Building2
 } from 'lucide-react';
 
 interface CourseDetails {
@@ -170,8 +170,20 @@ export function PrestataireCourseDetails() {
   }
 
   const { course, driver, prestataire, ratings = { client: null, chauffeur: null } } = data;
+  const isRental =
+    course.rideOption?.type === 'rental' ||
+    (course.rideOption as any)?.isRentalOrder;
   const isCompleted = course.status === 'payment_confirmed' || course.status === 'completed';
-  const isCancelled = course.status === 'cancelled';
+  const isCancelled = course.status === 'cancelled' || course.status === 'declined';
+  const isDeclined = course.status === 'declined';
+
+  const statusTitle = isDeclined
+    ? 'Réservation refusée'
+    : isCompleted
+      ? (isRental ? 'Location terminée' : 'Course terminée et payée')
+      : isCancelled
+        ? (isRental ? 'Réservation annulée' : 'Course annulée')
+        : (isRental ? 'Réservation en cours' : 'Course en cours');
 
   function renderStars(score: number) {
     return (
@@ -308,7 +320,7 @@ export function PrestataireCourseDetails() {
           <div className={`font-semibold ${
             isCompleted ? 'text-green-800' : isCancelled ? 'text-red-800' : 'text-yellow-800'
           }`}>
-            {isCompleted ? 'Course terminée et payée' : isCancelled ? 'Course annulée' : 'Course en cours'}
+            {statusTitle}
           </div>
           <div className={`text-sm ${
             isCompleted ? 'text-green-600' : isCancelled ? 'text-red-600' : 'text-yellow-600'

@@ -1110,30 +1110,53 @@ export function registerPrestataireRoutes(app: Express) {
         return res.status(404).json({ error: "Course non trouvée" });
       }
 
-      // Vérifier que le chauffeur appartient au prestataire
-      if (order.assignedDriverId) {
-        const [driver] = await db.select().from(drivers).where(eq(drivers.id, order.assignedDriverId));
-        if (!driver || driver.prestataireId !== req.prestataire.id) {
-          return res.status(403).json({ error: "Accès non autorisé" });
-        }
-      }
+  // Vérifier l'accès : chauffeur assigné du prestataire, ou location ciblée (targetDriverId / véhicule)
+  const driverIds = await resolvePrestataireDriverIds(req.prestataire.id);
+  const roAuth = order.rideOption as any;
+  const targetDriverId = String(roAuth?.targetDriverId || "").trim();
+  const ownerFromOrder = order.assignedDriverId || targetDriverId || null;
+  const belongsToPrestataire =
+    (order.assignedDriverId && driverIds.includes(order.assignedDriverId)) ||
+    (targetDriverId && driverIds.includes(targetDriverId));
 
-      // Récupérer les infos du chauffeur
-      let driverInfo = null;
-      if (order.assignedDriverId) {
-        const [driver] = await db.select().from(drivers).where(eq(drivers.id, order.assignedDriverId));
-        if (driver) {
-          driverInfo = {
-            id: driver.id,
-            firstName: driver.firstName,
-            lastName: driver.lastName,
-            phone: driver.phone,
-            vehicleModel: driver.vehicleModel,
-            vehiclePlate: driver.vehiclePlate,
-            commissionChauffeur: driver.commissionChauffeur || 95,
-          };
-        }
-      }
+  if (!belongsToPrestataire) {
+    // Fallback : véhicule loueur lié au prestataire
+    const loueurVehicleId = String(
+      roAuth?.loueurVehicleId || roAuth?.rentalData?.loueurVehicleId || ""
+    ).trim();
+    let vehicleOk = false;
+    if (loueurVehicleId) {
+      const [veh] = await db
+        .select({ prestataireId: loueurVehicles.prestataireId, driverId: loueurVehicles.driverId })
+        .from(loueurVehicles)
+        .where(eq(loueurVehicles.id, loueurVehicleId))
+        .limit(1);
+      vehicleOk =
+        veh?.prestataireId === req.prestataire.id ||
+        (!!veh?.driverId && driverIds.includes(veh.driverId));
+    }
+    if (!vehicleOk) {
+      return res.status(403).json({ error: "Accès non autorisé" });
+    }
+  }
+
+  // Récupérer les infos du chauffeur
+  let driverInfo = null;
+  const driverLookupId = order.assignedDriverId || ownerFromOrder;
+  if (driverLookupId) {
+    const [driver] = await db.select().from(drivers).where(eq(drivers.id, driverLookupId));
+    if (driver) {
+      driverInfo = {
+        id: driver.id,
+        firstName: driver.firstName,
+        lastName: driver.lastName,
+        phone: driver.phone,
+        vehicleModel: driver.vehicleModel,
+        vehiclePlate: driver.vehiclePlate,
+        commissionChauffeur: driver.commissionChauffeur || 95,
+      };
+    }
+  }
 
       // Extraire les adresses - le champ s'appelle "value" dans le schema
       const addresses = order.addresses as any;
