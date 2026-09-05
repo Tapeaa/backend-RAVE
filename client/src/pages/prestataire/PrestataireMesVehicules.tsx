@@ -3,12 +3,11 @@
  * Flotte + tarifs dégressifs + termes fiche client
  */
 
-import { useEffect, useState } from 'react';
-import { CarFront, Plus, X, Check, Edit, Trash2, Eye, EyeOff, Search, CalendarOff, FileText } from 'lucide-react';
+import { useEffect, useRef, useState } from 'react';
+import { CarFront, Plus, X, Check, Edit, Trash2, Eye, EyeOff, Search, CalendarOff, FileText, Bold, List, Heading2, FilePlus2 } from 'lucide-react';
 import {
   buildCustomRentalContractHtml,
   buildDefaultRentalContractHtml,
-  CUSTOM_CONTRACT_HINT,
 } from '@shared/rental-contract-html';
 import {
   DEFAULT_LISTING_EXTRAS,
@@ -183,6 +182,7 @@ export function PrestataireMesVehicules() {
     customContractText: '',
   });
   const [showContractPreview, setShowContractPreview] = useState(false);
+  const customContractRef = useRef<HTMLTextAreaElement>(null);
   const [availabilityBlocks, setAvailabilityBlocks] = useState<AvailabilityBlock[]>([]);
   const [blockStart, setBlockStart] = useState(todayYmd());
   const [blockEnd, setBlockEnd] = useState(todayYmd());
@@ -553,6 +553,115 @@ export function PrestataireMesVehicules() {
   const selectedModel = models.find((m) => m.id === formData.vehicleModelId);
   const extras = formData.listingExtras;
 
+  const setCustomText = (customContractText: string) => {
+    setFormData((prev) => ({ ...prev, customContractText }));
+    setShowContractPreview(true);
+  };
+
+  const nextArticleNumber = (text: string) => {
+    const matches = [...text.matchAll(/Article\s+(\d+)/gi)];
+    return matches.reduce((max, m) => Math.max(max, Number(m[1]) || 0), 0) + 1;
+  };
+
+  const insertAtCursor = (insert: string, selectInner?: { start: number; end: number }) => {
+    const el = customContractRef.current;
+    const text = formData.customContractText;
+    if (!el) {
+      setCustomText(text + insert);
+      return;
+    }
+    const start = el.selectionStart ?? text.length;
+    const end = el.selectionEnd ?? start;
+    const next = text.slice(0, start) + insert + text.slice(end);
+    setCustomText(next);
+    requestAnimationFrame(() => {
+      el.focus();
+      const pos = selectInner
+        ? { start: start + selectInner.start, end: start + selectInner.end }
+        : { start: start + insert.length, end: start + insert.length };
+      el.setSelectionRange(pos.start, pos.end);
+    });
+  };
+
+  const wrapSelection = (before: string, after: string, placeholder: string) => {
+    const el = customContractRef.current;
+    const text = formData.customContractText;
+    if (!el) {
+      setCustomText(text + before + placeholder + after);
+      return;
+    }
+    const start = el.selectionStart ?? 0;
+    const end = el.selectionEnd ?? 0;
+    const selected = text.slice(start, end);
+    const inner = selected || placeholder;
+    const insert = `${before}${inner}${after}`;
+    const next = text.slice(0, start) + insert + text.slice(end);
+    setCustomText(next);
+    requestAnimationFrame(() => {
+      el.focus();
+      el.setSelectionRange(start + before.length, start + before.length + inner.length);
+    });
+  };
+
+  const insertTitle = () => {
+    const n = nextArticleNumber(formData.customContractText);
+    const label = window.prompt('Titre de la section (apparaîtra en vert)', `Article ${n} — `);
+    if (label == null) return;
+    const clean = label.trim() || `Article ${n} — Titre`;
+    const prefix = formData.customContractText
+      ? formData.customContractText.endsWith('\n')
+        ? '\n'
+        : '\n\n'
+      : '';
+    insertAtCursor(`${prefix}## ${clean}\n`);
+  };
+
+  const insertBullet = () => {
+    const el = customContractRef.current;
+    const text = formData.customContractText;
+    if (el && el.selectionEnd > el.selectionStart) {
+      const start = el.selectionStart;
+      const end = el.selectionEnd;
+      const chunk = text.slice(start, end);
+      const bulleted = chunk
+        .split('\n')
+        .map((line) => {
+          const t = line.trim();
+          if (!t || t.startsWith('- ')) return line;
+          return `- ${t}`;
+        })
+        .join('\n');
+      const next = text.slice(0, start) + bulleted + text.slice(end);
+      setCustomText(next);
+      return;
+    }
+    const prefix = text && !text.endsWith('\n') ? '\n' : '';
+    insertAtCursor(`${prefix}- `);
+  };
+
+  const insertContractTemplate = () => {
+    const name = selectedModel?.name || editingVehicle?.modelName || 'Véhicule';
+    setCustomText(
+      [
+        '## Article 1 — Parties',
+        'Le Loueur : **Votre nom / société**',
+        'Le Locataire : le client signataire',
+        '',
+        '## Article 2 — Véhicule',
+        `Modèle : ${name}`,
+        'État et accessoires constatés à la remise des clés.',
+        '',
+        '## Article 3 — Conditions',
+        '- Permis de conduire valide obligatoire',
+        '- Restituer le véhicule propre et avec le même niveau de carburant',
+        '- Signaler immédiatement tout sinistre au loueur',
+        '',
+        '## Article 4 — Caution et assurance',
+        'La caution est restituée après contrôle du véhicule, sous réserve de dégâts ou amendes.',
+      ].join('\n')
+    );
+  };
+
   return (
     <div className="space-y-6">
       <div className="flex items-center justify-between">
@@ -864,12 +973,13 @@ export function PrestataireMesVehicules() {
 
                 <button
                   type="button"
-                  onClick={() =>
+                  onClick={() => {
                     setFormData((prev) => ({
                       ...prev,
                       rentalContractMode: 'custom',
-                    }))
-                  }
+                    }));
+                    setShowContractPreview(true);
+                  }}
                   className={`w-full text-left rounded-xl border p-3 transition ${
                     formData.rentalContractMode === 'custom'
                       ? 'border-violet-500 bg-white ring-1 ring-violet-200'
@@ -891,7 +1001,7 @@ export function PrestataireMesVehicules() {
                     <div>
                       <p className="text-sm font-semibold text-gray-900">Contrat personnalisé</p>
                       <p className="text-xs text-gray-500">
-                        Rédigez vos conditions — utilisez ## pour des titres verts comme le contrat RAVE
+                        Rédigez vos conditions — boutons Titre, Gras et Liste
                       </p>
                     </div>
                   </div>
@@ -899,84 +1009,75 @@ export function PrestataireMesVehicules() {
 
                 {formData.rentalContractMode === 'custom' && (
                   <div className="space-y-2">
+                    <p className="text-xs text-gray-500">
+                      Écrivez normalement, puis utilisez les boutons. L’aperçu montre exactement ce que
+                      verra le client à la signature.
+                    </p>
                     <div className="flex flex-wrap gap-2">
                       <button
                         type="button"
-                        className="text-xs px-2.5 py-1.5 rounded-lg bg-violet-600 text-white font-medium"
-                        onClick={() =>
-                          setFormData((prev) => ({
-                            ...prev,
-                            customContractText:
-                              (prev.customContractText ? prev.customContractText + '\n\n' : '') +
-                              '## Article — Titre\nVotre texte ici…',
-                          }))
-                        }
+                        className="inline-flex items-center gap-1.5 text-xs px-2.5 py-1.5 rounded-lg bg-violet-600 text-white font-medium"
+                        onClick={insertTitle}
                       >
-                        + Titre coloré (##)
+                        <Heading2 className="h-3.5 w-3.5" />
+                        Titre
                       </button>
                       <button
                         type="button"
-                        className="text-xs px-2.5 py-1.5 rounded-lg border border-gray-200 bg-white"
-                        onClick={() =>
-                          setFormData((prev) => ({
-                            ...prev,
-                            customContractText:
-                              (prev.customContractText ? prev.customContractText + '\n' : '') +
-                              '- Point important',
-                          }))
-                        }
+                        className="inline-flex items-center gap-1.5 text-xs px-2.5 py-1.5 rounded-lg border border-gray-200 bg-white font-medium"
+                        onClick={() => wrapSelection('**', '**', 'texte important')}
                       >
-                        + Liste
+                        <Bold className="h-3.5 w-3.5" />
+                        Gras
                       </button>
                       <button
                         type="button"
-                        className="text-xs px-2.5 py-1.5 rounded-lg border border-gray-200 bg-white"
-                        onClick={() =>
-                          setFormData((prev) => ({
-                            ...prev,
-                            customContractText:
-                              (prev.customContractText ? prev.customContractText : '') + ' **texte**',
-                          }))
-                        }
+                        className="inline-flex items-center gap-1.5 text-xs px-2.5 py-1.5 rounded-lg border border-gray-200 bg-white font-medium"
+                        onClick={insertBullet}
                       >
-                        Gras **
+                        <List className="h-3.5 w-3.5" />
+                        Liste
+                      </button>
+                      <button
+                        type="button"
+                        className="inline-flex items-center gap-1.5 text-xs px-2.5 py-1.5 rounded-lg border border-gray-200 bg-white font-medium"
+                        onClick={insertContractTemplate}
+                      >
+                        <FilePlus2 className="h-3.5 w-3.5" />
+                        Modèle prêt
                       </button>
                     </div>
-                    <p className="text-xs text-gray-500 whitespace-pre-wrap">{CUSTOM_CONTRACT_HINT}</p>
                     <textarea
+                      ref={customContractRef}
                       value={formData.customContractText}
-                      onChange={(e) =>
+                      onChange={(e) => {
                         setFormData((prev) => ({
                           ...prev,
                           customContractText: e.target.value,
-                        }))
-                      }
+                        }));
+                        if (e.target.value.trim()) setShowContractPreview(true);
+                      }}
                       rows={12}
-                      placeholder={`## Article 1 — Parties
-Le Loueur : **Votre nom**
-Le Locataire : …
+                      placeholder={`Écrivez vos articles ici…
 
-## Article 2 — Véhicule
-Modèle : ${selectedModel?.name || '…'}
-Immatriculation : ${formData.plate || '…'}
-
-## Article 3 — Conditions
-- Restituer le véhicule propre
-- Permis valide`}
-                      className="w-full px-3 py-2 border border-violet-200 rounded-lg text-sm font-mono leading-relaxed focus:outline-none focus:ring-2 focus:ring-violet-300"
+Astuce : sélectionnez un mot puis cliquez sur Gras.
+Cliquez sur Titre pour une section verte.`}
+                      className="w-full px-3 py-2 border border-violet-200 rounded-lg text-sm leading-relaxed focus:outline-none focus:ring-2 focus:ring-violet-300"
                     />
-                    <p className="text-xs text-gray-500 text-right">
-                      {formData.customContractText.length} caractère
-                      {formData.customContractText.length > 1 ? 's' : ''}
-                    </p>
-                    <button
-                      type="button"
-                      onClick={() => setShowContractPreview((v) => !v)}
-                      className="text-xs font-medium text-violet-700 hover:underline"
-                    >
-                      {showContractPreview ? 'Masquer l’aperçu formaté' : 'Aperçu formaté (comme le client)'}
-                    </button>
-                    {showContractPreview && formData.customContractText.trim() ? (
+                    <div className="flex items-center justify-between">
+                      <button
+                        type="button"
+                        onClick={() => setShowContractPreview((v) => !v)}
+                        className="text-xs font-medium text-violet-700 hover:underline"
+                      >
+                        {showContractPreview ? 'Masquer l’aperçu' : 'Voir l’aperçu client'}
+                      </button>
+                      <p className="text-xs text-gray-500">
+                        {formData.customContractText.length} caractère
+                        {formData.customContractText.length > 1 ? 's' : ''}
+                      </p>
+                    </div>
+                    {showContractPreview ? (
                       <iframe
                         title="Aperçu contrat perso"
                         className="w-full h-72 rounded-md border border-violet-100 bg-white"
@@ -991,7 +1092,9 @@ Immatriculation : ${formData.plate || '…'}
                           days: 1,
                           pricePerDayLabel: `${(formData.pricingTiers[0]?.pricePerDay || 0).toLocaleString('fr-FR')} XPF`,
                           totalLabel: `${(formData.pricingTiers[0]?.pricePerDay || 0).toLocaleString('fr-FR')} XPF`,
-                          customBody: formData.customContractText,
+                          customBody:
+                            formData.customContractText.trim() ||
+                            'Rédigez votre contrat…\nL’aperçu se met à jour ici.',
                           isCustom: true,
                         })}
                       />
