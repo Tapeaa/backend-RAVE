@@ -230,3 +230,123 @@ export async function getPrestataireOsbForVehicle(loueurVehicleId: string): Prom
     }),
   };
 }
+
+export type PayzenConnectionTestResult = {
+  ok: boolean;
+  message: string;
+  shopIdPrefix?: string;
+  formTokenReceived?: boolean;
+  publicKeyPresent?: boolean;
+  errorCode?: string | null;
+};
+
+/**
+ * Teste Shop ID + certificat auprès de PayZen (CreatePayment 1 XPF).
+ * N’encaisse rien : seul un formToken est émis, jamais soumis au formulaire.
+ */
+export async function testPayzenConnection(params: {
+  shopId: string;
+  certificate: string;
+  publicKey?: string | null;
+}): Promise<PayzenConnectionTestResult> {
+  const shopId = String(params.shopId || "").trim();
+  const certificate = String(params.certificate || "").trim();
+  const publicKey = params.publicKey != null ? String(params.publicKey).trim() : "";
+
+  if (!shopId || !certificate) {
+    return {
+      ok: false,
+      message: "Shop ID et certificat sont requis pour le test",
+      publicKeyPresent: !!publicKey,
+    };
+  }
+
+  const baseUrl = getPayzenApiBase();
+  const testOrderId = `rave-conn-${Date.now()}`;
+  const body = {
+    amount: 1,
+    currency: "XPF",
+    orderId: testOrderId,
+    customer: {
+      billingDetails: {
+        firstName: "RAVE",
+        lastName: "ConnexionTest",
+      },
+    },
+  };
+
+  try {
+    const response = await fetch(`${baseUrl}/V4/Charge/CreatePayment`, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: basicAuthHeader(shopId, certificate),
+      },
+      body: JSON.stringify(body),
+    });
+
+    const json = (await response.json().catch(() => null)) as any;
+    const formToken = json?.answer?.formToken;
+    const errorCode = json?.answer?.errorCode ?? null;
+    const errorMessage =
+      json?.answer?.errorMessage ||
+      json?.answer?.detailedErrorMessage ||
+      json?.errorMessage ||
+      (!response.ok ? `HTTP ${response.status}` : null);
+
+    if (response.ok && json?.status === "SUCCESS" && typeof formToken === "string" && formToken) {
+      return {
+        ok: true,
+        message: publicKey
+          ? "Connexion PayZen OK — Shop ID et certificat valides"
+          : "Connexion PayZen OK — pensez à renseigner aussi la clé publique pour le formulaire client",
+        shopIdPrefix: shopId.slice(0, 4) + "…",
+        formTokenReceived: true,
+        publicKeyPresent: !!publicKey,
+      };
+    }
+
+    return {
+      ok: false,
+      message: errorMessage || "Identifiants PayZen refusés",
+      shopIdPrefix: shopId.slice(0, 4) + "…",
+      formTokenReceived: false,
+      publicKeyPresent: !!publicKey,
+      errorCode,
+    };
+  } catch (e) {
+    return {
+      ok: false,
+      message: e instanceof Error ? e.message : "Erreur réseau vers PayZen",
+      shopIdPrefix: shopId.slice(0, 4) + "…",
+      publicKeyPresent: !!publicKey,
+    };
+  }
+}
+
+/** Charge les credentials stockés d’un prestataire puis teste PayZen. */
+export async function testPayzenForPrestataireId(
+  prestataireId: string
+): Promise<PayzenConnectionTestResult> {
+  const [row] = await db
+    .select()
+    .from(prestataires)
+    .where(eq(prestataires.id, prestataireId))
+    .limit(1);
+
+  if (!row || !prestataireHasOsbCredentials(row as any)) {
+    return {
+      ok: false,
+      message: "Paiement OSB non configuré pour ce loueur",
+    };
+  }
+
+  const certificate = await decryptOsbCertificate(
+    String((row as any).osbCertificateEncrypted)
+  );
+  return testPayzenConnection({
+    shopId: String((row as any).osbShopId),
+    certificate,
+    publicKey: (row as any).osbPublicKey,
+  });
+}

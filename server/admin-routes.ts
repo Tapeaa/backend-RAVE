@@ -928,7 +928,16 @@ export function registerAdminRoutes(app: Express) {
       let prestataire = null;
       if (driver!.prestataireId) {
         const [p] = await db.select().from(prestataires).where(eq(prestataires.id, driver!.prestataireId)).limit(1);
-        prestataire = p || null;
+        if (p) {
+          const { prestataireHasOsbCredentials } = await import("./osb-crypto");
+          const { osbCertificateEncrypted: _cert, ...safeP } = p as any;
+          prestataire = {
+            ...safeP,
+            osbConfigured: prestataireHasOsbCredentials(p as any),
+            osbShopId: (p as any).osbShopId || null,
+            osbPublicKey: (p as any).osbPublicKey || null,
+          };
+        }
       }
 
       const vehicles = await db
@@ -1933,10 +1942,16 @@ export function registerAdminRoutes(app: Express) {
         .where(eq(drivers.prestataireId, id))
         .orderBy(desc(drivers.createdAt));
 
+      const { prestataireHasOsbCredentials } = await import("./osb-crypto");
+      const { osbCertificateEncrypted: _cert, ...safeP } = prestataire as any;
+
       return res.json({
         prestataire: {
-          ...prestataire,
+          ...safeP,
           createdAt: prestataire.createdAt.toISOString(),
+          osbConfigured: prestataireHasOsbCredentials(prestataire as any),
+          osbShopId: (prestataire as any).osbShopId || null,
+          osbPublicKey: (prestataire as any).osbPublicKey || null,
         },
         chauffeurs: prestataireDrivers.map(d => ({
           ...d,
@@ -1946,6 +1961,33 @@ export function registerAdminRoutes(app: Express) {
     } catch (error) {
       console.error("Error fetching prestataire:", error);
       return res.status(500).json({ error: "Erreur serveur" });
+    }
+  });
+
+  // Tester la connexion PayZen / OSB d’un prestataire (credentials déjà enregistrés)
+  app.post("/api/admin/prestataires/:id/osb-test", requireAdminAuth, async (req: AuthenticatedRequest, res) => {
+    try {
+      const { id } = req.params;
+      const [prestataire] = await db
+        .select()
+        .from(prestataires)
+        .where(eq(prestataires.id, id))
+        .limit(1);
+
+      if (!prestataire) {
+        return res.status(404).json({ ok: false, error: "Prestataire non trouvé" });
+      }
+
+      const { testPayzenForPrestataireId } = await import("./payzen");
+      const result = await testPayzenForPrestataireId(id);
+      return res.status(result.ok ? 200 : 400).json({
+        ...result,
+        prestataireId: id,
+        prestataireNom: prestataire.nom,
+      });
+    } catch (error) {
+      console.error("Error testing prestataire OSB:", error);
+      return res.status(500).json({ ok: false, error: "Erreur serveur lors du test PayZen" });
     }
   });
 

@@ -23,6 +23,8 @@ import {
   ChevronRight,
   Upload,
   CreditCard,
+  PlugZap,
+  Loader2,
 } from 'lucide-react';
 import {
   Dialog,
@@ -107,6 +109,8 @@ export function PrestataireProfil() {
   const [subscribing, setSubscribing] = useState<string | null>(null);
   const [osbForm, setOsbForm] = useState({ shopId: '', publicKey: '', certificate: '' });
   const [savingOsb, setSavingOsb] = useState(false);
+  const [testingOsb, setTestingOsb] = useState(false);
+  const [osbTestResult, setOsbTestResult] = useState<{ ok: boolean; message: string } | null>(null);
 
   useEffect(() => {
     fetchProfil();
@@ -244,6 +248,38 @@ export function PrestataireProfil() {
       alert('Erreur');
     } finally {
       setSavingOsb(false);
+    }
+  }
+
+  async function handleTestOsb() {
+    setTestingOsb(true);
+    setOsbTestResult(null);
+    try {
+      const token = localStorage.getItem('admin_token');
+      const body: Record<string, string> = {
+        shopId: osbForm.shopId.trim(),
+        publicKey: osbForm.publicKey.trim(),
+      };
+      if (osbForm.certificate.trim()) {
+        body.certificate = osbForm.certificate.trim();
+      }
+      const response = await fetch('/api/prestataire/me/osb-credentials/test', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${token}`,
+        },
+        body: JSON.stringify(body),
+      });
+      const data = await response.json();
+      setOsbTestResult({
+        ok: !!data.ok,
+        message: data.message || data.error || (data.ok ? 'Connexion OK' : 'Échec du test'),
+      });
+    } catch {
+      setOsbTestResult({ ok: false, message: 'Erreur réseau lors du test PayZen' });
+    } finally {
+      setTestingOsb(false);
     }
   }
 
@@ -618,17 +654,30 @@ export function PrestataireProfil() {
           <div className="flex flex-wrap gap-2">
             <button
               type="button"
-              disabled={savingOsb}
+              disabled={savingOsb || testingOsb}
               onClick={handleSaveOsb}
               className="inline-flex items-center gap-2 rounded-lg bg-emerald-600 px-4 py-2 text-sm font-medium text-white hover:bg-emerald-700 disabled:opacity-60"
             >
               <Save className="h-4 w-4" />
               {savingOsb ? 'Enregistrement…' : 'Enregistrer le paiement'}
             </button>
+            <button
+              type="button"
+              disabled={savingOsb || testingOsb || (!osbForm.shopId.trim() && !prestataire.osbConfigured)}
+              onClick={handleTestOsb}
+              className="inline-flex items-center gap-2 rounded-lg border border-emerald-300 bg-emerald-50 px-4 py-2 text-sm font-medium text-emerald-800 hover:bg-emerald-100 disabled:opacity-60"
+            >
+              {testingOsb ? (
+                <Loader2 className="h-4 w-4 animate-spin" />
+              ) : (
+                <PlugZap className="h-4 w-4" />
+              )}
+              {testingOsb ? 'Test en cours…' : 'Tester la connexion'}
+            </button>
             {prestataire.osbConfigured ? (
               <button
                 type="button"
-                disabled={savingOsb}
+                disabled={savingOsb || testingOsb}
                 onClick={handleClearOsb}
                 className="rounded-lg border border-red-200 px-4 py-2 text-sm font-medium text-red-600 hover:bg-red-50 disabled:opacity-60"
               >
@@ -636,6 +685,23 @@ export function PrestataireProfil() {
               </button>
             ) : null}
           </div>
+          {osbTestResult ? (
+            <p
+              className={`rounded-lg px-3 py-2 text-sm ${
+                osbTestResult.ok
+                  ? 'bg-emerald-50 text-emerald-800'
+                  : 'bg-red-50 text-red-700'
+              }`}
+            >
+              {osbTestResult.ok ? '✓ ' : '✗ '}
+              {osbTestResult.message}
+            </p>
+          ) : (
+            <p className="text-xs text-gray-500">
+              Le test appelle PayZen avec vos identifiants (sans encaisser). Vous pouvez tester avant
+              d’enregistrer si le certificat est saisi dans le champ.
+            </p>
+          )}
         </div>
       </div>
 

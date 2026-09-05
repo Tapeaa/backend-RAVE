@@ -227,6 +227,57 @@ export function registerPrestataireRoutes(app: Express) {
     }
   });
 
+  // Tester la connexion PayZen / OSB (credentials formulaire ou déjà enregistrés)
+  app.post("/api/prestataire/me/osb-credentials/test", requirePrestataireAuth, async (req: AuthenticatedRequest, res) => {
+    try {
+      if (!req.prestataire) return res.status(401).json({ error: "Non authentifié" });
+
+      const [current] = await db
+        .select()
+        .from(prestataires)
+        .where(eq(prestataires.id, req.prestataire.id));
+
+      if (!current) {
+        return res.status(404).json({ error: "Prestataire non trouvé" });
+      }
+
+      const bodyShop =
+        typeof req.body?.shopId === "string" ? req.body.shopId.trim() : "";
+      const bodyCert =
+        typeof req.body?.certificate === "string" ? req.body.certificate.trim() : "";
+      const bodyPk =
+        typeof req.body?.publicKey === "string" ? req.body.publicKey.trim() : "";
+
+      let shopId = bodyShop || String((current as any).osbShopId || "").trim();
+      let publicKey = bodyPk || String((current as any).osbPublicKey || "").trim();
+      let certificate = bodyCert;
+
+      if (!certificate) {
+        if (!prestataireHasOsbCredentials(current as any)) {
+          return res.status(400).json({
+            ok: false,
+            error: "Renseignez Shop ID + certificat (ou enregistrez-les d’abord)",
+          });
+        }
+        const { decryptOsbCertificate } = await import("./osb-crypto");
+        certificate = await decryptOsbCertificate(
+          String((current as any).osbCertificateEncrypted)
+        );
+      }
+
+      if (!shopId) {
+        return res.status(400).json({ ok: false, error: "Shop ID requis" });
+      }
+
+      const { testPayzenConnection } = await import("./payzen");
+      const result = await testPayzenConnection({ shopId, certificate, publicKey });
+      return res.status(result.ok ? 200 : 400).json(result);
+    } catch (error) {
+      console.error("Error testing OSB credentials:", error);
+      return res.status(500).json({ ok: false, error: "Erreur serveur lors du test PayZen" });
+    }
+  });
+
   // Abonnement plateforme (compte app lié + plans live admin)
   app.get("/api/prestataire/subscription", requirePrestataireAuth, async (req: AuthenticatedRequest, res) => {
     try {
