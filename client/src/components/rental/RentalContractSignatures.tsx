@@ -1,6 +1,10 @@
 /**
  * Affiche le statut des signatures contrat (canvas / Yousign) pour admin & prestataire.
+ * Permet de télécharger le PDF Yousign natif ou un PDF généré depuis le HTML signé.
  */
+
+import { useState } from "react";
+import html2pdf from "html2pdf.js";
 
 function hasClientSigned(ro: Record<string, unknown> | null | undefined): boolean {
   if (!ro) return false;
@@ -32,6 +36,44 @@ function formatWhen(iso: unknown): string | null {
   }
 }
 
+function downloadBase64Pdf(base64: string, filename: string) {
+  const bin = atob(base64);
+  const bytes = new Uint8Array(bin.length);
+  for (let i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i);
+  const blob = new Blob([bytes], { type: "application/pdf" });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement("a");
+  a.href = url;
+  a.download = filename;
+  a.click();
+  URL.revokeObjectURL(url);
+}
+
+async function downloadHtmlAsPdf(html: string, filename: string) {
+  const container = document.createElement("div");
+  container.style.position = "fixed";
+  container.style.left = "-9999px";
+  container.style.top = "0";
+  container.style.width = "800px";
+  container.style.background = "#fff";
+  container.innerHTML = html;
+  document.body.appendChild(container);
+  try {
+    await html2pdf()
+      .set({
+        margin: 10,
+        filename,
+        image: { type: "jpeg", quality: 0.98 },
+        html2canvas: { scale: 2, useCORS: true },
+        jsPDF: { unit: "mm", format: "a4", orientation: "portrait" },
+      })
+      .from(container)
+      .save();
+  } finally {
+    container.remove();
+  }
+}
+
 export function isClientContractSigned(rideOption: any): boolean {
   return hasClientSigned(rideOption);
 }
@@ -39,10 +81,16 @@ export function isClientContractSigned(rideOption: any): boolean {
 export function RentalContractSignatures({
   rideOption,
   compact = false,
+  orderId,
+  auth = "admin",
 }: {
   rideOption: any;
   compact?: boolean;
+  /** Si fourni, affiche le bouton télécharger contrat signé */
+  orderId?: string;
+  auth?: "admin" | "prestataire";
 }) {
+  const [downloading, setDownloading] = useState(false);
   const ro = (rideOption || {}) as Record<string, unknown>;
   const clientOk = hasClientSigned(ro);
   const loueurOk = hasLoueurSigned(ro);
@@ -60,6 +108,49 @@ export function RentalContractSignatures({
     typeof ro.yousignSignatureRequestId === "string"
       ? ro.yousignSignatureRequestId
       : null;
+
+  const handleDownload = async () => {
+    if (!orderId) return;
+    setDownloading(true);
+    try {
+      const token = localStorage.getItem("admin_token");
+      const path =
+        auth === "prestataire"
+          ? `/api/prestataire/courses/${orderId}/contract`
+          : `/api/admin/commandes/${orderId}/contract`;
+      const res = await fetch(path, {
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({}));
+        throw new Error(err.error || "Téléchargement impossible");
+      }
+      const data = (await res.json()) as {
+        html?: string;
+        pdfBase64?: string | null;
+        contractUrl?: string | null;
+      };
+      const filename = `contrat-rave-${orderId.slice(0, 8)}.pdf`;
+
+      if (data.pdfBase64) {
+        downloadBase64Pdf(data.pdfBase64, filename);
+        return;
+      }
+      if (data.html) {
+        await downloadHtmlAsPdf(data.html, filename);
+        return;
+      }
+      if (data.contractUrl) {
+        window.open(data.contractUrl, "_blank", "noopener,noreferrer");
+        return;
+      }
+      throw new Error("Contrat indisponible");
+    } catch (e: any) {
+      alert(e?.message || "Erreur téléchargement contrat");
+    } finally {
+      setDownloading(false);
+    }
+  };
 
   if (compact) {
     return (
@@ -84,11 +175,23 @@ export function RentalContractSignatures({
         <h3 className="font-semibold text-slate-900 flex items-center gap-2">
           Contrat &amp; signatures
         </h3>
-        {viaYousign && (
-          <span className="rounded-full bg-indigo-50 px-2.5 py-0.5 text-xs font-medium text-indigo-700">
-            Yousign
-          </span>
-        )}
+        <div className="flex flex-wrap items-center gap-2">
+          {viaYousign && (
+            <span className="rounded-full bg-indigo-50 px-2.5 py-0.5 text-xs font-medium text-indigo-700">
+              Yousign
+            </span>
+          )}
+          {orderId && (
+            <button
+              type="button"
+              onClick={handleDownload}
+              disabled={downloading}
+              className="rounded-lg bg-indigo-600 px-3 py-1.5 text-xs font-medium text-white hover:bg-indigo-700 disabled:opacity-60"
+            >
+              {downloading ? "Téléchargement…" : "Télécharger le contrat PDF"}
+            </button>
+          )}
+        </div>
       </div>
 
       <div className="grid gap-4 sm:grid-cols-2">

@@ -1216,6 +1216,28 @@ export function registerAdminRoutes(app: Express) {
     }
   });
 
+  // Contrat HTML / PDF signé (téléchargement admin)
+  app.get("/api/admin/commandes/:id/contract", requireAdminAuth, async (req: AuthenticatedRequest, res) => {
+    try {
+      const order = await dbStorage.getOrder(req.params.id);
+      if (!order) {
+        return res.status(404).json({ error: "Commande non trouvée" });
+      }
+      const { resolveOrderContract } = await import("./rental-contract");
+      const payload = await resolveOrderContract({
+        id: order.id,
+        clientName: order.clientName,
+        totalPrice: order.totalPrice,
+        driverName: (order as any).driverName,
+        rideOption: order.rideOption,
+      });
+      return res.json(payload);
+    } catch (error) {
+      console.error("Admin contract error:", error);
+      return res.status(500).json({ error: "Erreur serveur" });
+    }
+  });
+
   // Mettre à jour le statut d'une commande
   app.patch("/api/admin/commandes/:id/statut", requireAdminAuth, async (req: AuthenticatedRequest, res) => {
     try {

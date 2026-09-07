@@ -1318,6 +1318,59 @@ export function registerPrestataireRoutes(app: Express) {
     }
   });
 
+  // Contrat HTML / PDF signé (téléchargement prestataire)
+  app.get("/api/prestataire/courses/:id/contract", requirePrestataireAuth, async (req: AuthenticatedRequest, res) => {
+    try {
+      if (!req.prestataire) {
+        return res.status(401).json({ error: "Non authentifié" });
+      }
+      const { id } = req.params;
+      const [order] = await db.select().from(orders).where(eq(orders.id, id));
+      if (!order) {
+        return res.status(404).json({ error: "Course non trouvée" });
+      }
+
+      const driverIds = await resolvePrestataireDriverIds(req.prestataire.id);
+      const roAuth = order.rideOption as any;
+      const targetDriverId = String(roAuth?.targetDriverId || "").trim();
+      let belongs =
+        (order.assignedDriverId && driverIds.includes(order.assignedDriverId)) ||
+        (targetDriverId && driverIds.includes(targetDriverId));
+
+      if (!belongs) {
+        const loueurVehicleId = String(
+          roAuth?.loueurVehicleId || roAuth?.rentalData?.loueurVehicleId || ""
+        ).trim();
+        if (loueurVehicleId) {
+          const [veh] = await db
+            .select({ prestataireId: loueurVehicles.prestataireId, driverId: loueurVehicles.driverId })
+            .from(loueurVehicles)
+            .where(eq(loueurVehicles.id, loueurVehicleId))
+            .limit(1);
+          belongs =
+            veh?.prestataireId === req.prestataire.id ||
+            (!!veh?.driverId && driverIds.includes(veh.driverId));
+        }
+      }
+      if (!belongs) {
+        return res.status(403).json({ error: "Accès non autorisé" });
+      }
+
+      const { resolveOrderContract } = await import("./rental-contract");
+      const payload = await resolveOrderContract({
+        id: order.id,
+        clientName: order.clientName,
+        totalPrice: order.totalPrice,
+        driverName: roAuth?.owner,
+        rideOption: order.rideOption,
+      });
+      return res.json(payload);
+    } catch (error) {
+      console.error("Prestataire contract error:", error);
+      return res.status(500).json({ error: "Erreur serveur" });
+    }
+  });
+
   // ============ STATISTIQUES ============
 
   // Stats du prestataire (revenus jour/semaine/mois) — aligné app Loueur

@@ -352,7 +352,11 @@ export function AdminCommandeDetails() {
       )}
 
       {isRental && (
-        <RentalContractSignatures rideOption={commande.rideOption} />
+        <RentalContractSignatures
+          rideOption={commande.rideOption}
+          orderId={commande.id}
+          auth="admin"
+        />
       )}
 
       {/* Bandeau récapitulatif */}

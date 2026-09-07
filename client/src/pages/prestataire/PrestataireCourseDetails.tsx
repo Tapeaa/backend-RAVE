@@ -333,7 +333,11 @@ export function PrestataireCourseDetails() {
       </div>
 
       {isRental && (
-        <RentalContractSignatures rideOption={course.rideOption} />
+        <RentalContractSignatures
+          rideOption={course.rideOption}
+          orderId={course.id}
+          auth="prestataire"
+        />
       )}
 
       <div className="grid grid-cols-1 gap-6 lg:grid-cols-3">
