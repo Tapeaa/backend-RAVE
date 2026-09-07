@@ -9,7 +9,7 @@ import { z } from "zod";
 import { requirePrestataireAuth, AuthenticatedRequest, isSociete, isLoueur } from "./admin-auth";
 import { db } from "./db";
 import { drivers, orders, prestataires, collecteFrais, tarifs, vehicleModels, loueurVehicles } from "@shared/schema";
-import { eq, desc, asc, count, sql, and, gte, lte, inArray } from "drizzle-orm";
+import { eq, desc, asc, count, sql, and, gte, lte, inArray, or } from "drizzle-orm";
 import { dbStorage } from "./db-storage";
 import { uploadDocument, uploadDocumentToCloudinary } from "./cloudinary";
 import { validatePricingTiers, MAX_RENTAL_DAYS_CAP } from "./rental-pricing";
@@ -1019,11 +1019,37 @@ export function registerPrestataireRoutes(app: Express) {
         return res.json({ courses: [] });
       }
 
-      // Récupérer les courses de ces chauffeurs
+      // Véhicules du prestataire (pour locations pending sans assignedDriverId)
+      const prestataireVehicles = await db
+        .select({ id: loueurVehicles.id })
+        .from(loueurVehicles)
+        .where(
+          or(
+            eq(loueurVehicles.prestataireId, req.prestataire.id),
+            inArray(loueurVehicles.driverId, driverIds)
+          )
+        );
+      const vehicleIds = prestataireVehicles.map((v) => v.id);
+
+      // assignedDriverId OU targetDriverId (pending) OU loueurVehicleId lié
       const driverOrders = await db
         .select()
         .from(orders)
-        .where(inArray(orders.assignedDriverId, driverIds))
+        .where(
+          or(
+            inArray(orders.assignedDriverId, driverIds),
+            sql`(${orders.rideOption}->>'targetDriverId') IN (${sql.join(
+              driverIds.map((id) => sql`${id}`),
+              sql`, `
+            )})`,
+            vehicleIds.length
+              ? sql`(${orders.rideOption}->>'loueurVehicleId') IN (${sql.join(
+                  vehicleIds.map((id) => sql`${id}`),
+                  sql`, `
+                )})`
+              : sql`false`
+          )
+        )
         .orderBy(desc(orders.createdAt))
         .limit(limit);
 

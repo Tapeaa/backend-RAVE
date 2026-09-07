@@ -30,6 +30,16 @@ export function buildRentalContractHtml(order: {
   const loueurSigImg = rideOpt.loueurSignatureSvg || "";
   const signedAt = rideOpt.clientSignedAt;
   const sigName = rideOpt.clientSignatureName || clientName;
+  const clientSigned = !!(
+    signatureImg ||
+    signedAt ||
+    rideOpt.yousignSignatureRequestId ||
+    rideOpt.signedVia === "yousign"
+  );
+  const viaYousign = !!(
+    rideOpt.yousignSignatureRequestId ||
+    rideOpt.signedVia === "yousign"
+  );
   const signedDate = signedAt
     ? new Date(signedAt).toLocaleDateString("fr-FR", {
         day: "numeric",
@@ -57,15 +67,17 @@ export function buildRentalContractHtml(order: {
     : "—";
   const endLabel = rd.endDate ? new Date(rd.endDate).toLocaleDateString("fr-FR") : "—";
 
+  const clientSigBlock = !clientSigned
+    ? `<div class="sig-date">Non signé</div>`
+    : signatureImg
+      ? `<img class="sig-img" src="${signatureImg}" alt="Signature"/>
+  <div class="sig-date">✓ Signé le ${signedDate}${signedTime ? " à " + signedTime : ""}</div>`
+      : `<div class="sig-date">✓ Signé électroniquement${viaYousign ? " via Yousign" : ""} le ${signedDate}${signedTime ? " à " + signedTime : ""}</div>`;
+
   const signatureHtml = `<div class="signature-box">
   <div class="sig-label">Le locataire</div>
   <div class="sig-name">${sigName}</div>
-  ${
-    signatureImg
-      ? `<img class="sig-img" src="${signatureImg}" alt="Signature"/>
-  <div class="sig-date">✓ Signé le ${signedDate}${signedTime ? " à " + signedTime : ""}</div>`
-      : `<div class="sig-date">Non signé</div>`
-  }
+  ${clientSigBlock}
 </div>
 <div class="signature-box">
   <div class="sig-label">Le loueur</div>

@@ -4309,25 +4309,53 @@ app.post("/api/live-activities/end", async (req, res) => {
     }
   });
 
-  // Contrat permanent (HTML snapshot ou régénéré) — toujours accessible au client
+  // Contrat permanent (HTML snapshot) — client propriétaire OU loueur ciblé / assigné
   app.get("/api/orders/:id/contract", async (req, res) => {
     try {
       const clientId = await getAuthenticatedClient(req);
-      if (!clientId) {
+      const driverAuth = await requireDriverSessionFromReq(req);
+      if (!clientId && !driverAuth.ok) {
         return res.status(401).json({ error: "Authentification requise" });
       }
+
       const orderId = req.params.id;
       const order = await dbStorage.getOrder(orderId);
       if (!order) return res.status(404).json({ error: "Commande introuvable" });
-      if (order.clientId && order.clientId !== clientId) {
-        return res.status(403).json({ error: "Accès non autorisé" });
+
+      if (clientId) {
+        if (order.clientId && order.clientId !== clientId) {
+          return res.status(403).json({ error: "Accès non autorisé" });
+        }
+      } else if (driverAuth.ok) {
+        const ownerId = getRentalOwnerDriverId(order);
+        if (!ownerId || ownerId !== driverAuth.session.driverId) {
+          return res.status(403).json({ error: "Accès non autorisé" });
+        }
       }
 
       const rideOpt = (order.rideOption || {}) as any;
+      const clientSigned = !!(
+        rideOpt.clientSignatureSvg ||
+        rideOpt.clientSignedAt ||
+        rideOpt.yousignSignatureRequestId ||
+        rideOpt.signedVia === "yousign"
+      );
+      const viaYousign = !!(
+        rideOpt.yousignSignatureRequestId ||
+        rideOpt.signedVia === "yousign"
+      );
+
       let html = rideOpt.contractHtmlSnapshot as string | undefined;
       let contractUrl = rideOpt.contractUrl as string | undefined;
 
-      if (!html) {
+      // Snapshot obsolète (Yousign sans SVG affichait « Non signé ») → régénérer
+      const snapshotStaleYousign =
+        !!html &&
+        viaYousign &&
+        !rideOpt.clientSignatureSvg &&
+        /Non signé/i.test(html);
+
+      if (!html || snapshotStaleYousign) {
         html = buildRentalContractHtml({
           id: order.id,
           clientName: order.clientName,
@@ -4335,7 +4363,6 @@ app.post("/api/live-activities/end", async (req, res) => {
           driverName: (order as any).driverName || rideOpt.owner,
           rideOption: rideOpt,
         });
-        // Persister pour les prochaines fois
         const url = await persistContractHtml(html, order.id);
         const nextRide = {
           ...rideOpt,
@@ -4349,12 +4376,11 @@ app.post("/api/live-activities/end", async (req, res) => {
       return res.json({
         html,
         contractUrl: contractUrl || null,
-        signed: !!(
-          rideOpt.clientSignatureSvg ||
-          rideOpt.clientSignedAt ||
-          rideOpt.yousignSignatureRequestId ||
-          rideOpt.signedVia === "yousign"
-        ),
+        signed: clientSigned,
+        signedVia: rideOpt.signedVia || (viaYousign ? "yousign" : rideOpt.clientSignatureSvg ? "canvas" : null),
+        clientSignedAt: rideOpt.clientSignedAt || null,
+        clientSignatureName: rideOpt.clientSignatureName || null,
+        yousignSignatureRequestId: rideOpt.yousignSignatureRequestId || null,
         licenses: {
           front: isEphemeralLocalUri(rideOpt.clientLicenseFront)
             ? null
