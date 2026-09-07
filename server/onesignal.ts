@@ -3,11 +3,11 @@
  * Pour envoyer des notifications aux clients et chauffeurs
  */
 
-// Configuration OneSignal
-const ONESIGNAL_CLIENT_APP_ID = process.env.ONESIGNAL_CLIENT_APP_ID || 'e5e23506-2176-47ce-9861-cae3b49ed002';
-const ONESIGNAL_DRIVER_APP_ID = process.env.ONESIGNAL_DRIVER_APP_ID || '62d9a9ec-c62b-4aae-9cb3-e0d0c46ccfe8';
-const ONESIGNAL_REST_API_KEY_CLIENT = process.env.ONESIGNAL_REST_API_KEY_CLIENT || 'os_v2_app_4xrdkbrbozd45gdbzlr3jhwqajiylevhmjmubkuidmk4t5hm257cn6sjvxwvop4hl3awr3bsmxdjymm3v2ksoa3av7f7565gqy3iq5y';
-const ONESIGNAL_REST_API_KEY_DRIVER = process.env.ONESIGNAL_REST_API_KEY_DRIVER || 'os_v2_app_mlm2t3ggfnfk5hft4dimi3gp5calhcfqjaousav5fpssqw3wn7ketnnfx3o7gvxfzxxnsedwo25epl3xz6nk7t22b4tcdunorbcobii';
+// Configuration OneSignal — env only (no hardcoded secrets)
+const ONESIGNAL_CLIENT_APP_ID = process.env.ONESIGNAL_CLIENT_APP_ID || '';
+const ONESIGNAL_DRIVER_APP_ID = process.env.ONESIGNAL_DRIVER_APP_ID || '';
+const ONESIGNAL_REST_API_KEY_CLIENT = process.env.ONESIGNAL_REST_API_KEY_CLIENT || '';
+const ONESIGNAL_REST_API_KEY_DRIVER = process.env.ONESIGNAL_REST_API_KEY_DRIVER || '';
 
 const ONESIGNAL_API_URL = 'https://onesignal.com/api/v1/notifications';
 const ONESIGNAL_API_BASE = 'https://onesignal.com/api/v1';
@@ -277,7 +277,7 @@ export const clientNotifications = {
  * Notifications prédéfinies pour les CHAUFFEURS
  */
 export const driverNotifications = {
-  // Nouvelle demande disponible (course ou location)
+  // Nouvelle demande disponible (broadcast tag online — legacy taxi)
   newOrder: (orderId: string, description: string, price: number) => 
     sendNotificationToDrivers({
       title: '🚗 Nouvelle demande !',
@@ -287,6 +287,15 @@ export const driverNotifications = {
       tagKey: 'status',
       targetValue: 'online',
     }),
+
+  /** Nouvelle demande de location ciblée vers un loueur (external_user_id = driverId) */
+  newRentalOrder: (driverId: string, orderId: string, description: string, price: number) =>
+    notifyDriver(
+      driverId,
+      '🚗 Nouvelle demande de location !',
+      `${description} — ${price.toLocaleString()} XPF`,
+      { type: 'new_rental_order', orderId, price }
+    ),
   
   // Client a annulé
   clientCancelled: (driverId: string, orderId: string) => 

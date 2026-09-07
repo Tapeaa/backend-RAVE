@@ -78,7 +78,7 @@ export function AdminPrestataires() {
   }
 
   async function handleDelete(prestataireId: string, prestataireName: string) {
-    if (!confirm(`Voulez-vous vraiment supprimer le prestataire "${prestataireName}" ?\n\nNote: Si le prestataire a des chauffeurs, il sera désactivé au lieu d'être supprimé.`)) {
+    if (!confirm(`Voulez-vous vraiment supprimer le prestataire "${prestataireName}" ?\n\nNote: Si le prestataire a des loueurs, il sera désactivé au lieu d'être supprimé.`)) {
       return;
     }
 
@@ -280,7 +280,7 @@ export function AdminPrestataires() {
                   {prestataire.code}
                 </code>
                 {isSociete(prestataire.type) && (
-                  <span className="text-xs text-slate-500 bg-slate-100 px-2 py-1 rounded-full">{prestataire.totalChauffeurs} chauffeurs</span>
+                  <span className="text-xs text-slate-500 bg-slate-100 px-2 py-1 rounded-full">{prestataire.totalChauffeurs} loueurs</span>
                 )}
               </div>
               

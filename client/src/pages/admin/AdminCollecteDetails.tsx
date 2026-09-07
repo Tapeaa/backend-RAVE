@@ -152,7 +152,7 @@ export function AdminCollecteDetails() {
           <div className="text-2xl font-bold text-purple-600">
             {data.courses.length}
           </div>
-          <div className="text-sm text-gray-600">Courses</div>
+          <div className="text-sm text-gray-600">Locations</div>
         </div>
         <div className="rounded-lg bg-white p-4 shadow">
           <div className="text-2xl font-bold text-gray-900">
@@ -189,7 +189,7 @@ export function AdminCollecteDetails() {
         <h3 className="font-semibold text-gray-900 mb-3">Récapitulatif paiement</h3>
         <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
           <div>
-            <div className="text-sm text-gray-600">Total dû TAPEA</div>
+            <div className="text-sm text-gray-600">Total dû RAVE</div>
             <div className="text-xl font-bold text-gray-900">
               {(data.collecte.montantDu || 0).toLocaleString()} XPF
             </div>
@@ -233,7 +233,7 @@ export function AdminCollecteDetails() {
                     Commission ({fraisConfig.commissionPrestataire}%)
                   </th>
                 )}
-                <th className="px-4 py-3 text-right text-sm font-medium text-gray-700">Total TAPEA</th>
+                <th className="px-4 py-3 text-right text-sm font-medium text-gray-700">Total RAVE</th>
                 <th className="px-4 py-3 text-center text-sm font-medium text-gray-700">Paiement</th>
                 <th className="px-4 py-3 text-center text-sm font-medium text-gray-700">Statut</th>
               </tr>

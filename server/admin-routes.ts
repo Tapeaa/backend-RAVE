@@ -78,9 +78,9 @@ export function registerAdminAuthRoutes(app: Express) {
         return res.status(400).json({ error: "Mot de passe ou code requis", code: "MISSING_CREDENTIALS" });
       }
 
-      // Vérification simple du mot de passe (en production, utiliser ADMIN_PASSWORD_HASH)
-      const ADMIN_PASSWORD = process.env.ADMIN_PASSWORD || "admin123";
-      if (password !== ADMIN_PASSWORD) {
+      const { getAdminPassword } = await import("./admin-auth.js");
+      const ADMIN_PASSWORD = getAdminPassword();
+      if (!ADMIN_PASSWORD || password !== ADMIN_PASSWORD) {
         return res.status(401).json({ error: "Mot de passe incorrect", code: "INVALID_PASSWORD" });
       }
 

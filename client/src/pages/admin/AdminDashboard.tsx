@@ -303,7 +303,7 @@ export function AdminDashboard() {
         <div className="flex items-center gap-3">
           <Car className="h-5 w-5 text-amber-600" />
           <p className="text-sm text-slate-600">
-            Plateforme location RAVE — paiement au loueur. Gérez les véhicules, loueurs et réservations depuis le menu.
+            Plateforme location RAVE — paiement en ligne PayZen/OSB si le loueur l&apos;a configuré, sinon paiement chez le loueur.
           </p>
         </div>
       </div>

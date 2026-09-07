@@ -75,6 +75,36 @@ async function getDriverSessionWithFallback(sessionId: string): Promise<DriverSe
   return session;
 }
 
+/** Statut abonnement loueur (none | pending | active | expired) */
+function resolveSubscriptionStatus(driver: {
+  subscriptionStatus?: string | null;
+  subscriptionEndsAt?: string | Date | null;
+} | null | undefined): { status: string; daysRemaining: number | null; endsAt: string | null } {
+  if (!driver) {
+    return { status: "none", daysRemaining: null, endsAt: null };
+  }
+  const rawStatus = driver.subscriptionStatus || "none";
+  // Demande en attente de paiement / validation admin — ne pas promouvoir via endsAt
+  if (rawStatus === "pending") {
+    return { status: "pending", daysRemaining: null, endsAt: null };
+  }
+  const endsAtRaw = driver.subscriptionEndsAt || null;
+  const endsAt =
+    endsAtRaw instanceof Date
+      ? endsAtRaw.toISOString()
+      : endsAtRaw
+        ? String(endsAtRaw)
+        : null;
+  if (!endsAt) {
+    return { status: rawStatus, daysRemaining: null, endsAt: null };
+  }
+  const end = new Date(endsAt).getTime();
+  const now = Date.now();
+  const daysRemaining = Math.max(0, Math.ceil((end - now) / (24 * 60 * 60 * 1000)));
+  const status = end > now ? "active" : "expired";
+  return { status, daysRemaining: status === "active" ? daysRemaining : 0, endsAt };
+}
+
 // Initialize Stripe (only if key is provided)
 const STRIPE_SECRET_KEY = process.env.STRIPE_SECRET_KEY;
 const STRIPE_PUBLISHABLE_KEY = process.env.STRIPE_PUBLISHABLE_KEY || "";
@@ -407,13 +437,75 @@ export async function registerRoutes(app: Express): Promise<Server> {
       console.log(`Client socket ${socket.id} authenticated and joined order room: ${data.orderId}`);
     });
 
-    // Rental order room join (simplified - no token required for rental orders)
-    socket.on("rental-order:join", (data: { orderId: string }) => {
-      if (!data.orderId) return;
-      const orderRoom = `order:${data.orderId}`;
-      socket.join(orderRoom);
-      console.log(`[RENTAL] Socket ${socket.id} joined rental order room: ${orderRoom}`);
-    });
+    // Rental order room join — requires client session/token OR driver session of owner/assignee
+    socket.on(
+      "rental-order:join",
+      async (data: {
+        orderId: string;
+        clientSessionId?: string;
+        clientToken?: string;
+        sessionId?: string;
+      }) => {
+        if (!data?.orderId) {
+          socket.emit("rental-order:join:error", { message: "orderId requis" });
+          return;
+        }
+
+        const order = await dbStorage.getOrder(data.orderId);
+        if (!order) {
+          console.log(`[RENTAL] Socket ${socket.id} join refused — order not found: ${data.orderId}`);
+          socket.emit("rental-order:join:error", { message: "Commande introuvable" });
+          return;
+        }
+
+        const rideOption = order.rideOption as any;
+        const orderRoom = `order:${data.orderId}`;
+        let authorized = false;
+        let who = "";
+
+        // Loueur : session driver + propriétaire (target) ou assigné
+        if (data.sessionId) {
+          const session = await getDriverSessionWithFallback(data.sessionId);
+          if (
+            session &&
+            (order.assignedDriverId === session.driverId ||
+              rideOption?.targetDriverId === session.driverId)
+          ) {
+            authorized = true;
+            who = `driver:${session.driverId}`;
+          }
+        }
+
+        // Client : token de commande (créé à la création)
+        if (!authorized && data.clientToken) {
+          const tokenData = orderClientTokens.get(data.orderId);
+          if (tokenData && tokenData.token === data.clientToken) {
+            authorized = true;
+            who = "client:token";
+            tokenData.socketId = socket.id;
+            orderClientTokens.set(data.orderId, tokenData);
+          }
+        }
+
+        // Client : session compte (order.clientId)
+        if (!authorized && data.clientSessionId) {
+          const clientSession = await dbStorage.getClientSession(data.clientSessionId);
+          if (clientSession && order.clientId && clientSession.clientId === order.clientId) {
+            authorized = true;
+            who = `client:${clientSession.clientId}`;
+          }
+        }
+
+        if (!authorized) {
+          console.log(`[RENTAL] Socket ${socket.id} join refused for ${data.orderId} (auth failed)`);
+          socket.emit("rental-order:join:error", { message: "Non autorisé" });
+          return;
+        }
+
+        socket.join(orderRoom);
+        console.log(`[RENTAL] Socket ${socket.id} (${who}) joined rental order room: ${orderRoom}`);
+      }
+    );
     
     // Driver goes online/offline
     socket.on("driver:status", async (data: { sessionId: string; isOnline: boolean }) => {
@@ -1816,6 +1908,10 @@ app.get("/api/yousign/config", (_req, res) => {
 
 app.post("/api/yousign/signature-requests", async (req, res) => {
   try {
+    const clientAuth = await requireClientSessionFromReq(req);
+    if (!clientAuth.ok) {
+      return res.status(clientAuth.status).json({ error: clientAuth.error });
+    }
     if (!isYousignConfigured()) {
       return res.status(503).json({
         error: "Yousign non configuré. Ajoutez YOUSIGN_API_KEY sur le serveur.",
@@ -1863,6 +1959,10 @@ app.post("/api/yousign/signature-requests", async (req, res) => {
 
 app.get("/api/yousign/signature-requests/:id", async (req, res) => {
   try {
+    const clientAuth = await requireClientSessionFromReq(req);
+    if (!clientAuth.ok) {
+      return res.status(clientAuth.status).json({ error: clientAuth.error });
+    }
     if (!isYousignConfigured()) {
       return res.status(503).json({ error: "Yousign non configuré" });
     }
@@ -2058,6 +2158,35 @@ app.post("/api/rental-orders", async (req, res) => {
       age: body.client.age,
     };
 
+    // Yousign : refuser la commande si la signature électronique n'est pas terminée
+    const yousignSrId = body.signature?.yousignSignatureRequestId
+      ? String(body.signature.yousignSignatureRequestId).trim()
+      : "";
+    if (yousignSrId) {
+      if (!isYousignConfigured()) {
+        return res.status(503).json({
+          success: false,
+          error: "Signature Yousign indisponible sur le serveur",
+        });
+      }
+      try {
+        const ysStatus = await getSignatureRequestStatus(yousignSrId);
+        if (ysStatus.status !== "done") {
+          return res.status(400).json({
+            success: false,
+            error: `Signature Yousign incomplete (statut: ${ysStatus.status}). Terminez la signature avant de commander.`,
+            yousignStatus: ysStatus.status,
+          });
+        }
+      } catch (ysErr: any) {
+        console.error("[RENTAL] Yousign status check failed:", ysErr?.body || ysErr);
+        return res.status(502).json({
+          success: false,
+          error: "Impossible de vérifier la signature Yousign",
+        });
+      }
+    }
+
     const orderData = {
       clientName: `${resolvedFirstName} ${resolvedLastName}`,
       clientPhone: resolvedPhone,
@@ -2204,9 +2333,19 @@ app.post("/api/rental-orders", async (req, res) => {
       createdAt: order.createdAt,
       expiresAt: order.expiresAt,
     };
-    // Notification ciblée au loueur propriétaire uniquement
+    // Notification ciblée au loueur propriétaire (socket + push OneSignal)
     io.to(`driver:${vehicleRow.driverId}`).emit("rental-order:new", rentalPayload);
     console.log(`[RENTAL] Emitted rental-order:new to driver:${vehicleRow.driverId}`);
+    try {
+      await driverNotifications.newRentalOrder(
+        vehicleRow.driverId,
+        order.id,
+        `${modelName} — ${days}j`,
+        grandTotal
+      );
+    } catch (pushErr) {
+      console.warn("[RENTAL] OneSignal push to loueur failed:", pushErr);
+    }
 
     res.json({ success: true, order, clientToken, id: order.id, orderId: order.id });
   } catch (error) {
@@ -2363,6 +2502,18 @@ app.post("/api/rental-orders/:id/accept", async (req, res) => {
     }
 
     const driver = await dbStorage.getDriver(session.driverId);
+    const subGate = resolveSubscriptionStatus(driver || { subscriptionStatus: "none" });
+    if (subGate.status !== "active") {
+      return res.status(403).json({
+        success: false,
+        error:
+          subGate.status === "pending"
+            ? "Abonnement en attente de validation RAVE — vous ne pouvez pas encore accepter de locations."
+            : "Abonnement RAVE inactif — activez votre abonnement pour accepter des locations.",
+        code: "SUBSCRIPTION_REQUIRED",
+        subscriptionStatus: subGate.status,
+      });
+    }
     const bodyMeeting =
       typeof req.body.meetingPoint === "string" ? req.body.meetingPoint.trim() : "";
 
@@ -2427,6 +2578,38 @@ app.post("/api/rental-orders/:id/accept", async (req, res) => {
       status: "accepted",
       meetingPoint: meetingPoint || null,
     });
+
+    // Push client : réservation confirmée
+    if (updatedOrder.clientId) {
+      try {
+        const start = updatedOrder.scheduledTime
+          ? new Date(updatedOrder.scheduledTime)
+          : null;
+        const formattedDate = start
+          ? start.toLocaleDateString("fr-FR", {
+              day: "numeric",
+              month: "long",
+              timeZone: "Pacific/Tahiti",
+            })
+          : "date à confirmer";
+        const formattedTime = start
+          ? start.toLocaleTimeString("fr-FR", {
+              hour: "2-digit",
+              minute: "2-digit",
+              timeZone: "Pacific/Tahiti",
+            })
+          : "";
+        await clientNotifications.bookingConfirmed(
+          updatedOrder.clientId,
+          session.driverName,
+          id,
+          formattedDate,
+          formattedTime
+        );
+      } catch (e) {
+        console.warn("[RENTAL] bookingConfirmed push on accept:", e);
+      }
+    }
 
     // Notify other drivers this order is taken
     io.to("drivers:online").emit("rental-order:taken", { orderId: id });
@@ -5043,6 +5226,18 @@ app.post("/api/live-activities/end", async (req, res) => {
       const driver = await dbStorage.getDriver(session.driverId);
       if (!driver) return res.status(403).json({ error: "Chauffeur introuvable" });
 
+      const subGate = resolveSubscriptionStatus(driver);
+      if (subGate.status !== "active") {
+        return res.status(403).json({
+          error:
+            subGate.status === "pending"
+              ? "Abonnement en attente de validation RAVE — vous ne pouvez pas encore ajouter de véhicule."
+              : "Abonnement RAVE inactif — activez votre abonnement pour ajouter un véhicule.",
+          code: "SUBSCRIPTION_REQUIRED",
+          subscriptionStatus: subGate.status,
+        });
+      }
+
       // Auto-création d'un prestataire loueur si le driver n'en a pas
       let prestataireId = driver.prestataireId;
       if (!prestataireId) {
@@ -6701,21 +6896,6 @@ const sessionId = headerSessionId || cookieSessionId;
     }
   });
 
-  function resolveSubscriptionStatus(driver: {
-    subscriptionStatus?: string | null;
-    subscriptionEndsAt?: string | null;
-  }): { status: string; daysRemaining: number | null; endsAt: string | null } {
-    const endsAt = driver.subscriptionEndsAt || null;
-    if (!endsAt) {
-      return { status: driver.subscriptionStatus || "none", daysRemaining: null, endsAt: null };
-    }
-    const end = new Date(endsAt).getTime();
-    const now = Date.now();
-    const daysRemaining = Math.max(0, Math.ceil((end - now) / (24 * 60 * 60 * 1000)));
-    const status = end > now ? "active" : "expired";
-    return { status, daysRemaining: status === "active" ? daysRemaining : 0, endsAt };
-  }
-
   app.get("/api/driver/subscription", async (req, res) => {
     try {
       const sessionId = req.headers["x-driver-session"] as string;
@@ -6772,21 +6952,15 @@ const sessionId = headerSessionId || cookieSessionId;
       const driver = await dbStorage.getDriver(session.driverId);
       if (!driver) return res.status(404).json({ success: false, error: "Loueur introuvable" });
 
+      // Ne pas activer sans paiement : statut pending jusqu'à validation RAVE / règlement
       const now = new Date();
-      let start = now;
-      const currentEnd = driver.subscriptionEndsAt ? new Date(driver.subscriptionEndsAt) : null;
-      if (currentEnd && currentEnd.getTime() > now.getTime()) {
-        start = currentEnd; // prolonger si déjà actif
-      }
-      const ends = new Date(start.getTime() + plan.days * 24 * 60 * 60 * 1000);
-
       await db
         .update(drivers)
         .set({
           subscriptionPlan: plan.id,
-          subscriptionStatus: "active",
+          subscriptionStatus: "pending",
           subscriptionStartsAt: now,
-          subscriptionEndsAt: ends,
+          subscriptionEndsAt: null,
           subscriptionAmount: plan.amountXpf,
         } as any)
         .where(eq(drivers.id, driver.id));
@@ -6795,14 +6969,14 @@ const sessionId = headerSessionId || cookieSessionId;
         success: true,
         subscription: {
           plan: plan.id,
-          status: "active",
+          status: "pending",
           startsAt: now.toISOString(),
-          endsAt: ends.toISOString(),
+          endsAt: null,
           amount: plan.amountXpf,
-          daysRemaining: plan.days,
+          daysRemaining: null,
           label: plan.label,
           plans,
-          message: `Abonnement ${plan.label} activé — ${plan.amountXpf.toLocaleString("fr-FR")} XPF à régler auprès de RAVE.`,
+          message: `Demande d'abonnement ${plan.label} enregistrée (${plan.amountXpf.toLocaleString("fr-FR")} XPF). Votre accès sera activé après validation / règlement auprès de RAVE.`,
         },
       });
     } catch (error) {
@@ -8856,7 +9030,7 @@ const sessionId = headerSessionId || cookieSessionId;
   // Route admin pour mettre à jour la configuration des versions (JWT admin ou secret)
   app.post("/api/admin/app-version", async (req: any, res) => {
     const adminSecret = req.headers["x-admin-secret"] as string;
-    const expectedSecret = process.env.ADMIN_SECRET || "rave-admin-2026";
+    const expectedSecret = process.env.ADMIN_SECRET || (process.env.NODE_ENV === "production" ? "" : "rave-admin-dev-only");
     const authHeader = req.headers.authorization;
     const token = authHeader?.replace("Bearer ", "") || req.cookies?.admin_token;
 

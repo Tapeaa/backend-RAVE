@@ -7,11 +7,11 @@ import { v2 as cloudinary } from 'cloudinary';
 import multer from 'multer';
 import { Express, Request, Response } from 'express';
 
-// Configuration Cloudinary
+// Configuration Cloudinary — env only (no hardcoded secrets)
 cloudinary.config({
-  cloud_name: process.env.CLOUDINARY_CLOUD_NAME || 'dthe3lzus',
-  api_key: process.env.CLOUDINARY_API_KEY || '299752636433862',
-  api_secret: process.env.CLOUDINARY_API_SECRET || '1EnwQnIgOUxJAymN18j_n3BQ57o',
+  cloud_name: process.env.CLOUDINARY_CLOUD_NAME || '',
+  api_key: process.env.CLOUDINARY_API_KEY || '',
+  api_secret: process.env.CLOUDINARY_API_SECRET || '',
 });
 
 // Configuration Multer pour upload en mémoire

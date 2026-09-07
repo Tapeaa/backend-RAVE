@@ -11,12 +11,24 @@ import jwt from "jsonwebtoken";
 // CONFIGURATION
 // ============================================================================
 
-const JWT_SECRET = process.env.JWT_SECRET || process.env.SESSION_SECRET || "admin-secret-key-change-in-production";
+const isProd = process.env.NODE_ENV === "production";
+const JWT_SECRET =
+  process.env.JWT_SECRET ||
+  process.env.SESSION_SECRET ||
+  (isProd ? "" : "admin-secret-key-dev-only");
 const JWT_EXPIRES_IN = "24h";
 const ADMIN_PASSWORD_HASH = process.env.ADMIN_PASSWORD_HASH || "";
 
-// Si pas de hash configuré, utiliser un mot de passe simple en dev
-const ADMIN_PASSWORD = process.env.ADMIN_PASSWORD || "admin123";
+/** Mot de passe admin : env only en prod ; fallback dev local uniquement */
+export function getAdminPassword(): string {
+  if (process.env.ADMIN_PASSWORD) return process.env.ADMIN_PASSWORD;
+  if (isProd) return "";
+  return "admin123";
+}
+
+export function getAdminPasswordHash(): string {
+  return ADMIN_PASSWORD_HASH;
+}
 
 // ============================================================================
 // TYPES

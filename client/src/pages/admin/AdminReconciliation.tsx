@@ -32,7 +32,8 @@ export function AdminReconciliation() {
         <CreditCard className="h-7 w-7 text-amber-500" /> Reconciliation
       </h1>
       <p className="text-sm text-slate-500">
-        Stripe configuré : {data?.stripeConfigured ? "oui" : "non"} — comparaison ledger commandes / PaymentIntents
+        Outil héritage Stripe (pas le paiement location actuel). Les locations se règlent via PayZen / OSB si le loueur l’a configuré, sinon chez le loueur.
+        Stripe configuré : {data?.stripeConfigured ? "oui" : "non"}
       </p>
 
       <div className="grid gap-4 lg:grid-cols-2">

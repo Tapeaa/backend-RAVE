@@ -147,7 +147,7 @@ export function AdminCollecte() {
           </div>
           <div>
             <h1 className="text-2xl font-bold text-slate-900">Collecte de frais</h1>
-            <p className="text-slate-500">Gestion des commissions dues à TAPEA</p>
+            <p className="text-slate-500">Gestion des commissions dues à RAVE</p>
           </div>
         </div>
         <button

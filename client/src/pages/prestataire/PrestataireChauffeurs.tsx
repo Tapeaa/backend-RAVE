@@ -164,7 +164,7 @@ export function PrestataireChauffeurs() {
   }
 
   async function deleteChauffeur(id: string) {
-    if (!confirm('Supprimer ce chauffeur ?')) return;
+    if (!confirm('Supprimer ce loueur ?')) return;
 
     try {
       const token = localStorage.getItem('admin_token');
@@ -194,15 +194,15 @@ export function PrestataireChauffeurs() {
       {/* Header */}
       <div className="flex items-center justify-between">
         <div>
-          <h1 className="text-2xl font-bold text-gray-900">Mes chauffeurs</h1>
-          <p className="text-gray-600">Gérez les chauffeurs de votre société</p>
+          <h1 className="text-2xl font-bold text-gray-900">Mes loueurs</h1>
+          <p className="text-gray-600">Gérez les loueurs de votre société</p>
         </div>
         <button
           onClick={() => setShowCreateModal(true)}
           className="flex items-center gap-2 rounded-lg bg-purple-600 px-4 py-2 text-white hover:bg-purple-700"
         >
           <Plus className="h-5 w-5" />
-          Nouveau chauffeur
+          Nouveau loueur
         </button>
       </div>
 
@@ -241,23 +241,23 @@ export function PrestataireChauffeurs() {
         ) : chauffeurs.length === 0 ? (
           <div className="flex h-64 flex-col items-center justify-center text-gray-500">
             <Users className="mb-2 h-12 w-12" />
-            <p>Aucun chauffeur</p>
+            <p>Aucun loueur</p>
             <button
               onClick={() => setShowCreateModal(true)}
               className="mt-4 rounded-lg bg-purple-600 px-4 py-2 text-white hover:bg-purple-700"
             >
-              Créer un chauffeur
+              Créer un loueur
             </button>
           </div>
         ) : (
           <table className="w-full">
             <thead className="bg-gray-50">
               <tr>
-                <th className="px-4 py-3 text-left text-sm font-medium text-gray-700">Chauffeur</th>
+                <th className="px-4 py-3 text-left text-sm font-medium text-gray-700">Loueur</th>
                 <th className="px-4 py-3 text-left text-sm font-medium text-gray-700">Contact</th>
                 <th className="px-4 py-3 text-left text-sm font-medium text-gray-700">Véhicule</th>
                 <th className="px-4 py-3 text-left text-sm font-medium text-gray-700">Type</th>
-                <th className="px-4 py-3 text-center text-sm font-medium text-gray-700">Courses</th>
+                <th className="px-4 py-3 text-center text-sm font-medium text-gray-700">Locations</th>
                 <th className="px-4 py-3 text-center text-sm font-medium text-gray-700">Statut</th>
                 <th className="px-4 py-3 text-right text-sm font-medium text-gray-700">Actions</th>
               </tr>
@@ -346,13 +346,13 @@ export function PrestataireChauffeurs() {
                   <div className="mx-auto mb-4 flex h-16 w-16 items-center justify-center rounded-full bg-green-100">
                     <Check className="h-8 w-8 text-green-600" />
                   </div>
-                  <h2 className="text-xl font-bold text-gray-900">Chauffeur créé !</h2>
+                  <h2 className="text-xl font-bold text-gray-900">Loueur créé !</h2>
                   <p className="text-gray-600">{createdChauffeur.nom}</p>
                 </div>
 
                 <div className="mb-6 rounded-lg bg-purple-50 p-4">
                   <p className="mb-2 text-center text-sm text-gray-600">
-                    Code de connexion app chauffeur
+                    Code de connexion app loueur
                   </p>
                   <div className="flex items-center justify-center gap-2">
                     <code className="text-3xl font-bold tracking-widest text-purple-700">
@@ -366,7 +366,7 @@ export function PrestataireChauffeurs() {
                     </button>
                   </div>
                   <p className="mt-2 text-center text-xs text-gray-500">
-                    Communiquez ce code au chauffeur pour qu'il puisse se connecter à l'app
+                    Communiquez ce code au loueur pour qu'il puisse se connecter à l'app
                   </p>
                 </div>
 
@@ -383,7 +383,7 @@ export function PrestataireChauffeurs() {
             ) : (
               <>
                 <div className="mb-4 flex items-center justify-between">
-                  <h2 className="text-xl font-bold text-gray-900">Nouveau chauffeur</h2>
+                  <h2 className="text-xl font-bold text-gray-900">Nouveau loueur</h2>
                   <button
                     onClick={() => setShowCreateModal(false)}
                     className="rounded-lg p-2 text-gray-400 hover:bg-gray-100"
@@ -442,7 +442,7 @@ export function PrestataireChauffeurs() {
 
                   <div>
                     <label className="mb-1 block text-sm font-medium text-gray-700">
-                      Commission chauffeur : <span className="text-purple-600 font-bold">{formData.commissionChauffeur}%</span>
+                      Commission loueur : <span className="text-purple-600 font-bold">{formData.commissionChauffeur}%</span>
                     </label>
                     <input
                       type="range"
@@ -454,10 +454,10 @@ export function PrestataireChauffeurs() {
                     />
                     <div className="mt-1 flex justify-between text-xs text-gray-500">
                       <span>0% (Tout pour vous)</span>
-                      <span>100% (Tout pour le chauffeur)</span>
+                      <span>100% (Tout pour le loueur)</span>
                     </div>
                     <p className="mt-2 text-xs text-gray-600 bg-purple-50 rounded p-2">
-                      Le chauffeur recevra {formData.commissionChauffeur}% du prix de chaque course
+                      Le loueur recevra {formData.commissionChauffeur}% du prix de chaque location
                     </p>
                   </div>
 
@@ -538,14 +538,14 @@ export function PrestataireChauffeurs() {
                 {editingCommission.firstName} {editingCommission.lastName}
               </p>
               <p className="text-sm text-purple-700">
-                Le chauffeur garde {commissionValue}% de chaque course
+                Le loueur garde {commissionValue}% de chaque location
               </p>
             </div>
 
             <form onSubmit={handleUpdateCommission} className="space-y-4">
               <div>
                 <label className="block text-sm font-medium text-gray-700 mb-2">
-                  Commission du chauffeur : <span className="text-purple-600 font-bold">{commissionValue}%</span>
+                  Commission du loueur : <span className="text-purple-600 font-bold">{commissionValue}%</span>
                 </label>
                 <input
                   type="range"
@@ -558,14 +558,14 @@ export function PrestataireChauffeurs() {
                 <div className="mt-2 flex justify-between text-xs text-gray-500">
                   <span>0% (Tout pour vous)</span>
                   <span>50%</span>
-                  <span>100% (Tout pour le chauffeur)</span>
+                  <span>100% (Tout pour le loueur)</span>
                 </div>
               </div>
 
               <div className="bg-gray-50 rounded-lg p-3">
                 <p className="text-xs text-gray-600">
-                  <span className="font-semibold">Exemple :</span> Pour une course de 10 000 XPF,{' '}
-                  le chauffeur reçoit{' '}
+                  <span className="font-semibold">Exemple :</span> Pour une location de 10 000 XPF,{' '}
+                  le loueur reçoit{' '}
                   <span className="font-bold text-purple-600">
                     {Math.round(10000 * commissionValue / 100).toLocaleString('fr-FR')} XPF
                   </span>

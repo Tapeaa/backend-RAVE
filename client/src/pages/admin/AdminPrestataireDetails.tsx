@@ -549,18 +549,18 @@ export function AdminPrestataireDetails() {
           {chauffeurs.length === 0 ? (
             <div className="py-8 text-center text-gray-500">
               <Users className="mx-auto mb-2 h-12 w-12" />
-              <p>Aucun chauffeur créé par ce prestataire</p>
+              <p>Aucun loueur créé par ce prestataire</p>
             </div>
           ) : (
             <div className="overflow-x-auto">
               <table className="w-full">
                 <thead className="bg-gray-50">
                   <tr>
-                    <th className="px-4 py-3 text-left text-sm font-medium text-gray-700">Chauffeur</th>
+                    <th className="px-4 py-3 text-left text-sm font-medium text-gray-700">Loueur</th>
                     <th className="px-4 py-3 text-left text-sm font-medium text-gray-700">Contact</th>
                     <th className="px-4 py-3 text-left text-sm font-medium text-gray-700">Code</th>
                     <th className="px-4 py-3 text-left text-sm font-medium text-gray-700">Véhicule</th>
-                    <th className="px-4 py-3 text-center text-sm font-medium text-gray-700">Courses</th>
+                    <th className="px-4 py-3 text-center text-sm font-medium text-gray-700">Locations</th>
                     <th className="px-4 py-3 text-center text-sm font-medium text-gray-700">Statut</th>
                   </tr>
                 </thead>

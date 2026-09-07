@@ -32,7 +32,7 @@ const VIREMENT_INFO = {
   iban: 'FR76 1234 5678 9012 3456 7890 123',
   bic: 'BDFEPF2P',
   bankName: 'Banque de Polynésie Française',
-  reference: 'TAPEA-COMMISSION-[Votre code prestataire]',
+  reference: 'RAVE-COMMISSION-[Votre code prestataire]',
 };
 
 function StripePaymentForm({
@@ -226,7 +226,7 @@ export function PrestataireCollecte() {
       {/* Header */}
       <div>
         <h1 className="text-2xl font-bold text-gray-900">Mes frais de commission</h1>
-        <p className="text-gray-600">Commissions dues à TAPEA pour l'utilisation de la plateforme</p>
+        <p className="text-gray-600">Commissions dues à RAVE pour l’utilisation de la plateforme (hors paiement des locations clients PayZen / cash)</p>
       </div>
 
       {/* Explication des frais */}
@@ -247,12 +247,12 @@ export function PrestataireCollecte() {
                   Frais de service : <span className="text-purple-600">{fraisConfig.fraisServicePrestataire}%</span>
                 </p>
                 <p className="mt-1 text-gray-600">
-                  Pourcentage ajouté au prix de chaque course et payé par le client. 
-                  Ce montant est collecté par TAPEA.
+                  Pourcentage ajouté au prix de chaque location et payé par le client. 
+                  Ce montant est collecté par RAVE.
                 </p>
                 <p className="mt-1 text-xs text-gray-500">
-                  Exemple : Course 10 000 XPF → Client paie {Math.round(10000 * (1 + fraisConfig.fraisServicePrestataire / 100)).toLocaleString()} XPF → 
-                  TAPEA collecte {Math.round(10000 * fraisConfig.fraisServicePrestataire / 100).toLocaleString()} XPF
+                  Exemple : Location 10 000 XPF → Client paie {Math.round(10000 * (1 + fraisConfig.fraisServicePrestataire / 100)).toLocaleString()} XPF → 
+                  RAVE collecte {Math.round(10000 * fraisConfig.fraisServicePrestataire / 100).toLocaleString()} XPF
                 </p>
               </div>
             </div>
@@ -267,10 +267,10 @@ export function PrestataireCollecte() {
                     Commission supplémentaire : <span className="text-orange-600">{fraisConfig.commissionPrestataire}%</span>
                   </p>
                   <p className="mt-1 text-gray-600">
-                    Pourcentage prélevé sur le prix de base de chaque course (hors frais de service).
+                    Pourcentage prélevé sur le prix de base de chaque location (hors frais de service).
                   </p>
                   <p className="mt-1 text-xs text-gray-500">
-                    Exemple : Course 10 000 XPF → TAPEA prélève {Math.round(10000 * fraisConfig.commissionPrestataire / 100).toLocaleString()} XPF supplémentaires
+                    Exemple : Location 10 000 XPF → RAVE prélève {Math.round(10000 * fraisConfig.commissionPrestataire / 100).toLocaleString()} XPF supplémentaires
                   </p>
                 </div>
               </div>
@@ -278,7 +278,7 @@ export function PrestataireCollecte() {
 
             <div className="mt-3 rounded-lg bg-purple-100 p-3">
               <p className="text-center font-semibold text-purple-900">
-                Total dû à TAPEA par course = 
+                Total dû à RAVE par location = 
                 {fraisConfig.commissionPrestataire > 0 
                   ? ` ${fraisConfig.fraisServicePrestataire}% (frais service) + ${fraisConfig.commissionPrestataire}% (commission)`
                   : ` ${fraisConfig.fraisServicePrestataire}% (frais service uniquement)`
@@ -399,7 +399,7 @@ export function PrestataireCollecte() {
           </DialogHeader>
           <div className="space-y-4 text-sm">
             <p className="text-gray-600">
-              Effectuez un virement vers le compte TAPEA avec les informations ci-dessous. Indiquez la référence indiquée dans l'objet du virement.
+              Effectuez un virement vers le compte RAVE avec les informations ci-dessous. Indiquez la référence indiquée dans l'objet du virement.
             </p>
             <div className="rounded-lg border bg-gray-50 p-4 space-y-2 font-mono text-sm">
               <p><span className="font-semibold text-gray-700">IBAN :</span> {VIREMENT_INFO.iban}</p>
@@ -411,7 +411,7 @@ export function PrestataireCollecte() {
               </p>
             </div>
             <p className="text-xs text-gray-500">
-              Montant à virer : <strong>{totalRestantApayer.toLocaleString()} XPF</strong> (ou le montant convenu avec TAPEA)
+              Montant à virer : <strong>{totalRestantApayer.toLocaleString()} XPF</strong> (ou le montant convenu avec RAVE)
             </p>
           </div>
         </DialogContent>
@@ -544,9 +544,9 @@ export function PrestataireCollecte() {
       <div className="rounded-lg bg-gray-50 p-4">
         <h3 className="font-medium text-gray-900">Comment payer ?</h3>
         <p className="mt-1 text-sm text-gray-600">
-          Pour régler vos commissions, contactez TAPEA par email à{' '}
-          <a href="mailto:Tapea.pf@gmail.com" className="text-purple-600 hover:underline">
-            Tapea.pf@gmail.com
+          Pour régler vos commissions, contactez RAVE par email à{' '}
+          <a href="mailto:contact@rave-location.com" className="text-purple-600 hover:underline">
+            contact@rave-location.com
           </a>
           {' '}ou par téléphone au +689 87 75 98 97.
         </p>

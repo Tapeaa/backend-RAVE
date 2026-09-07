@@ -161,7 +161,7 @@ export function PrestataireCourseDetails() {
   if (!data) {
     return (
       <div className="text-center py-12">
-        <p className="text-gray-500">Course non trouvée</p>
+        <p className="text-gray-500">Réservation non trouvée</p>
         <Link href="/prestataire/courses">
           <button className="mt-4 text-purple-600 hover:underline">Retour</button>
         </Link>
@@ -282,7 +282,7 @@ export function PrestataireCourseDetails() {
             <Car className="h-4 w-4 text-violet-600" />
           </div>
           <div className="min-w-0">
-            <p className="text-xs font-medium uppercase tracking-wider text-gray-500">Chauffeur</p>
+            <p className="text-xs font-medium uppercase tracking-wider text-gray-500">Loueur</p>
             <p className="mt-1 text-sm font-semibold text-gray-900 truncate">
               {driver ? `${driver.firstName} ${driver.lastName}` : '—'}
             </p>

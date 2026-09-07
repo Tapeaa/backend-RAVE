@@ -240,7 +240,7 @@ export function CourseDetailsModal({ orderId, isOpen, onClose }: CourseDetailsMo
                 <div className="rounded-lg border bg-blue-50 p-4">
                   <div className="mb-3 flex items-center gap-2">
                     <Car className="h-5 w-5 text-blue-600" />
-                    <h3 className="font-semibold text-gray-900">Chauffeur</h3>
+                    <h3 className="font-semibold text-gray-900">Loueur</h3>
                   </div>
                   <div className="space-y-2 text-sm">
                     <div className="flex items-center gap-2">

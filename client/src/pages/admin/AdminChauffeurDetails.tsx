@@ -738,7 +738,7 @@ export function AdminChauffeurDetails() {
                 </p>
               ) : !prestataire.osbConfigured ? (
                 <p className="mt-3 text-xs text-gray-500">
-                  Le loueur doit d’abord saisir ses credentials dans son dashboard (Profil → OSB).
+                  Le loueur doit d’abord saisir ses credentials dans son dashboard (Profil → Caisse PayZen / OSB).
                 </p>
               ) : null}
             </div>

@@ -141,7 +141,7 @@ export function PrestataireCollecteDetails() {
           <div className="text-2xl font-bold text-purple-600">
             {data.courses.length}
           </div>
-          <div className="text-sm text-gray-600">Courses</div>
+          <div className="text-sm text-gray-600">Locations</div>
         </div>
         <div className="rounded-lg bg-white p-4 shadow">
           <div className="text-2xl font-bold text-gray-900">
@@ -181,7 +181,7 @@ export function PrestataireCollecteDetails() {
             <h3 className="font-semibold text-purple-900">Détail du calcul</h3>
           </div>
           <p className="text-sm text-gray-700">
-            Pour chaque course listée ci-dessous, TAPEA collecte <span className="font-bold text-purple-600">{fraisConfig.fraisServicePrestataire}%</span> de frais de service
+            Pour chaque location listée ci-dessous, RAVE collecte <span className="font-bold text-purple-600">{fraisConfig.fraisServicePrestataire}%</span> de frais de service
             {fraisConfig.commissionPrestataire > 0 && (
               <> + <span className="font-bold text-orange-600">{fraisConfig.commissionPrestataire}%</span> de commission supplémentaire</>
             )}
@@ -215,7 +215,7 @@ export function PrestataireCollecteDetails() {
                       Commission ({fraisConfig.commissionPrestataire}%)
                     </th>
                   )}
-                  <th className="px-4 py-3 text-right text-sm font-medium text-gray-700">Total TAPEA</th>
+                  <th className="px-4 py-3 text-right text-sm font-medium text-gray-700">Total RAVE</th>
                   <th className="px-4 py-3 text-center text-sm font-medium text-gray-700">Paiement</th>
                 </tr>
               </thead>
@@ -309,9 +309,9 @@ export function PrestataireCollecteDetails() {
         <div className="rounded-lg bg-orange-50 p-4">
           <h3 className="font-semibold text-orange-800">Comment payer ?</h3>
           <p className="mt-1 text-sm text-orange-700">
-            Pour régler vos commissions, contactez TAPEA par email à{' '}
-            <a href="mailto:Tapea.pf@gmail.com" className="font-medium underline">
-              Tapea.pf@gmail.com
+            Pour régler vos commissions, contactez RAVE par email à{' '}
+            <a href="mailto:contact@rave-location.com" className="font-medium underline">
+              contact@rave-location.com
             </a>{' '}
             ou par téléphone au{' '}
             <a href="tel:+68987759897" className="font-medium underline">

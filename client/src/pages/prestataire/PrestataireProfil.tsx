@@ -217,7 +217,7 @@ export function PrestataireProfil() {
   }
 
   async function handleClearOsb() {
-    if (!confirm('Supprimer la configuration de paiement OSB ? Les clients repasseront en paiement hors app.')) {
+    if (!confirm('Supprimer la configuration PayZen / OSB ? Les clients paieront alors chez le loueur.')) {
       return;
     }
     setSavingOsb(true);
@@ -591,11 +591,11 @@ export function PrestataireProfil() {
             <KeyRound className="h-5 w-5 text-emerald-700" />
           </div>
           <div className="flex-1">
-            <h2 className="font-semibold text-gray-900">Configuration de Paiement (OSB)</h2>
+            <h2 className="font-semibold text-gray-900">Caisse PayZen / OSB</h2>
             <p className="text-sm text-gray-500">
               {prestataire.osbConfigured
-                ? 'Paiement en ligne actif — les clients peuvent payer par carte sur vos comptes.'
-                : 'Sans credentials, les réservations restent en paiement hors app (cash).'}
+                ? 'Paiement en ligne actif — les clients peuvent payer par carte via PayZen / OSB.'
+                : 'Sans credentials, les clients paient chez le loueur (espèces ou autre moyen convenu).'}
             </p>
           </div>
           {prestataire.osbConfigured ? (
@@ -929,7 +929,7 @@ export function PrestataireProfil() {
         <div className="space-y-2 text-sm text-gray-500">
           <p>Statut : {prestataire.isActive ? 'Actif' : 'Inactif'}</p>
           {prestataire.isSociete && prestataire.totalChauffeurs !== undefined && (
-            <p>Nombre de chauffeurs : {prestataire.totalChauffeurs}</p>
+            <p>Nombre de loueurs : {prestataire.totalChauffeurs}</p>
           )}
         </div>
       </div>

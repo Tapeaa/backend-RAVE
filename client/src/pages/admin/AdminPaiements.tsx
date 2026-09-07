@@ -1,6 +1,6 @@
 /**
- * Tape'ā Back Office - Page Paiements
- * Historique des paiements Stripe
+ * RAVE Back Office - Page Paiements
+ * Historique des locations (héritage Stripe — pas le paiement location actuel)
  */
 
 import { useEffect, useState } from 'react';
@@ -86,7 +86,7 @@ export function AdminPaiements() {
           </div>
           <div>
             <h1 className="text-2xl font-bold text-slate-900">Paiements</h1>
-            <p className="text-slate-500">Historique des courses finalisées</p>
+            <p className="text-slate-500">Locations finalisées — le paiement client actuel est PayZen/OSB ou chez le loueur (pas Stripe)</p>
           </div>
         </div>
         <button
