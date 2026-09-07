@@ -136,7 +136,7 @@ export function PrestataireProfil() {
     const def = subscription?.plans?.[plan];
     const label = def?.label || (plan === 'monthly' ? 'Mensuel' : '6 mois');
     const amount = def?.amountXpf ?? (plan === 'monthly' ? 5000 : 30000);
-    if (!confirm(`Confirmer l’abonnement ${label} — ${amount.toLocaleString('fr-FR')} XPF ?`)) return;
+    if (!confirm(`Demander l’abonnement ${label} — ${amount.toLocaleString('fr-FR')} XPF ? (activation après validation RAVE)`)) return;
     setSubscribing(plan);
     try {
       const token = localStorage.getItem('admin_token');
@@ -150,7 +150,7 @@ export function PrestataireProfil() {
       });
       const data = await response.json();
       if (response.ok) {
-        setSuccessMessage(data.subscription?.message || 'Abonnement activé');
+        setSuccessMessage(data.subscription?.message || 'Demande d’abonnement enregistrée');
         setTimeout(() => setSuccessMessage(null), 5000);
         await fetchSubscription();
       } else {
