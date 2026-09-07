@@ -6,6 +6,21 @@ import {
   buildCustomRentalContractHtml,
   buildDefaultRentalContractHtml,
 } from "@shared/rental-contract-html";
+import { persistContractHtml, persistContractPdf } from "./persist-media";
+import { downloadSignedDocumentPdf } from "./yousign";
+import { db } from "./db";
+import { orders } from "@shared/schema";
+import { eq } from "drizzle-orm";
+
+export function isClientContractSigned(rideOpt: any): boolean {
+  if (!rideOpt) return false;
+  return !!(
+    rideOpt.clientSignatureSvg ||
+    rideOpt.clientSignedAt ||
+    rideOpt.yousignSignatureRequestId ||
+    rideOpt.signedVia === "yousign"
+  );
+}
 
 export function buildRentalContractHtml(order: {
   id: string;
@@ -30,12 +45,7 @@ export function buildRentalContractHtml(order: {
   const loueurSigImg = rideOpt.loueurSignatureSvg || "";
   const signedAt = rideOpt.clientSignedAt;
   const sigName = rideOpt.clientSignatureName || clientName;
-  const clientSigned = !!(
-    signatureImg ||
-    signedAt ||
-    rideOpt.yousignSignatureRequestId ||
-    rideOpt.signedVia === "yousign"
-  );
+  const clientSigned = isClientContractSigned(rideOpt);
   const viaYousign = !!(
     rideOpt.yousignSignatureRequestId ||
     rideOpt.signedVia === "yousign"
@@ -72,7 +82,10 @@ export function buildRentalContractHtml(order: {
     : signatureImg
       ? `<img class="sig-img" src="${signatureImg}" alt="Signature"/>
   <div class="sig-date">✓ Signé le ${signedDate}${signedTime ? " à " + signedTime : ""}</div>`
-      : `<div class="sig-date">✓ Signé électroniquement${viaYousign ? " via Yousign" : ""} le ${signedDate}${signedTime ? " à " + signedTime : ""}</div>`;
+      : `<div style="margin-top:8px;padding:14px;border:2px solid #22c55e;border-radius:8px;background:#f0fdf4;text-align:center">
+  <div style="font-size:28px;font-family:Georgia,serif;font-style:italic;color:#166534">${String(sigName).replace(/</g, "")}</div>
+  <div class="sig-date" style="color:#166534;margin-top:6px">✓ Signé électroniquement${viaYousign ? " via Yousign" : ""} le ${signedDate}${signedTime ? " à " + signedTime : ""}</div>
+</div>`;
 
   const signatureHtml = `<div class="signature-box">
   <div class="sig-label">Le locataire</div>
@@ -115,4 +128,113 @@ export function buildRentalContractHtml(order: {
   return isCustom
     ? buildCustomRentalContractHtml({ ...params, isCustom: true })
     : buildDefaultRentalContractHtml(params);
+}
+
+export type ResolvedContract = {
+  html: string;
+  contractUrl: string | null;
+  signedPdfUrl: string | null;
+  signed: boolean;
+  signedVia: string | null;
+  /** PDF Yousign natif (base64) si disponible */
+  pdfBase64: string | null;
+  error?: string | null;
+};
+
+/** HTML snapshot + PDF Yousign (téléchargé / mis en cache) */
+export async function resolveOrderContract(order: {
+  id: string;
+  clientName?: string | null;
+  totalPrice?: number | null;
+  driverName?: string | null;
+  rideOption?: any;
+}): Promise<ResolvedContract> {
+  const rideOpt = { ...((order.rideOption || {}) as any) };
+  const signed = isClientContractSigned(rideOpt);
+  const viaYousign = !!(
+    rideOpt.yousignSignatureRequestId ||
+    rideOpt.signedVia === "yousign"
+  );
+
+  let html = rideOpt.contractHtmlSnapshot as string | undefined;
+  let contractUrl = (rideOpt.contractUrl as string | undefined) || null;
+  let signedPdfUrl = (rideOpt.yousignSignedPdfUrl as string | undefined) || null;
+  let pdfBase64: string | null = null;
+  let error: string | null = null;
+
+  const snapshotStaleYousign =
+    !!html &&
+    viaYousign &&
+    !rideOpt.clientSignatureSvg &&
+    /Non signé/i.test(html);
+
+  if (!html || snapshotStaleYousign) {
+    html = buildRentalContractHtml({ ...order, rideOption: rideOpt });
+    try {
+      const url = await persistContractHtml(html, order.id);
+      if (url) contractUrl = url;
+      rideOpt.contractHtmlSnapshot = html;
+      if (url) rideOpt.contractUrl = url;
+    } catch {
+      /* ignore */
+    }
+  }
+
+  // PDF Yousign : cache Cloudinary OU téléchargement API
+  if (signedPdfUrl && /^https:\/\//i.test(signedPdfUrl)) {
+    try {
+      const r = await fetch(signedPdfUrl);
+      if (r.ok) {
+        pdfBase64 = Buffer.from(await r.arrayBuffer()).toString("base64");
+      }
+    } catch {
+      /* retry yousign */
+    }
+  }
+
+  if (!pdfBase64 && rideOpt.yousignSignatureRequestId) {
+    try {
+      const buf = await downloadSignedDocumentPdf(
+        String(rideOpt.yousignSignatureRequestId),
+        rideOpt.yousignDocumentId || null
+      );
+      pdfBase64 = buf.toString("base64");
+      try {
+        const url = await persistContractPdf(buf, order.id);
+        if (url) {
+          signedPdfUrl = url;
+          rideOpt.yousignSignedPdfUrl = url;
+        }
+      } catch {
+        /* ignore cache fail */
+      }
+    } catch (e: any) {
+      error = e?.message || "PDF Yousign indisponible";
+      console.warn("[CONTRACT] Yousign PDF:", error);
+    }
+  }
+
+  // Persister cache éventuel
+  if (rideOpt.yousignSignedPdfUrl || rideOpt.contractHtmlSnapshot) {
+    try {
+      await db
+        .update(orders)
+        .set({ rideOption: rideOpt as any })
+        .where(eq(orders.id, order.id));
+    } catch {
+      /* ignore */
+    }
+  }
+
+  return {
+    html: html!,
+    contractUrl,
+    signedPdfUrl,
+    signed,
+    signedVia:
+      rideOpt.signedVia ||
+      (viaYousign ? "yousign" : rideOpt.clientSignatureSvg ? "canvas" : null),
+    pdfBase64,
+    error,
+  };
 }

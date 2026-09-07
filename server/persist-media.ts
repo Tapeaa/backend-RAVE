@@ -110,3 +110,22 @@ export async function persistContractHtml(
     return null;
   }
 }
+
+/** Upload PDF signé (Yousign) sur Cloudinary */
+export async function persistContractPdf(
+  pdfBuffer: Buffer,
+  orderId: string
+): Promise<string | null> {
+  try {
+    const { uploadDocumentToCloudinary } = await import("./cloudinary");
+    const result = await uploadDocumentToCloudinary(
+      pdfBuffer,
+      `rave/contracts-signed`,
+      "application/pdf"
+    );
+    return result?.url || null;
+  } catch (e) {
+    console.error("[persistContractPdf] failed:", e);
+    return null;
+  }
+}

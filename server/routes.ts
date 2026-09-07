@@ -2278,12 +2278,30 @@ app.post("/api/rental-orders", async (req, res) => {
           rideOption: order.rideOption,
         });
         const contractUrl = await persistContractHtml(html, order.id);
-        const rideOpt = {
+        const rideOpt: any = {
           ...(order.rideOption as any),
           contractHtmlSnapshot: html,
           clientSignatureName: `${resolvedFirstName} ${resolvedLastName}`,
           ...(contractUrl ? { contractUrl } : {}),
         };
+
+        // PDF Yousign officiel (avec cachet signature) — stocké pour admin/prestataire
+        if (body.signature?.yousignSignatureRequestId) {
+          try {
+            const { downloadSignedDocumentPdf } = await import("./yousign");
+            const { persistContractPdf } = await import("./persist-media");
+            const pdfBuf = await downloadSignedDocumentPdf(
+              String(body.signature.yousignSignatureRequestId),
+              body.signature.yousignDocumentId || null
+            );
+            const pdfUrl = await persistContractPdf(pdfBuf, order.id);
+            if (pdfUrl) rideOpt.yousignSignedPdfUrl = pdfUrl;
+            console.log(`[RENTAL] Yousign signed PDF saved for ${order.id}`);
+          } catch (pdfErr) {
+            console.warn("[RENTAL] Yousign PDF persist failed (will retry on download):", pdfErr);
+          }
+        }
+
         await db.update(orders).set({ rideOption: rideOpt as any }).where(eq(orders.id, order.id));
         (order as any).rideOption = rideOpt;
         console.log(`[RENTAL] Contract snapshot saved for ${order.id}`);

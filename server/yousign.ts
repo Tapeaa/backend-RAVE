@@ -208,22 +208,56 @@ export async function getSignatureRequestStatus(signatureRequestId: string) {
       id: s.id,
       status: s.status,
     })),
+    documents: (data.documents || []).map((d: any) => ({
+      id: d.id as string,
+      nature: d.nature as string | undefined,
+    })),
   };
 }
 
-/** Télécharge le PDF signé (quand status=done) */
+/** Liste les documents d'une signature request */
+export async function listSignatureDocuments(signatureRequestId: string): Promise<{ id: string }[]> {
+  const data = await ysFetch(
+    `/signature_requests/${encodeURIComponent(signatureRequestId)}/documents`
+  );
+  const list = Array.isArray(data) ? data : data?.data || data?.documents || [];
+  return (list as any[])
+    .map((d) => ({ id: String(d.id || "") }))
+    .filter((d) => d.id);
+}
+
+/** Télécharge le PDF signé (quand status=done). Résout documentId si absent. */
 export async function downloadSignedDocumentPdf(
   signatureRequestId: string,
-  documentId: string
+  documentId?: string | null
 ): Promise<Buffer> {
   const { apiKey, baseUrl } = yousignConfig();
   if (!apiKey) throw new Error("YOUSIGN_API_KEY manquante");
+
+  let docId = (documentId || "").trim();
+  if (!docId) {
+    try {
+      const docs = await listSignatureDocuments(signatureRequestId);
+      docId = docs[0]?.id || "";
+    } catch {
+      /* try status payload */
+    }
+  }
+  if (!docId) {
+    const st = await getSignatureRequestStatus(signatureRequestId);
+    docId = st.documents?.[0]?.id || "";
+  }
+  if (!docId) {
+    throw new Error("Aucun document Yousign trouvé pour cette signature");
+  }
+
   const res = await fetch(
-    `${baseUrl}/signature_requests/${encodeURIComponent(signatureRequestId)}/documents/${encodeURIComponent(documentId)}/download`,
+    `${baseUrl}/signature_requests/${encodeURIComponent(signatureRequestId)}/documents/${encodeURIComponent(docId)}/download`,
     { headers: { Authorization: `Bearer ${apiKey}` } }
   );
   if (!res.ok) {
-    throw new Error(`Téléchargement PDF Yousign échoué (${res.status})`);
+    const errText = await res.text().catch(() => "");
+    throw new Error(`Téléchargement PDF Yousign échoué (${res.status}) ${errText.slice(0, 120)}`);
   }
   const ab = await res.arrayBuffer();
   return Buffer.from(ab);
