@@ -33,6 +33,8 @@ import {
   isOsbEncryptionConfigured,
   prestataireHasOsbCredentials,
 } from "./osb-crypto";
+import { assertPrestataireBillingComplete } from "./prestataire-billing";
+import { isBillingProfileComplete } from "@shared/tva";
 
 const stripe = process.env.STRIPE_SECRET_KEY ? new Stripe(process.env.STRIPE_SECRET_KEY) : null;
 
@@ -97,6 +99,16 @@ export function registerPrestataireRoutes(app: Express) {
         totalChauffeurs = driverCount?.count || 0;
       }
 
+      const billingCheck = isBillingProfileComplete({
+        nom: prestataire.nom,
+        phone: prestataire.phone,
+        numeroTahiti: prestataire.numeroTahiti,
+        address: (prestataire as any).address,
+        tvaRegime: (prestataire as any).tvaRegime,
+        tvaRate: (prestataire as any).tvaRate,
+        tvaMode: (prestataire as any).tvaMode,
+      });
+
       return res.json({
         prestataire: {
           id: prestataire.id,
@@ -108,6 +120,9 @@ export function registerPrestataireRoutes(app: Express) {
           address: (prestataire as any).address ?? null,
           tvaRegime: (prestataire as any).tvaRegime || "franchise",
           tvaRate: (prestataire as any).tvaRate ?? 16,
+          tvaMode: (prestataire as any).tvaMode === "extra" ? "extra" : "included",
+          billingComplete: billingCheck.ok,
+          billingMissing: billingCheck.ok ? [] : billingCheck.missing,
           isActive: prestataire.isActive,
           isSociete: isSociete(prestataire.type),
           totalChauffeurs,
@@ -446,7 +461,7 @@ export function registerPrestataireRoutes(app: Express) {
         return res.status(401).json({ error: "Non authentifié" });
       }
 
-      const { nom, numeroTahiti, email, phone, address, tvaRegime, tvaRate } = req.body;
+      const { nom, numeroTahiti, email, phone, address, tvaRegime, tvaRate, tvaMode } = req.body;
       const updates: Record<string, string | number | null> = {};
 
       if (typeof nom === "string" && nom.trim()) updates.nom = nom.trim();
@@ -459,9 +474,37 @@ export function registerPrestataireRoutes(app: Express) {
         const n = Number(tvaRate);
         if (!Number.isNaN(n) && n >= 0 && n <= 100) updates.tvaRate = n;
       }
+      if (tvaMode === "included" || tvaMode === "extra") updates.tvaMode = tvaMode;
 
       if (Object.keys(updates).length === 0) {
         return res.status(400).json({ error: "Aucune donnée à mettre à jour" });
+      }
+
+      const [current] = await db
+        .select()
+        .from(prestataires)
+        .where(eq(prestataires.id, req.prestataire.id))
+        .limit(1);
+      if (!current) {
+        return res.status(404).json({ error: "Prestataire non trouvé" });
+      }
+
+      const mergedForCheck = {
+        nom: (updates.nom as string) ?? current.nom,
+        phone: (updates.phone as string | null) ?? current.phone,
+        numeroTahiti: (updates.numeroTahiti as string | null) ?? current.numeroTahiti,
+        address: (updates.address as string | null) ?? (current as any).address,
+        tvaRegime: (updates.tvaRegime as string) ?? (current as any).tvaRegime,
+        tvaRate: (updates.tvaRate as number) ?? (current as any).tvaRate,
+        tvaMode: (updates.tvaMode as string) ?? (current as any).tvaMode,
+      };
+      const billingCheck = isBillingProfileComplete(mergedForCheck);
+      if (!billingCheck.ok) {
+        return res.status(400).json({
+          error: `Profil facturation incomplet : ${billingCheck.missing.join(", ")}`,
+          code: "BILLING_PROFILE_INCOMPLETE",
+          missing: billingCheck.missing,
+        });
       }
 
       const [updated] = await db
@@ -483,6 +526,16 @@ export function registerPrestataireRoutes(app: Express) {
         matchCode: updated.code,
       });
 
+      const billingAfter = isBillingProfileComplete({
+        nom: updated.nom,
+        phone: updated.phone,
+        numeroTahiti: updated.numeroTahiti,
+        address: (updated as any).address,
+        tvaRegime: (updated as any).tvaRegime,
+        tvaRate: (updated as any).tvaRate,
+        tvaMode: (updated as any).tvaMode,
+      });
+
       return res.json({
         success: true,
         syncedAppAccounts: sync.synced,
@@ -496,6 +549,9 @@ export function registerPrestataireRoutes(app: Express) {
           address: (updated as any).address ?? null,
           tvaRegime: (updated as any).tvaRegime || "franchise",
           tvaRate: (updated as any).tvaRate ?? 16,
+          tvaMode: (updated as any).tvaMode === "extra" ? "extra" : "included",
+          billingComplete: billingAfter.ok,
+          billingMissing: billingAfter.ok ? [] : billingAfter.missing,
           isActive: updated.isActive,
           isSociete: isSociete(updated.type),
           createdAt: updated.createdAt.toISOString(),
@@ -1321,6 +1377,7 @@ export function registerPrestataireRoutes(app: Express) {
           address: (prestataireInfo as any).address ?? null,
           tvaRegime: (prestataireInfo as any).tvaRegime || "franchise",
           tvaRate: (prestataireInfo as any).tvaRate ?? 16,
+          tvaMode: (prestataireInfo as any).tvaMode === "extra" ? "extra" : "included",
         } : null,
         ratings: {
           client: clientRating, // Note du client sur le chauffeur
@@ -1871,6 +1928,15 @@ export function registerPrestataireRoutes(app: Express) {
 
       if (!isLoueur(req.prestataire.type)) {
         return res.status(403).json({ error: "Seuls les loueurs peuvent ajouter des véhicules" });
+      }
+
+      const billingGate = await assertPrestataireBillingComplete(req.prestataire.id);
+      if (!billingGate.ok) {
+        return res.status(billingGate.status).json({
+          error: billingGate.error,
+          code: billingGate.code,
+          missing: billingGate.missing,
+        });
       }
 
       const {

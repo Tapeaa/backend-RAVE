@@ -39,6 +39,18 @@ import {
   aggregateRentalEarnings,
   isRentalOrderLike,
 } from "./rental-stats";
+import {
+  assertPrestataireBillingComplete,
+  resolvePrestataireIdForDriver,
+} from "./prestataire-billing";
+import {
+  isBillingProfileComplete,
+  listedToClientPayable,
+  mapListingExtrasPricesForClient,
+  mapPricingTiersForClient,
+  publicTvaMeta,
+  splitFromPayableTtc,
+} from "@shared/tva";
 
 /**
  * Helper function to get driver session with database fallback.
@@ -2009,6 +2021,11 @@ app.post("/api/rental-orders", async (req, res) => {
         customContractText: loueurVehicles.customContractText,
         prestataireNom: prestataires.nom,
         prestataireNumeroTahiti: prestataires.numeroTahiti,
+        prestatairePhone: prestataires.phone,
+        prestataireAddress: prestataires.address,
+        prestataireTvaRegime: prestataires.tvaRegime,
+        prestataireTvaRate: prestataires.tvaRate,
+        prestataireTvaMode: prestataires.tvaMode,
         prestataireActive: prestataires.isActive,
         modelId: vehicleModels.id,
         modelName: vehicleModels.name,
@@ -2031,6 +2048,17 @@ app.post("/api/rental-orders", async (req, res) => {
     }
     if (!vehicleRow.driverId) {
       return res.status(409).json({ success: false, error: "Aucun loueur associé à ce véhicule" });
+    }
+    if (vehicleRow.prestataireId) {
+      const billingGate = await assertPrestataireBillingComplete(vehicleRow.prestataireId);
+      if (!billingGate.ok) {
+        return res.status(billingGate.status).json({
+          success: false,
+          error: billingGate.error,
+          code: billingGate.code,
+          missing: billingGate.missing,
+        });
+      }
     }
 
     const availability = await assertVehicleAvailableForRental({
@@ -2057,6 +2085,11 @@ app.post("/api/rental-orders", async (req, res) => {
 
     const days = Math.max(1, Number(body.rental.days) || 1);
     const maxRentalDays = Number(vehicleRow.maxRentalDays) || MAX_RENTAL_DAYS_CAP;
+    const tvaOpts = {
+      regime: (vehicleRow as any).prestataireTvaRegime,
+      mode: (vehicleRow as any).prestataireTvaMode,
+      rate: (vehicleRow as any).prestataireTvaRate,
+    };
     const priced = computeDigressiveRentalPrice({
       days,
       tiers: (vehicleRow as any).pricingTiers || [],
@@ -2067,26 +2100,58 @@ app.post("/api/rental-orders", async (req, res) => {
       return res.status(409).json({ success: false, error: priced.error });
     }
 
-    const pricePerDay = priced.averagePerDay;
-    const subtotal = priced.total;
-    if (subtotal <= 0) {
+    const subtotalListed = priced.total;
+    if (subtotalListed <= 0) {
       return res.status(409).json({ success: false, error: "Tarif journalier invalide pour ce véhicule" });
     }
 
-    const rentalSupplements = Array.isArray(body.supplements)
-      ? body.supplements.map((s: any) => ({
-          id: s.id,
-          name: s.name,
-          price: s.pricePerDay || s.total || 0,
-          quantity: days,
-        }))
+    const listingCatalog = (() => {
+      const extras = normalizeListingExtras((vehicleRow as any).listingExtras);
+      return [...extras.insuranceOptions, ...extras.supplementOptions];
+    })();
+    const rentalSupplementsListed = Array.isArray(body.supplements)
+      ? body.supplements.map((s: any) => {
+          const match = listingCatalog.find(
+            (o) =>
+              (s.id && o.id === s.id) ||
+              (s.name && o.label === s.name) ||
+              (s.label && o.label === s.label)
+          );
+          const listedUnit = match
+            ? Number(match.pricePerDay) || 0
+            : Number(s.pricePerDay || s.price || s.total || 0) || 0;
+          return {
+            id: s.id || match?.id,
+            name: s.name || s.label || match?.label || "Supplément",
+            priceListed: listedUnit,
+            price: listedToClientPayable(listedUnit, tvaOpts),
+            quantity: days,
+          };
+        })
       : [];
+    const supplementsListed = rentalSupplementsListed.reduce(
+      (sum: number, s: any) => sum + (Number(s.priceListed) || 0) * days,
+      0
+    );
+    const discountAmount = Number(body.pricing?.discountAmount) || 0;
+    const grandListed = Math.max(0, subtotalListed + supplementsListed - discountAmount);
+    const grandTotal = listedToClientPayable(grandListed, tvaOpts);
+    const tvaBreakdown = splitFromPayableTtc(grandTotal, tvaOpts);
+    const pricePerDay = listedToClientPayable(priced.averagePerDay, tvaOpts);
+    const rentalSupplements = rentalSupplementsListed.map(({ priceListed, ...rest }) => rest);
     const supplementsTotal = rentalSupplements.reduce(
       (sum: number, s: any) => sum + (Number(s.price) || 0) * days,
       0
     );
-    const discountAmount = Number(body.pricing?.discountAmount) || 0;
-    const grandTotal = Math.max(0, subtotal + supplementsTotal - discountAmount);
+    const clientBillingAddress =
+      (body.client?.address || body.client?.billingAddress || "").trim() || "";
+    if (!clientBillingAddress || clientBillingAddress.length < 8) {
+      return res.status(400).json({
+        success: false,
+        error: "Adresse de facturation client obligatoire",
+        code: "CLIENT_BILLING_ADDRESS_REQUIRED",
+      });
+    }
 
     const modelName = vehicleRow.modelName || body.vehicle?.model || "Véhicule";
     const category = vehicleRow.modelCategory || body.vehicle?.category || "autre";
@@ -2223,13 +2288,27 @@ app.post("/api/rental-orders", async (req, res) => {
         seats: vehicleRow.seats,
         supplementsTotal,
         isRentalOrder: true,
-        pricingBreakdown: priced.breakdown,
-        pricingSubtotal: priced.total,
+        pricingBreakdown: (priced.breakdown || []).map((line: any) => ({
+          ...line,
+          pricePerDayListed: line.pricePerDay,
+          pricePerDay: listedToClientPayable(line.pricePerDay, tvaOpts),
+          subtotalListed: line.subtotal,
+          subtotal: listedToClientPayable(line.subtotal, tvaOpts),
+        })),
+        pricingSubtotalListed: subtotalListed,
+        pricingSubtotal: listedToClientPayable(subtotalListed, tvaOpts),
         maxRentalDays,
         rentalContractMode: (vehicleRow as any).rentalContractMode || "app_default",
         customContractText: (vehicleRow as any).customContractText || null,
-        clientBillingAddress:
-          (body.client?.address || body.client?.billingAddress || "").trim() || null,
+        clientBillingAddress,
+        tvaRegime: tvaBreakdown.regime,
+        tvaMode: tvaBreakdown.mode,
+        tvaRate: tvaBreakdown.rate,
+        priceHt: tvaBreakdown.ht,
+        priceTva: tvaBreakdown.tva,
+        priceTtc: tvaBreakdown.ttc,
+        tvaLabel: publicTvaMeta(tvaOpts).tvaLabel,
+        ownerAddress: (vehicleRow as any).prestataireAddress || null,
         ...(body.signature ? {
           clientSignatureSvg: body.signature.clientSignatureSvg || null,
           clientSignedAt: body.signature.clientSignedAt,
@@ -2523,17 +2602,33 @@ app.post("/api/rental-orders/:id/accept", async (req, res) => {
 
     const driver = await dbStorage.getDriver(session.driverId);
     const subGate = resolveSubscriptionStatus(driver || { subscriptionStatus: "none" });
-    if (subGate.status !== "active") {
-      return res.status(403).json({
-        success: false,
-        error:
-          subGate.status === "pending"
-            ? "Abonnement en attente de validation RAVE — vous ne pouvez pas encore accepter de locations."
-            : "Abonnement RAVE inactif — activez votre abonnement pour accepter des locations.",
-        code: "SUBSCRIPTION_REQUIRED",
-        subscriptionStatus: subGate.status,
-      });
-    }
+      if (subGate.status !== "active") {
+        return res.status(403).json({
+          success: false,
+          error:
+            subGate.status === "pending"
+              ? "Abonnement en attente de validation RAVE — vous ne pouvez pas encore accepter de locations."
+              : "Abonnement RAVE inactif — activez votre abonnement pour accepter des locations.",
+          code: "SUBSCRIPTION_REQUIRED",
+          subscriptionStatus: subGate.status,
+        });
+      }
+
+      const prestataireIdForBilling =
+        driver?.prestataireId ||
+        (await resolvePrestataireIdForDriver(session.driverId));
+      if (prestataireIdForBilling) {
+        const billingGate = await assertPrestataireBillingComplete(prestataireIdForBilling);
+        if (!billingGate.ok) {
+          return res.status(billingGate.status).json({
+            success: false,
+            error: billingGate.error,
+            code: billingGate.code,
+            missing: billingGate.missing,
+          });
+        }
+      }
+
     const bodyMeeting =
       typeof req.body.meetingPoint === "string" ? req.body.meetingPoint.trim() : "";
 
@@ -4727,6 +4822,12 @@ app.post("/api/live-activities/end", async (req, res) => {
         customImageUrl: loueurVehicles.customImageUrl,
         listingExtras: loueurVehicles.listingExtras,
         prestataireNom: prestataires.nom,
+        prestatairePhone: prestataires.phone,
+        prestataireNumeroTahiti: prestataires.numeroTahiti,
+        prestataireAddress: prestataires.address,
+        prestataireTvaRegime: prestataires.tvaRegime,
+        prestataireTvaRate: prestataires.tvaRate,
+        prestataireTvaMode: prestataires.tvaMode,
         prestataireActive: prestataires.isActive,
         modelId: vehicleModels.id,
         modelName: vehicleModels.name,
@@ -4815,6 +4916,17 @@ app.post("/api/live-activities/end", async (req, res) => {
         // Loueur désactivé côté admin → hors catalogue (même si org encore active)
         if (row.driverId && driverActiveById.get(row.driverId) === false) continue;
 
+        const billingOk = isBillingProfileComplete({
+          nom: row.prestataireNom,
+          phone: row.prestatairePhone,
+          numeroTahiti: row.prestataireNumeroTahiti,
+          address: row.prestataireAddress,
+          tvaRegime: row.prestataireTvaRegime,
+          tvaRate: row.prestataireTvaRate,
+          tvaMode: row.prestataireTvaMode,
+        });
+        if (!billingOk.ok) continue;
+
         const matchesService =
           serviceType === 'delivery' || serviceType === 'longterm'
             ? false // services retirés
@@ -4840,6 +4952,13 @@ app.post("/api/live-activities/end", async (req, res) => {
         });
 
         const ownerRating = row.driverId ? driverRatingById.get(row.driverId) : undefined;
+        const tvaOpts = {
+          regime: row.prestataireTvaRegime,
+          mode: row.prestataireTvaMode,
+          rate: row.prestataireTvaRate,
+        };
+        const listedPrice = typeof row.pricePerDay === 'number' ? row.pricePerDay : Number(row.pricePerDay) || 0;
+        const listedTiers = Array.isArray(row.pricingTiers) ? row.pricingTiers : [];
 
         result.push({
           id: row.loueurVehicleId,
@@ -4859,11 +4978,13 @@ app.post("/api/live-activities/end", async (req, res) => {
           seats: specs.seats,
           transmission: specs.transmission,
           fuel: specs.fuel,
-          pricePerDay: typeof row.pricePerDay === 'number' ? row.pricePerDay : Number(row.pricePerDay) || 0,
-          pricingTiers: Array.isArray(row.pricingTiers) ? row.pricingTiers : [],
+          pricePerDayListed: listedPrice,
+          pricePerDay: listedToClientPayable(listedPrice, tvaOpts),
+          pricingTiers: mapPricingTiersForClient(listedTiers, tvaOpts),
           maxRentalDays: Number(row.maxRentalDays) || 90,
-          listingExtras,
+          listingExtras: mapListingExtrasPricesForClient(listingExtras, tvaOpts),
           availableCount: 1,
+          ...publicTvaMeta(tvaOpts),
           services: {
             rental: !!row.availableForRental,
             delivery: false,
@@ -4918,6 +5039,11 @@ app.post("/api/live-activities/end", async (req, res) => {
         customImageUrl: loueurVehicles.customImageUrl,
         prestataireNom: prestataires.nom,
         prestataireNumeroTahiti: prestataires.numeroTahiti,
+        prestatairePhone: prestataires.phone,
+        prestataireAddress: prestataires.address,
+        prestataireTvaRegime: prestataires.tvaRegime,
+        prestataireTvaRate: prestataires.tvaRate,
+        prestataireTvaMode: prestataires.tvaMode,
         prestataireActive: prestataires.isActive,
         osbShopId: prestataires.osbShopId,
         osbCertificateEncrypted: prestataires.osbCertificateEncrypted,
@@ -4965,6 +5091,16 @@ app.post("/api/live-activities/end", async (req, res) => {
       const { prestataireHasOsbCredentials } = await import("./osb-crypto");
       for (const row of rows) {
         if (row.prestataireActive === false) continue;
+        const billingOk = isBillingProfileComplete({
+          nom: row.prestataireNom,
+          phone: row.prestatairePhone,
+          numeroTahiti: row.prestataireNumeroTahiti,
+          address: row.prestataireAddress,
+          tvaRegime: row.prestataireTvaRegime,
+          tvaRate: row.prestataireTvaRate,
+          tvaMode: row.prestataireTvaMode,
+        });
+        if (!billingOk.ok) continue;
         let ownerName = (row.prestataireNom || "").trim() || "Loueur";
         let ownerAverageRating: number | null = null;
         let ownerRatingsCount = 0;
@@ -5004,14 +5140,24 @@ app.post("/api/live-activities/end", async (req, res) => {
           transmission: row.transmission,
           fuel: row.fuel,
         });
+        const tvaOpts = {
+          regime: row.prestataireTvaRegime,
+          mode: row.prestataireTvaMode,
+          rate: row.prestataireTvaRate,
+        };
+        const listedPrice = Number(row.pricePerDay) || 0;
+        const listedTiers = Array.isArray(row.pricingTiers) ? row.pricingTiers : [];
         result.push({
           loueurVehicleId: row.loueurVehicleId,
           plate: row.plate,
-          pricePerDay: row.pricePerDay,
-          pricePerDayLongTerm: row.pricePerDayLongTerm,
-          pricingTiers: Array.isArray(row.pricingTiers) ? row.pricingTiers : [],
+          pricePerDayListed: listedPrice,
+          pricePerDay: listedToClientPayable(listedPrice, tvaOpts),
+          pricePerDayLongTerm: row.pricePerDayLongTerm != null
+            ? listedToClientPayable(Number(row.pricePerDayLongTerm) || 0, tvaOpts)
+            : null,
+          pricingTiers: mapPricingTiersForClient(listedTiers, tvaOpts),
           maxRentalDays: Number(row.maxRentalDays) || 90,
-          listingExtras,
+          listingExtras: mapListingExtrasPricesForClient(listingExtras, tvaOpts),
           rentalContractMode: row.rentalContractMode,
           customContractText: row.customContractText,
           customImageUrl: imageUrls[0] || null,
@@ -5028,6 +5174,7 @@ app.post("/api/live-activities/end", async (req, res) => {
           seats: specs.seats,
           modelName: row.modelName,
           modelCategory: row.modelCategory,
+          ...publicTvaMeta(tvaOpts),
           paymentOnlineAvailable: prestataireHasOsbCredentials({
             osbShopId: row.osbShopId,
             osbCertificateEncrypted: row.osbCertificateEncrypted,
@@ -5306,6 +5453,15 @@ app.post("/api/live-activities/end", async (req, res) => {
         prestataireId = newPrestataire.id;
         await db.update(drivers).set({ prestataireId }).where(eq(drivers.id, driver.id));
         console.log(`[Driver] Auto-created prestataire loueur ${prestataireId} for driver ${driver.id}`);
+      }
+
+      const billingGate = await assertPrestataireBillingComplete(prestataireId);
+      if (!billingGate.ok) {
+        return res.status(billingGate.status).json({
+          error: billingGate.error,
+          code: billingGate.code,
+          missing: billingGate.missing,
+        });
       }
 
       const {

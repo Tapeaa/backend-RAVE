@@ -61,6 +61,7 @@ interface CourseDetails {
     address?: string | null;
     tvaRegime?: string | null;
     tvaRate?: number | null;
+    tvaMode?: string | null;
   } | null;
   waitingRatePerMin?: number;
   freeMinutes?: number;
@@ -779,11 +780,35 @@ export function PrestataireCourseDetails() {
             const unitPrice = Number(ro?.price || ro?.baseFare || 0);
             const lineRental = Number(ro?.pricingSubtotal) || unitPrice * days;
             const supplements = Array.isArray(course.supplements) ? course.supplements : [];
-            const tvaRegime = prestataire?.tvaRegime === 'assujetti' ? 'assujetti' : 'franchise';
-            const tvaRate = Number(prestataire?.tvaRate) || 16;
+            const tvaRegime =
+              (course as any)?.rideOption?.tvaRegime === 'assujetti' ||
+              prestataire?.tvaRegime === 'assujetti'
+                ? 'assujetti'
+                : 'franchise';
+            const tvaRate =
+              Number((course as any)?.rideOption?.tvaRate) ||
+              Number(prestataire?.tvaRate) ||
+              16;
+            const tvaMode =
+              (course as any)?.rideOption?.tvaMode === 'extra' ||
+              prestataire?.tvaMode === 'extra'
+                ? 'extra'
+                : 'included';
+            const snapshotHt = Number((course as any)?.rideOption?.priceHt);
+            const snapshotTva = Number((course as any)?.rideOption?.priceTva);
             const total = Number(course.totalPrice) || 0;
-            const ht = tvaRegime === 'assujetti' ? Math.round(total / (1 + tvaRate / 100)) : total;
-            const tvaAmount = tvaRegime === 'assujetti' ? total - ht : 0;
+            const ht =
+              tvaRegime === 'assujetti'
+                ? Number.isFinite(snapshotHt) && snapshotHt > 0
+                  ? Math.round(snapshotHt)
+                  : Math.round(total / (1 + tvaRate / 100))
+                : total;
+            const tvaAmount =
+              tvaRegime === 'assujetti'
+                ? Number.isFinite(snapshotTva) && snapshotTva >= 0
+                  ? Math.round(snapshotTva)
+                  : total - ht
+                : 0;
 
             if (isRental) {
               return (
@@ -842,7 +867,7 @@ export function PrestataireCourseDetails() {
                   </table>
                   <div className="legal">
                     {tvaRegime === 'assujetti'
-                      ? `TVA ${tvaRate} % applicable.`
+                      ? `TVA ${tvaRate} % ${tvaMode === 'extra' ? 'facturée en sus du tarif HT' : 'incluse dans le tarif TTC'}.`
                       : 'TVA non applicable, article 293 B du CGI (franchise en base) — ou disposition équivalente du code des impôts de la Polynésie française.'}
                   </div>
                 </>
@@ -896,7 +921,7 @@ export function PrestataireCourseDetails() {
                 </table>
                 <div className="legal">
                   {tvaRegime === 'assujetti'
-                    ? `TVA ${tvaRate} % applicable.`
+                    ? `TVA ${tvaRate} % ${tvaMode === 'extra' ? 'facturée en sus du tarif HT' : 'incluse dans le tarif TTC'}.`
                     : 'TVA non applicable, article 293 B du CGI (franchise en base) — ou disposition équivalente du code des impôts de la Polynésie française.'}
                 </div>
               </>

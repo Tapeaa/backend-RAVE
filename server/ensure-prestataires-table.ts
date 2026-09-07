@@ -70,6 +70,7 @@ export async function ensurePrestatairesTable() {
       await addDocCol('doc_assurance_pro');
       await addDocCol('address');
       await addDocCol('tva_regime');
+      await addDocCol('tva_mode');
       // tva_rate = real
       try {
         await db.execute(sql`
@@ -81,6 +82,13 @@ export async function ensurePrestatairesTable() {
       try {
         await db.execute(sql`
           UPDATE prestataires SET tva_regime = 'franchise' WHERE tva_regime IS NULL
+        `);
+      } catch {
+        /* ignore */
+      }
+      try {
+        await db.execute(sql`
+          UPDATE prestataires SET tva_mode = 'included' WHERE tva_mode IS NULL
         `);
       } catch {
         /* ignore */

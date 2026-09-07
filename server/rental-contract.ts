@@ -77,6 +77,26 @@ export function buildRentalContractHtml(order: {
     : "—";
   const endLabel = rd.endDate ? new Date(rd.endDate).toLocaleDateString("fr-FR") : "—";
 
+  const tvaRegime = rideOpt.tvaRegime === "assujetti" ? "assujetti" : "franchise";
+  const tvaRate = Number(rideOpt.tvaRate) || 16;
+  const tvaMode = rideOpt.tvaMode === "extra" ? "extra" : "included";
+  const priceHt = Number(rideOpt.priceHt);
+  const priceTva = Number(rideOpt.priceTva);
+  const hasTvaSplit =
+    tvaRegime === "assujetti" &&
+    Number.isFinite(priceHt) &&
+    Number.isFinite(priceTva) &&
+    priceHt >= 0;
+
+  let priceRowsHtml: string | undefined;
+  if (hasTvaSplit) {
+    priceRowsHtml = [
+      `<tr><td>Montant HT</td><td class="r">${Math.round(priceHt).toLocaleString("fr-FR")} XPF</td></tr>`,
+      `<tr><td>TVA (${tvaRate} %${tvaMode === "extra" ? ", en sus" : ", incluse"})</td><td class="r">${Math.round(priceTva).toLocaleString("fr-FR")} XPF</td></tr>`,
+      `<tr><td>Total TTC</td><td class="r">${Number(totalPrice).toLocaleString("fr-FR")} XPF</td></tr>`,
+    ].join("");
+  }
+
   const clientSigBlock = !clientSigned
     ? `<div class="sig-date">Non signé</div>`
     : signatureImg
@@ -115,8 +135,23 @@ export function buildRentalContractHtml(order: {
     endLabel,
     days: Number(days) || 0,
     pickupLocation: String(rd.pickupAddress || rideOpt.pickupLocation || ""),
-    pricePerDayLabel: `${Number(pricePerDay).toLocaleString("fr-FR")} XPF`,
-    totalLabel: `${Number(totalPrice).toLocaleString("fr-FR")} XPF`,
+    pricePerDayLabel: `${Number(pricePerDay).toLocaleString("fr-FR")} XPF${
+      tvaRegime === "assujetti"
+        ? tvaMode === "extra"
+          ? " (base HT + TVA)"
+          : " TTC"
+        : ""
+    }`,
+    priceRowsHtml,
+    totalLabel: `${Number(totalPrice).toLocaleString("fr-FR")} XPF${
+      tvaRegime === "assujetti" ? " TTC" : ""
+    }`,
+    paymentNote:
+      tvaRegime === "assujetti"
+        ? tvaMode === "extra"
+          ? `TVA ${tvaRate} % facturée en sus du tarif HT.`
+          : `TVA ${tvaRate} % incluse dans le tarif.`
+        : "TVA non applicable (franchise en base).",
     signatureHtml,
     customBody: rideOpt.customContractText || null,
   };

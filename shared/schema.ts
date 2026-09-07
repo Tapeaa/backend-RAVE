@@ -33,8 +33,10 @@ export const prestataires = pgTable("prestataires", {
   address: text("address"),
   /** franchise = TVA non applicable | assujetti = HT + TVA */
   tvaRegime: text("tva_regime").default("franchise"),
-  /** Taux TVA % si assujetti (ex. 16 en PF pour certains cas) */
+  /** Taux TVA % si assujetti (ex. 16) */
   tvaRate: real("tva_rate").default(16),
+  /** included = prix saisis TTC | extra = prix saisis HT, TVA en plus */
+  tvaMode: text("tva_mode").default("included"),
 });
 
 // Drivers table (for driver accounts)

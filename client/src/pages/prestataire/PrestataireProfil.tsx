@@ -53,6 +53,9 @@ interface PrestataireInfo {
   address?: string | null;
   tvaRegime?: string | null;
   tvaRate?: number | null;
+  tvaMode?: 'included' | 'extra' | string | null;
+  billingComplete?: boolean;
+  billingMissing?: string[];
   isActive: boolean;
   isSociete: boolean;
   totalChauffeurs?: number;
@@ -102,6 +105,7 @@ export function PrestataireProfil() {
     address: '',
     tvaRegime: 'franchise' as 'franchise' | 'assujetti',
     tvaRate: 16,
+    tvaMode: 'included' as 'included' | 'extra',
   });
   const [codeForm, setCodeForm] = useState({ currentCode: '', newCode: '', confirmCode: '' });
   const [isChangingCode, setIsChangingCode] = useState(false);
@@ -307,6 +311,7 @@ export function PrestataireProfil() {
           address: data.prestataire.address || '',
           tvaRegime: data.prestataire.tvaRegime === 'assujetti' ? 'assujetti' : 'franchise',
           tvaRate: Number(data.prestataire.tvaRate) || 16,
+          tvaMode: data.prestataire.tvaMode === 'extra' ? 'extra' : 'included',
         });
         setOsbForm({
           shopId: data.prestataire.osbShopId || '',
@@ -324,6 +329,26 @@ export function PrestataireProfil() {
 
   async function handleSave() {
     if (!prestataire) return;
+    if (!form.nom.trim()) {
+      alert('Le nom / raison sociale est obligatoire');
+      return;
+    }
+    if (!form.phone.trim()) {
+      alert('Le téléphone est obligatoire');
+      return;
+    }
+    if (!form.numeroTahiti.trim()) {
+      alert('Le N° Tahiti est obligatoire');
+      return;
+    }
+    if (!form.address.trim() || form.address.trim().length < 8) {
+      alert('L’adresse de facturation est obligatoire (min. 8 caractères)');
+      return;
+    }
+    if (form.tvaRegime === 'assujetti' && (!form.tvaMode || (form.tvaMode !== 'included' && form.tvaMode !== 'extra'))) {
+      alert('Choisissez si la TVA est incluse dans le prix ou facturée en plus');
+      return;
+    }
     setIsSaving(true);
     setSuccessMessage(null);
     try {
@@ -367,6 +392,7 @@ export function PrestataireProfil() {
         address: prestataire.address || '',
         tvaRegime: prestataire.tvaRegime === 'assujetti' ? 'assujetti' : 'franchise',
         tvaRate: Number(prestataire.tvaRate) || 16,
+        tvaMode: prestataire.tvaMode === 'extra' ? 'extra' : 'included',
       });
       setIsEditing(false);
     }
@@ -548,6 +574,28 @@ export function PrestataireProfil() {
         <div className="mb-6 flex items-center gap-2 rounded-lg bg-emerald-50 px-4 py-3 text-emerald-700">
           <CheckCircle className="h-5 w-5 shrink-0" />
           <span>{successMessage}</span>
+        </div>
+      )}
+
+      {prestataire && prestataire.billingComplete === false && (
+        <div className="mb-6 rounded-lg border border-amber-300 bg-amber-50 px-4 py-3 text-amber-900">
+          <p className="font-medium">Profil facturation incomplet</p>
+          <p className="mt-1 text-sm">
+            Complétez l’adresse de facturation, le N° Tahiti, le téléphone et vos infos TVA pour
+            publier des véhicules et accepter des locations.
+            {Array.isArray(prestataire.billingMissing) && prestataire.billingMissing.length > 0
+              ? ` Manquant : ${prestataire.billingMissing.join(', ')}.`
+              : ''}
+          </p>
+          {!isEditing && (
+            <button
+              type="button"
+              onClick={() => setIsEditing(true)}
+              className="mt-2 text-sm font-medium text-amber-800 underline"
+            >
+              Compléter maintenant
+            </button>
+          )}
         </div>
       )}
 
@@ -861,26 +909,68 @@ export function PrestataireProfil() {
                   <option value="assujetti">Assujetti à la TVA</option>
                 </select>
                 {form.tvaRegime === 'assujetti' && (
-                  <div>
-                    <label className="mb-1 block text-xs text-gray-600">Taux TVA (%)</label>
-                    <input
-                      type="number"
-                      min={0}
-                      max={100}
-                      step={0.1}
-                      value={form.tvaRate}
-                      onChange={(e) =>
-                        setForm((f) => ({ ...f, tvaRate: Number(e.target.value) || 0 }))
-                      }
-                      className="w-full rounded-lg border border-gray-300 px-3 py-2"
-                    />
-                  </div>
+                  <>
+                    <div>
+                      <label className="mb-1 block text-xs text-gray-600">Taux TVA (%)</label>
+                      <input
+                        type="number"
+                        min={0}
+                        max={100}
+                        step={0.1}
+                        value={form.tvaRate}
+                        onChange={(e) =>
+                          setForm((f) => ({ ...f, tvaRate: Number(e.target.value) || 0 }))
+                        }
+                        className="w-full rounded-lg border border-gray-300 px-3 py-2"
+                      />
+                    </div>
+                    <div className="space-y-2 rounded-lg border border-gray-200 p-3">
+                      <p className="text-xs font-medium text-gray-700">
+                        Application de la TVA sur vos tarifs *
+                      </p>
+                      <label className="flex cursor-pointer items-start gap-2 text-sm text-gray-800">
+                        <input
+                          type="radio"
+                          name="tvaMode"
+                          className="mt-1"
+                          checked={form.tvaMode === 'included'}
+                          onChange={() => setForm((f) => ({ ...f, tvaMode: 'included' }))}
+                        />
+                        <span>
+                          <span className="font-medium">Inclure la TVA dans le prix</span>
+                          <span className="block text-xs text-gray-500">
+                            Le tarif journalier saisi est TTC (payé tel quel par le client).
+                          </span>
+                        </span>
+                      </label>
+                      <label className="flex cursor-pointer items-start gap-2 text-sm text-gray-800">
+                        <input
+                          type="radio"
+                          name="tvaMode"
+                          className="mt-1"
+                          checked={form.tvaMode === 'extra'}
+                          onChange={() => setForm((f) => ({ ...f, tvaMode: 'extra' }))}
+                        />
+                        <span>
+                          <span className="font-medium">Facturer la TVA en plus</span>
+                          <span className="block text-xs text-gray-500">
+                            Le tarif journalier saisi est HT ; la TVA est ajoutée sur l’app client,
+                            contrats et factures.
+                          </span>
+                        </span>
+                      </label>
+                    </div>
+                  </>
                 )}
               </div>
             ) : (
               <div className="rounded-lg border border-gray-200 bg-gray-50 px-3 py-2 text-gray-900">
                 {prestataire.tvaRegime === 'assujetti'
-                  ? `Assujetti — ${prestataire.tvaRate ?? 16} %`
+                  ? `Assujetti — ${prestataire.tvaRate ?? 16} % — ${
+                      prestataire.tvaMode === 'extra'
+                        ? 'TVA en plus du tarif'
+                        : 'TVA incluse dans le tarif'
+                    }`
                   : 'Franchise en base (TVA non applicable)'}
               </div>
             )}
