@@ -3,7 +3,7 @@
  */
 
 import { useEffect, useState } from 'react';
-import { Link } from 'wouter';
+import { Link, useLocation } from 'wouter';
 import { 
   ClipboardList, Search, Eye, Filter, 
   ChevronLeft, ChevronRight, ArrowUpDown,
@@ -31,6 +31,7 @@ type SortField = 'date' | 'prix' | 'statut' | 'paiement';
 type SortOrder = 'asc' | 'desc';
 
 export function AdminCommandes() {
+  const [, setLocation] = useLocation();
   const [commandes, setCommandes] = useState<Commande[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [page, setPage] = useState(1);
@@ -378,7 +379,11 @@ export function AdminCommandes() {
                   const dropoffAddr = destinationAddr || addressesArray[addressesArray.length - 1];
                   
                   return (
-                    <tr key={commande.id} className="hover:bg-gray-50">
+                    <tr
+                      key={commande.id}
+                      className="hover:bg-gray-50 cursor-pointer"
+                      onClick={() => setLocation(`/admin/commandes/${commande.id}`)}
+                    >
                       <td className="px-6 py-4">
                         <div className="text-sm">
                           <p className="font-medium text-gray-900">
@@ -434,7 +439,7 @@ export function AdminCommandes() {
                           </span>
                         </div>
                       </td>
-                      <td className="px-6 py-4">
+                      <td className="px-6 py-4" onClick={(e) => e.stopPropagation()}>
                         <Link
                           href={`/admin/commandes/${commande.id}`}
                           className="inline-flex items-center gap-1 rounded-lg bg-purple-600 px-3 py-1.5 text-sm text-white hover:bg-purple-700"

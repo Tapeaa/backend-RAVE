@@ -8,6 +8,9 @@ import {
   ArrowLeft, MapPin, User, Car, DollarSign, 
   CreditCard, Wallet, Calendar, Clock, Package, Star, FileText
 } from 'lucide-react';
+import {
+  RentalContractSignatures,
+} from '@/components/rental/RentalContractSignatures';
 
 interface CommandeDetails {
   commande: {
@@ -246,14 +249,9 @@ export function AdminCommandeDetails() {
           <h3 className="font-semibold text-amber-900">Pipeline location</h3>
           <div className="text-sm text-amber-800">
             Phase : <strong>{(commande.rideOption as any)?.rentalLifecyclePhase || (commande.rideOption as any)?.rentalPhase || (commande.rideOption as any)?.rentalDispatch?.phase || '—'}</strong>
-            {(commande.rideOption as any)?.clientSignatureSvg || (commande.rideOption as any)?.clientSignedAt ? (
-              <span className="ml-3 text-green-700">Signature client OK</span>
-            ) : (
-              <span className="ml-3 text-slate-500">Signature client manquante</span>
-            )}
-            {(commande.rideOption as any)?.loueurSignatureSvg || (commande.rideOption as any)?.loueurSignedAt ? (
-              <span className="ml-3 text-green-700">Signature loueur OK</span>
-            ) : null}
+            <span className="ml-3">
+              <RentalContractSignatures rideOption={commande.rideOption} compact />
+            </span>
             {(commande.rideOption as any)?.cancelRequest?.status === 'pending' && (
               <span className="ml-3 text-red-700">Demande d&apos;annulation en attente</span>
             )}
@@ -351,6 +349,10 @@ export function AdminCommandeDetails() {
             </button>
           </div>
         </div>
+      )}
+
+      {isRental && (
+        <RentalContractSignatures rideOption={commande.rideOption} />
       )}
 
       {/* Bandeau récapitulatif */}

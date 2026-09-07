@@ -4349,7 +4349,12 @@ app.post("/api/live-activities/end", async (req, res) => {
       return res.json({
         html,
         contractUrl: contractUrl || null,
-        signed: !!rideOpt.clientSignatureSvg,
+        signed: !!(
+          rideOpt.clientSignatureSvg ||
+          rideOpt.clientSignedAt ||
+          rideOpt.yousignSignatureRequestId ||
+          rideOpt.signedVia === "yousign"
+        ),
         licenses: {
           front: isEphemeralLocalUri(rideOpt.clientLicenseFront)
             ? null

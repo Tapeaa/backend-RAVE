@@ -11,6 +11,7 @@ import {
   CreditCard, Banknote, FileText, Download,
   CheckCircle, XCircle, Navigation, Star, DollarSign, Building2
 } from 'lucide-react';
+import { RentalContractSignatures } from '@/components/rental/RentalContractSignatures';
 
 interface CourseDetails {
   course: {
@@ -329,6 +330,10 @@ export function PrestataireCourseDetails() {
           </div>
         </div>
       </div>
+
+      {isRental && (
+        <RentalContractSignatures rideOption={course.rideOption} />
+      )}
 
       <div className="grid grid-cols-1 gap-6 lg:grid-cols-3">
         {/* Colonne gauche */}
