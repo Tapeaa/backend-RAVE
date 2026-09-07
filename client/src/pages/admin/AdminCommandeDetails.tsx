@@ -351,14 +351,6 @@ export function AdminCommandeDetails() {
         </div>
       )}
 
-      {isRental && (
-        <RentalContractSignatures
-          rideOption={commande.rideOption}
-          orderId={commande.id}
-          auth="admin"
-        />
-      )}
-
       {/* Bandeau récapitulatif */}
       <div className="grid grid-cols-2 gap-2 sm:gap-3 sm:grid-cols-3 lg:grid-cols-5">
         <div className="col-span-2 sm:col-span-1 rounded-xl border border-gray-200/80 bg-gradient-to-br from-purple-50 to-white p-3 sm:p-4 shadow-sm">
@@ -447,13 +439,14 @@ export function AdminCommandeDetails() {
                   <p className="font-semibold text-gray-900">{commande.rideOption.deposit}</p>
                 </div>
               )}
-              {commande.rideOption?.owner && (
+                  {commande.rideOption?.owner && (
                 <div className="mt-4 rounded-lg border border-gray-200 p-3">
                   <p className="text-xs font-medium text-gray-500 mb-1">Loueur</p>
-                  <p className="font-medium text-gray-900">{commande.rideOption.owner.name}</p>
-                  {commande.rideOption.owner.rating && (
-                    <p className="text-sm text-gray-500">Note : {commande.rideOption.owner.rating} — {commande.rideOption.owner.trips}</p>
-                  )}
+                  <p className="font-medium text-gray-900">
+                    {typeof commande.rideOption.owner === 'string'
+                      ? commande.rideOption.owner
+                      : commande.rideOption.owner?.name || '—'}
+                  </p>
                 </div>
               )}
             </div>
@@ -533,6 +526,14 @@ export function AdminCommandeDetails() {
                 </div>
               </div>
             </div>
+          )}
+
+          {isRental && (
+            <RentalContractSignatures
+              rideOption={commande.rideOption}
+              orderId={commande.id}
+              auth="admin"
+            />
           )}
 
           {/* Acteurs : Client & Chauffeur */}

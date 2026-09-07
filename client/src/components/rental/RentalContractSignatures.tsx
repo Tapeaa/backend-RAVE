@@ -2,7 +2,7 @@
  * Affiche signatures + téléchargement PDF (Yousign natif ou HTML→PDF).
  */
 
-import { useState, useEffect } from "react";
+import { useState } from "react";
 import html2pdf from "html2pdf.js";
 
 function hasClientSigned(ro: Record<string, unknown> | null | undefined): boolean {
@@ -144,36 +144,6 @@ export function RentalContractSignatures({
       error?: string | null;
     };
   }
-
-  // Charge automatiquement le PDF signé pour afficher la signature
-  useEffect(() => {
-    if (!orderId || compact || !viaYousign || previewPdfUrl) return;
-    let cancelled = false;
-    (async () => {
-      try {
-        if (signedPdfUrl) {
-          if (!cancelled) setPreviewPdfUrl(signedPdfUrl);
-          return;
-        }
-        const data = await fetchContract();
-        if (cancelled) return;
-        if (data.pdfBase64) {
-          const bin = atob(data.pdfBase64);
-          const bytes = new Uint8Array(bin.length);
-          for (let i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i);
-          setPreviewPdfUrl(URL.createObjectURL(new Blob([bytes], { type: "application/pdf" })));
-        } else if (data.signedPdfUrl) {
-          setPreviewPdfUrl(data.signedPdfUrl);
-        }
-      } catch {
-        /* silencieux — bouton manuel reste dispo */
-      }
-    })();
-    return () => {
-      cancelled = true;
-    };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [orderId, viaYousign, compact, signedPdfUrl]);
 
   const handleDownload = async () => {
     if (!orderId) return;
@@ -339,13 +309,27 @@ export function RentalContractSignatures({
 
       {previewPdfUrl && (
         <div className="space-y-2">
-          <p className="text-xs font-medium uppercase tracking-wider text-slate-500">
-            Aperçu PDF signé (signature client Yousign)
-          </p>
+          <div className="flex items-center justify-between gap-2">
+            <p className="text-xs font-medium uppercase tracking-wider text-slate-500">
+              Aperçu PDF signé
+            </p>
+            <button
+              type="button"
+              className="text-xs text-slate-500 hover:text-slate-800"
+              onClick={() => {
+                setPreviewPdfUrl((prev) => {
+                  if (prev?.startsWith("blob:")) URL.revokeObjectURL(prev);
+                  return null;
+                });
+              }}
+            >
+              Fermer l&apos;aperçu
+            </button>
+          </div>
           <iframe
             title="PDF contrat signé"
             src={previewPdfUrl}
-            className="h-[480px] w-full rounded-lg border border-slate-200 bg-slate-50"
+            className="h-72 w-full rounded-lg border border-slate-200 bg-slate-50"
           />
         </div>
       )}
@@ -403,32 +387,31 @@ export function RentalContractSignatures({
       </div>
 
       {(contractUrl || htmlSnapshot) && !previewPdfUrl && (
-        <div className="space-y-2 border-t border-slate-100 pt-3">
-          <p className="text-xs font-medium uppercase tracking-wider text-slate-500">Document HTML</p>
-          {contractUrl && (
-            <a
-              href={contractUrl}
-              target="_blank"
-              rel="noopener noreferrer"
-              className="inline-flex text-sm font-medium text-indigo-600 hover:underline"
-            >
-              Ouvrir le contrat HTML
-            </a>
-          )}
-          {htmlSnapshot && (
-            <details className="rounded-lg border border-slate-200 bg-slate-50">
-              <summary className="cursor-pointer px-3 py-2 text-sm font-medium text-slate-700">
-                Aperçu HTML du contrat
-              </summary>
+        <details className="rounded-lg border border-slate-200 bg-slate-50">
+          <summary className="cursor-pointer px-3 py-2 text-sm font-medium text-slate-700">
+            Aperçu HTML du contrat (optionnel)
+          </summary>
+          <div className="space-y-2 border-t border-slate-100 px-3 pb-3 pt-2">
+            {contractUrl && (
+              <a
+                href={contractUrl}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="inline-flex text-sm font-medium text-indigo-600 hover:underline"
+              >
+                Ouvrir le contrat HTML
+              </a>
+            )}
+            {htmlSnapshot && (
               <iframe
                 title="Aperçu contrat"
                 srcDoc={htmlSnapshot}
-                className="mt-1 h-80 w-full rounded-b-lg border-0 bg-white"
+                className="mt-1 h-64 w-full rounded-lg border-0 bg-white"
                 sandbox=""
               />
-            </details>
-          )}
-        </div>
+            )}
+          </div>
+        </details>
       )}
     </div>
   );

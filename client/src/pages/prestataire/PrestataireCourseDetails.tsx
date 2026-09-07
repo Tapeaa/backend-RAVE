@@ -337,70 +337,130 @@ export function PrestataireCourseDetails() {
         </div>
       </div>
 
-      {isRental && (
-        <RentalContractSignatures
-          rideOption={course.rideOption}
-          orderId={course.id}
-          auth="prestataire"
-        />
-      )}
-
       <div className="grid grid-cols-1 gap-6 lg:grid-cols-3">
         {/* Colonne gauche */}
         <div className="lg:col-span-2 space-y-6">
-          {/* Trajet - Timeline moderne */}
-          <div className="rounded-xl border border-gray-200/80 bg-white p-6 shadow-sm">
-            <h2 className="mb-5 flex items-center gap-2 text-base font-semibold text-gray-900">
-              <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-purple-100">
-                <Navigation className="h-4 w-4 text-purple-600" />
+          {isRental ? (
+            <div className="rounded-xl border border-amber-200/80 bg-white p-6 shadow-sm">
+              <h2 className="mb-5 flex items-center gap-2 text-base font-semibold text-gray-900">
+                <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-amber-100">
+                  <Car className="h-4 w-4 text-amber-600" />
+                </div>
+                Location de véhicule
+              </h2>
+              <div className="mb-4 rounded-lg bg-amber-50 p-4">
+                <p className="text-lg font-bold text-gray-900">
+                  {(course.rideOption as any)?.title || course.rideOption?.label || 'Véhicule'}
+                </p>
+                <p className="mt-1 text-sm text-amber-700">
+                  {(course.rideOption as any)?.categoryLabel || (course.rideOption as any)?.category || ''}
+                </p>
               </div>
-              Parcours
-            </h2>
-            <div className="relative space-y-0">
-              <div className="absolute left-4 top-2 bottom-2 w-0.5 bg-gradient-to-b from-emerald-400 via-amber-400 to-rose-400" />
-              <div className="relative flex gap-4 pb-5">
-                <div className="relative z-10 flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-emerald-500 text-white ring-4 ring-white shadow">
-                  <span className="text-xs font-bold">A</span>
+              <div className="mb-4 grid grid-cols-1 gap-3 sm:grid-cols-2">
+                <div className="rounded-lg bg-gray-50 p-3">
+                  <p className="text-xs font-medium text-gray-500">Début</p>
+                  <p className="text-sm font-semibold text-gray-900">
+                    {(course.rideOption as any)?.startDate
+                      ? new Date((course.rideOption as any).startDate).toLocaleString('fr-FR', {
+                          day: 'numeric', month: 'short', year: 'numeric',
+                          hour: '2-digit', minute: '2-digit',
+                          timeZone: 'Pacific/Tahiti',
+                        })
+                      : '—'}
+                  </p>
                 </div>
-                <div className="flex-1 rounded-lg border border-emerald-200/80 bg-emerald-50/50 p-4">
-                  <p className="text-xs font-semibold uppercase tracking-wider text-emerald-700">Départ</p>
-                  <p className="mt-1 font-medium text-gray-900">{course.pickupAddress || 'Non spécifié'}</p>
+                <div className="rounded-lg bg-gray-50 p-3">
+                  <p className="text-xs font-medium text-gray-500">Restitution</p>
+                  <p className="text-sm font-semibold text-gray-900">
+                    {(course.rideOption as any)?.endDate
+                      ? new Date((course.rideOption as any).endDate).toLocaleString('fr-FR', {
+                          day: 'numeric', month: 'short', year: 'numeric',
+                          hour: '2-digit', minute: '2-digit',
+                          timeZone: 'Pacific/Tahiti',
+                        })
+                      : '—'}
+                  </p>
                 </div>
               </div>
-              {course.stops?.map((stop, i) => (
-                <div key={i} className="relative flex gap-4 pb-5">
-                  <div className="relative z-10 flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-amber-500 text-white ring-4 ring-white shadow">
-                    <span className="text-xs font-bold">{i + 1}</span>
+              <div className="flex flex-wrap gap-3 text-sm">
+                <span className="inline-flex items-center gap-1.5 rounded-full bg-amber-100 px-3 py-1 font-medium text-amber-800">
+                  <Clock className="h-4 w-4" />
+                  {(course.rideOption as any)?.days || 1} jour{((course.rideOption as any)?.days || 1) > 1 ? 's' : ''}
+                </span>
+                <span className="inline-flex items-center gap-1.5 rounded-full bg-gray-100 px-3 py-1 font-medium text-gray-700">
+                  <MapPin className="h-4 w-4" />
+                  {course.pickupAddress || (course.rideOption as any)?.pickupLocation || 'Lieu de prise en charge'}
+                </span>
+              </div>
+              {(course.rideOption as any)?.clientBillingAddress && (
+                <div className="mt-4 rounded-lg bg-gray-50 p-3 text-sm">
+                  <p className="text-xs font-medium text-gray-500">Adresse facturation client</p>
+                  <p className="font-medium text-gray-900">{(course.rideOption as any).clientBillingAddress}</p>
+                </div>
+              )}
+            </div>
+          ) : (
+            <div className="rounded-xl border border-gray-200/80 bg-white p-6 shadow-sm">
+              <h2 className="mb-5 flex items-center gap-2 text-base font-semibold text-gray-900">
+                <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-purple-100">
+                  <Navigation className="h-4 w-4 text-purple-600" />
+                </div>
+                Parcours
+              </h2>
+              <div className="relative space-y-0">
+                <div className="absolute left-4 top-2 bottom-2 w-0.5 bg-gradient-to-b from-emerald-400 via-amber-400 to-rose-400" />
+                <div className="relative flex gap-4 pb-5">
+                  <div className="relative z-10 flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-emerald-500 text-white ring-4 ring-white shadow">
+                    <span className="text-xs font-bold">A</span>
                   </div>
-                  <div className="flex-1 rounded-lg border border-amber-200/80 bg-amber-50/50 p-4">
-                    <p className="text-xs font-semibold uppercase tracking-wider text-amber-700">Arrêt {i + 1}</p>
-                    <p className="mt-1 font-medium text-gray-900">{stop}</p>
+                  <div className="flex-1 rounded-lg border border-emerald-200/80 bg-emerald-50/50 p-4">
+                    <p className="text-xs font-semibold uppercase tracking-wider text-emerald-700">Départ</p>
+                    <p className="mt-1 font-medium text-gray-900">{course.pickupAddress || 'Non spécifié'}</p>
                   </div>
                 </div>
-              ))}
-              <div className="relative flex gap-4">
-                <div className="relative z-10 flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-rose-500 text-white ring-4 ring-white shadow">
-                  <span className="text-xs font-bold">B</span>
+                {course.stops?.map((stop, i) => (
+                  <div key={i} className="relative flex gap-4 pb-5">
+                    <div className="relative z-10 flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-amber-500 text-white ring-4 ring-white shadow">
+                      <span className="text-xs font-bold">{i + 1}</span>
+                    </div>
+                    <div className="flex-1 rounded-lg border border-amber-200/80 bg-amber-50/50 p-4">
+                      <p className="text-xs font-semibold uppercase tracking-wider text-amber-700">Arrêt {i + 1}</p>
+                      <p className="mt-1 font-medium text-gray-900">{stop}</p>
+                    </div>
+                  </div>
+                ))}
+                <div className="relative flex gap-4">
+                  <div className="relative z-10 flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-rose-500 text-white ring-4 ring-white shadow">
+                    <span className="text-xs font-bold">B</span>
+                  </div>
+                  <div className="flex-1 rounded-lg border border-rose-200/80 bg-rose-50/50 p-4">
+                    <p className="text-xs font-semibold uppercase tracking-wider text-rose-700">Arrivée</p>
+                    <p className="mt-1 font-medium text-gray-900">{course.dropoffAddress || 'Non spécifié'}</p>
+                  </div>
                 </div>
-                <div className="flex-1 rounded-lg border border-rose-200/80 bg-rose-50/50 p-4">
-                  <p className="text-xs font-semibold uppercase tracking-wider text-rose-700">Arrivée</p>
-                  <p className="mt-1 font-medium text-gray-900">{course.dropoffAddress || 'Non spécifié'}</p>
-                </div>
+              </div>
+              <div className="mt-5 flex flex-wrap gap-3 text-sm">
+                <span className="inline-flex items-center gap-1.5 rounded-full bg-gray-100 px-3 py-1 font-medium text-gray-700">
+                  <MapPin className="h-4 w-4" />
+                  {distanceKm > 0 ? `${distanceKm.toFixed(1)} km` : '—'}
+                </span>
+                <span className="inline-flex items-center gap-1.5 rounded-full bg-gray-100 px-3 py-1 font-medium text-gray-700">
+                  <Clock className="h-4 w-4" />
+                  {durationDisplay || '—'}
+                </span>
               </div>
             </div>
-            <div className="mt-5 flex flex-wrap gap-3 text-sm">
-              <span className="inline-flex items-center gap-1.5 rounded-full bg-gray-100 px-3 py-1 font-medium text-gray-700">
-                <MapPin className="h-4 w-4" />
-                {distanceKm > 0 ? `${distanceKm.toFixed(1)} km` : '—'}
-              </span>
-              <span className="inline-flex items-center gap-1.5 rounded-full bg-gray-100 px-3 py-1 font-medium text-gray-700">
-                <Clock className="h-4 w-4" />
-                {durationDisplay || '—'}
-              </span>
-            </div>
-          </div>
+          )}
 
-          {/* Acteurs : Client & Chauffeur */}
+          {isRental && (
+            <RentalContractSignatures
+              rideOption={course.rideOption}
+              orderId={course.id}
+              auth="prestataire"
+            />
+          )}
+
+          {/* Acteurs : Client & Loueur */}
           <div className="grid gap-6 sm:grid-cols-2">
             <div className="rounded-xl border border-gray-200/80 bg-white p-5 shadow-sm">
               <h2 className="mb-4 flex items-center gap-2 text-base font-semibold text-gray-900">
@@ -419,7 +479,7 @@ export function PrestataireCourseDetails() {
                 <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-violet-100">
                   <Car className="h-4 w-4 text-violet-600" />
                 </div>
-                Chauffeur
+                {isRental ? 'Loueur' : 'Chauffeur'}
               </h2>
               {driver ? (
                 <div className="space-y-2">
