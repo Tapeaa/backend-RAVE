@@ -40,10 +40,16 @@ export function assertProductionSecrets(): void {
   }
 
   if (missing.length > 0) {
-    console.error(
-      `[FATAL] Production secrets missing: ${missing.join(", ")}. ` +
-        `Set them on Render before starting.`
-    );
+    console.error("============================================================");
+    console.error("[FATAL] Production secrets missing — server will not start.");
+    console.error(`Missing: ${missing.join(", ")}`);
+    console.error("Add them in Render → Environment, then redeploy.");
+    console.error("Required OneSignal names (not ONESIGNAL_APP_ID / ONESIGNAL_API_KEY):");
+    console.error("  ONESIGNAL_CLIENT_APP_ID, ONESIGNAL_DRIVER_APP_ID,");
+    console.error("  ONESIGNAL_REST_API_KEY_CLIENT, ONESIGNAL_REST_API_KEY_DRIVER");
+    console.error("Required Cloudinary:");
+    console.error("  CLOUDINARY_CLOUD_NAME, CLOUDINARY_API_KEY, CLOUDINARY_API_SECRET");
+    console.error("============================================================");
     process.exit(1);
   }
 

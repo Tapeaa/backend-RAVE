@@ -803,6 +803,18 @@ export const fraisServiceConfig = pgTable("frais_service_config", {
   updatedAt: timestamp("updated_at").defaultNow().notNull(),
 });
 
+/** Prix abonnement plateforme loueur (édité via back-office). Créée aussi via ensure-loueur-subscription. */
+export const loueurSubscriptionConfig = pgTable("loueur_subscription_config", {
+  id: varchar("id").primaryKey().default("default"),
+  monthlyAmountXpf: real("monthly_amount_xpf").notNull().default(5000),
+  monthlyLabel: text("monthly_label").notNull().default("Mensuel"),
+  monthlyDays: integer("monthly_days").notNull().default(30),
+  semiannualAmountXpf: real("semiannual_amount_xpf").notNull().default(30000),
+  semiannualLabel: text("semiannual_label").notNull().default("6 mois"),
+  semiannualDays: integer("semiannual_days").notNull().default(180),
+  updatedAt: timestamp("updated_at").defaultNow().notNull(),
+});
+
 // Frais de service config schema
 export const fraisServiceConfigSchema = z.object({
   id: z.string(),
