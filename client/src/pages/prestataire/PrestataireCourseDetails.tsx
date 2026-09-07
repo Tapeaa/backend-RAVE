@@ -558,13 +558,40 @@ export function PrestataireCourseDetails() {
               </h2>
             
             <div className="space-y-3">
-              {/* En-tête avec type de course */}
               <div className="bg-purple-50 p-3 rounded-lg mb-3">
                 <div className="text-sm font-medium text-purple-700">
-                  {course.rideOption?.label || 'Course standard'}
+                  {course.rideOption?.label || (course.rideOption as any)?.title || (isRental ? 'Location' : 'Course standard')}
                 </div>
               </div>
 
+              {isRental ? (
+                <>
+                  <div className="flex justify-between text-sm">
+                    <span className="text-gray-600">
+                      Location ({(course.rideOption as any)?.days || 1} j ×{' '}
+                      {Number((course.rideOption as any)?.price || course.rideOption?.baseFare || 0).toLocaleString()} XPF)
+                    </span>
+                    <span className="font-medium">
+                      {(
+                        Number((course.rideOption as any)?.pricingSubtotal) ||
+                        Number((course.rideOption as any)?.price || course.rideOption?.baseFare || 0) *
+                          Math.max(1, Number((course.rideOption as any)?.days) || 1)
+                      ).toLocaleString()}{' '}
+                      XPF
+                    </span>
+                  </div>
+                  {Array.isArray(course.supplements) &&
+                    course.supplements.map((s: any, i: number) => (
+                      <div key={i} className="flex justify-between text-sm">
+                        <span className="text-gray-600">{s.name || s.label || 'Supplément'}</span>
+                        <span className="font-medium">
+                          {Number(s.total || 0).toLocaleString()} XPF
+                        </span>
+                      </div>
+                    ))}
+                </>
+              ) : (
+                <>
               {/* Prise en charge */}
               <div className="flex justify-between text-sm">
                 <span className="text-gray-600">Prise en charge</span>
@@ -596,6 +623,8 @@ export function PrestataireCourseDetails() {
                   </div>
                 );
               })()}
+                </>
+              )}
 
               {/* Suppléments */}
               {course.supplements && course.supplements.length > 0 && (
