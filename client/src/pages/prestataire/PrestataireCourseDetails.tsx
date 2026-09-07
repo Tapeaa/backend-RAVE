@@ -35,6 +35,7 @@ interface CourseDetails {
       baseFare: number;
       pricePerKm: number;
       initialTotalPrice?: number;
+      [key: string]: any;
     };
     supplements: any[];
     routeInfo: {

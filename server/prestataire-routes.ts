@@ -1282,13 +1282,15 @@ export function registerPrestataireRoutes(app: Express) {
           waitingTimeMinutes: order.waitingTimeMinutes,
           scheduledTime: order.scheduledTime?.toISOString() || null,
           isAdvanceBooking: order.isAdvanceBooking,
-          // Détails tarification
+          // Détails tarification + contrat/signatures (location)
           rideOption: {
+            ...rideOption,
             type: rideOption?.type || rideOption?.id || 'standard',
             label: rideOption?.label || rideOption?.title || 'Course standard',
+            title: rideOption?.title || rideOption?.label,
             baseFare,
             pricePerKm,
-            initialTotalPrice: rideOption?.initialTotalPrice, // Prix à la confirmation (avant attente/arrêts) - pour calculer les frais
+            initialTotalPrice: rideOption?.initialTotalPrice,
           },
           supplements: Array.isArray(supplements) ? supplements : [],
           routeInfo: {
