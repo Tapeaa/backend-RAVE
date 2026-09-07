@@ -334,7 +334,9 @@ export function registerPrestataireRoutes(app: Express) {
       const endsAt = driver.subscriptionEndsAt || null;
       let status = driver.subscriptionStatus || "none";
       let daysRemaining: number | null = null;
-      if (endsAt) {
+      if (status === "pending") {
+        daysRemaining = null;
+      } else if (endsAt) {
         const end = new Date(endsAt).getTime();
         const now = Date.now();
         daysRemaining = Math.max(0, Math.ceil((end - now) / (24 * 60 * 60 * 1000)));
@@ -403,20 +405,13 @@ export function registerPrestataireRoutes(app: Express) {
       if (!driver) return res.status(404).json({ error: "Compte loueur introuvable" });
 
       const now = new Date();
-      let start = now;
-      const currentEnd = driver.subscriptionEndsAt ? new Date(driver.subscriptionEndsAt) : null;
-      if (currentEnd && currentEnd.getTime() > now.getTime()) {
-        start = currentEnd;
-      }
-      const ends = new Date(start.getTime() + plan.days * 24 * 60 * 60 * 1000);
-
       await db
         .update(drivers)
         .set({
           subscriptionPlan: plan.id,
-          subscriptionStatus: "active",
+          subscriptionStatus: "pending",
           subscriptionStartsAt: now,
-          subscriptionEndsAt: ends,
+          subscriptionEndsAt: null,
           subscriptionAmount: plan.amountXpf,
         } as any)
         .where(eq(drivers.id, driver.id));
@@ -425,14 +420,14 @@ export function registerPrestataireRoutes(app: Express) {
         success: true,
         subscription: {
           plan: plan.id,
-          status: "active",
+          status: "pending",
           startsAt: now.toISOString(),
-          endsAt: ends.toISOString(),
+          endsAt: null,
           amount: plan.amountXpf,
-          daysRemaining: plan.days,
+          daysRemaining: null,
           plans,
           driverId: driver.id,
-          message: `Abonnement ${plan.label} activé — ${plan.amountXpf.toLocaleString("fr-FR")} XPF à régler auprès de RAVE.`,
+          message: `Demande d'abonnement ${plan.label} enregistrée (${plan.amountXpf.toLocaleString("fr-FR")} XPF). Activation après validation / règlement RAVE.`,
         },
       });
     } catch (error) {

@@ -58,7 +58,7 @@ export const drivers = pgTable("drivers", {
   defaultMeetingPoint: text("default_meeting_point"),
   /** Abonnement plateforme RAVE Loueur */
   subscriptionPlan: text("subscription_plan"), // monthly | semiannual
-  subscriptionStatus: text("subscription_status").default("none"), // none | active | expired
+  subscriptionStatus: text("subscription_status").default("none"), // none | pending | active | expired
   subscriptionStartsAt: timestamp("subscription_starts_at"),
   subscriptionEndsAt: timestamp("subscription_ends_at"),
   subscriptionAmount: real("subscription_amount"),
