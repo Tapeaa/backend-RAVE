@@ -1,6 +1,8 @@
 /**
  * Production secrets: fail-fast if critical env vars missing.
  * Dev may use local .env ; never ship hardcoded secrets in source.
+ *
+ * OneSignal Loueur (DRIVER) is optional at boot: push loueur disabled until set.
  */
 
 export function assertProductionSecrets(): void {
@@ -20,14 +22,8 @@ export function assertProductionSecrets(): void {
   if (!process.env.ONESIGNAL_CLIENT_APP_ID) {
     missing.push("ONESIGNAL_CLIENT_APP_ID");
   }
-  if (!process.env.ONESIGNAL_DRIVER_APP_ID) {
-    missing.push("ONESIGNAL_DRIVER_APP_ID");
-  }
   if (!process.env.ONESIGNAL_REST_API_KEY_CLIENT) {
     missing.push("ONESIGNAL_REST_API_KEY_CLIENT");
-  }
-  if (!process.env.ONESIGNAL_REST_API_KEY_DRIVER) {
-    missing.push("ONESIGNAL_REST_API_KEY_DRIVER");
   }
   if (!process.env.CLOUDINARY_CLOUD_NAME) {
     missing.push("CLOUDINARY_CLOUD_NAME");
@@ -44,13 +40,15 @@ export function assertProductionSecrets(): void {
     console.error("[FATAL] Production secrets missing — server will not start.");
     console.error(`Missing: ${missing.join(", ")}`);
     console.error("Add them in Render → Environment, then redeploy.");
-    console.error("Required OneSignal names (not ONESIGNAL_APP_ID / ONESIGNAL_API_KEY):");
-    console.error("  ONESIGNAL_CLIENT_APP_ID, ONESIGNAL_DRIVER_APP_ID,");
-    console.error("  ONESIGNAL_REST_API_KEY_CLIENT, ONESIGNAL_REST_API_KEY_DRIVER");
-    console.error("Required Cloudinary:");
-    console.error("  CLOUDINARY_CLOUD_NAME, CLOUDINARY_API_KEY, CLOUDINARY_API_SECRET");
     console.error("============================================================");
     process.exit(1);
+  }
+
+  if (!process.env.ONESIGNAL_DRIVER_APP_ID || !process.env.ONESIGNAL_REST_API_KEY_DRIVER) {
+    console.warn(
+      "[WARN] ONESIGNAL_DRIVER_APP_ID / ONESIGNAL_REST_API_KEY_DRIVER unset — " +
+        "les push vers l'app Loueur sont désactivées. À ajouter plus tard (Keys & IDs OneSignal, sans Apple)."
+    );
   }
 
   if (!process.env.OSB_CREDENTIALS_ENCRYPTION_KEY) {
