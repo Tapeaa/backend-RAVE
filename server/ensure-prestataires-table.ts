@@ -68,6 +68,23 @@ export async function ensurePrestatairesTable() {
       await addDocCol('doc_attestation_qualification');
       await addDocCol('doc_licence_transport');
       await addDocCol('doc_assurance_pro');
+      await addDocCol('address');
+      await addDocCol('tva_regime');
+      // tva_rate = real
+      try {
+        await db.execute(sql`
+          ALTER TABLE prestataires ADD COLUMN IF NOT EXISTS tva_rate REAL DEFAULT 16
+        `);
+      } catch {
+        /* ignore */
+      }
+      try {
+        await db.execute(sql`
+          UPDATE prestataires SET tva_regime = 'franchise' WHERE tva_regime IS NULL
+        `);
+      } catch {
+        /* ignore */
+      }
     }
 
     // Vérifier si la colonne prestataire_id existe dans drivers

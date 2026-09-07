@@ -29,6 +29,12 @@ export const prestataires = pgTable("prestataires", {
   osbShopId: text("osb_shop_id"),
   osbCertificateEncrypted: text("osb_certificate_encrypted"),
   osbPublicKey: text("osb_public_key"),
+  /** Adresse du siège / facturation (obligatoire sur factures) */
+  address: text("address"),
+  /** franchise = TVA non applicable | assujetti = HT + TVA */
+  tvaRegime: text("tva_regime").default("franchise"),
+  /** Taux TVA % si assujetti (ex. 16 en PF pour certains cas) */
+  tvaRate: real("tva_rate").default(16),
 });
 
 // Drivers table (for driver accounts)

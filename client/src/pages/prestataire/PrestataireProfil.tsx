@@ -50,6 +50,9 @@ interface PrestataireInfo {
   numeroTahiti: string | null;
   email: string | null;
   phone: string | null;
+  address?: string | null;
+  tvaRegime?: string | null;
+  tvaRate?: number | null;
   isActive: boolean;
   isSociete: boolean;
   totalChauffeurs?: number;
@@ -96,6 +99,9 @@ export function PrestataireProfil() {
     numeroTahiti: '',
     email: '',
     phone: '',
+    address: '',
+    tvaRegime: 'franchise' as 'franchise' | 'assujetti',
+    tvaRate: 16,
   });
   const [codeForm, setCodeForm] = useState({ currentCode: '', newCode: '', confirmCode: '' });
   const [isChangingCode, setIsChangingCode] = useState(false);
@@ -298,6 +304,9 @@ export function PrestataireProfil() {
           numeroTahiti: data.prestataire.numeroTahiti || '',
           email: data.prestataire.email || '',
           phone: data.prestataire.phone || '',
+          address: data.prestataire.address || '',
+          tvaRegime: data.prestataire.tvaRegime === 'assujetti' ? 'assujetti' : 'franchise',
+          tvaRate: Number(data.prestataire.tvaRate) || 16,
         });
         setOsbForm({
           shopId: data.prestataire.osbShopId || '',
@@ -355,6 +364,9 @@ export function PrestataireProfil() {
         numeroTahiti: prestataire.numeroTahiti || '',
         email: prestataire.email || '',
         phone: prestataire.phone || '',
+        address: prestataire.address || '',
+        tvaRegime: prestataire.tvaRegime === 'assujetti' ? 'assujetti' : 'franchise',
+        tvaRate: Number(prestataire.tvaRate) || 16,
       });
       setIsEditing(false);
     }
@@ -806,6 +818,70 @@ export function PrestataireProfil() {
               <div className="flex items-center gap-2 rounded-lg border border-gray-200 bg-gray-50 px-3 py-2">
                 <Phone className="h-4 w-4 text-gray-400" />
                 <span className="text-gray-900">{prestataire.phone || '—'}</span>
+              </div>
+            )}
+          </div>
+
+          <div>
+            <label className="mb-1 block text-sm font-medium text-gray-700">
+              Adresse du siège / facturation *
+            </label>
+            {isEditing ? (
+              <textarea
+                value={form.address}
+                onChange={(e) => setForm((f) => ({ ...f, address: e.target.value }))}
+                rows={2}
+                className="w-full rounded-lg border border-gray-300 px-3 py-2 focus:border-purple-500 focus:ring-1 focus:ring-purple-500"
+                placeholder="Adresse complète (obligatoire sur les factures)"
+              />
+            ) : (
+              <div className="rounded-lg border border-gray-200 bg-gray-50 px-3 py-2 text-gray-900 whitespace-pre-wrap">
+                {prestataire.address || '— Non renseignée (à compléter)'}
+              </div>
+            )}
+          </div>
+
+          <div>
+            <label className="mb-1 block text-sm font-medium text-gray-700">
+              Régime TVA
+            </label>
+            {isEditing ? (
+              <div className="space-y-2">
+                <select
+                  value={form.tvaRegime}
+                  onChange={(e) =>
+                    setForm((f) => ({
+                      ...f,
+                      tvaRegime: e.target.value as 'franchise' | 'assujetti',
+                    }))
+                  }
+                  className="w-full rounded-lg border border-gray-300 px-3 py-2 focus:border-purple-500 focus:ring-1 focus:ring-purple-500"
+                >
+                  <option value="franchise">Franchise en base (TVA non applicable)</option>
+                  <option value="assujetti">Assujetti à la TVA</option>
+                </select>
+                {form.tvaRegime === 'assujetti' && (
+                  <div>
+                    <label className="mb-1 block text-xs text-gray-600">Taux TVA (%)</label>
+                    <input
+                      type="number"
+                      min={0}
+                      max={100}
+                      step={0.1}
+                      value={form.tvaRate}
+                      onChange={(e) =>
+                        setForm((f) => ({ ...f, tvaRate: Number(e.target.value) || 0 }))
+                      }
+                      className="w-full rounded-lg border border-gray-300 px-3 py-2"
+                    />
+                  </div>
+                )}
+              </div>
+            ) : (
+              <div className="rounded-lg border border-gray-200 bg-gray-50 px-3 py-2 text-gray-900">
+                {prestataire.tvaRegime === 'assujetti'
+                  ? `Assujetti — ${prestataire.tvaRate ?? 16} %`
+                  : 'Franchise en base (TVA non applicable)'}
               </div>
             )}
           </div>

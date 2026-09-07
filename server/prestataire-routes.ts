@@ -105,6 +105,9 @@ export function registerPrestataireRoutes(app: Express) {
           numeroTahiti: prestataire.numeroTahiti,
           email: prestataire.email,
           phone: prestataire.phone,
+          address: (prestataire as any).address ?? null,
+          tvaRegime: (prestataire as any).tvaRegime || "franchise",
+          tvaRate: (prestataire as any).tvaRate ?? 16,
           isActive: prestataire.isActive,
           isSociete: isSociete(prestataire.type),
           totalChauffeurs,
@@ -443,13 +446,19 @@ export function registerPrestataireRoutes(app: Express) {
         return res.status(401).json({ error: "Non authentifié" });
       }
 
-      const { nom, numeroTahiti, email, phone } = req.body;
-      const updates: Record<string, string | null> = {};
+      const { nom, numeroTahiti, email, phone, address, tvaRegime, tvaRate } = req.body;
+      const updates: Record<string, string | number | null> = {};
 
       if (typeof nom === "string" && nom.trim()) updates.nom = nom.trim();
       if (numeroTahiti !== undefined) updates.numeroTahiti = typeof numeroTahiti === "string" ? (numeroTahiti.trim() || null) : null;
       if (email !== undefined) updates.email = typeof email === "string" ? (email.trim() || null) : null;
       if (phone !== undefined) updates.phone = typeof phone === "string" ? (phone.trim() || null) : null;
+      if (address !== undefined) updates.address = typeof address === "string" ? (address.trim() || null) : null;
+      if (tvaRegime === "franchise" || tvaRegime === "assujetti") updates.tvaRegime = tvaRegime;
+      if (tvaRate !== undefined) {
+        const n = Number(tvaRate);
+        if (!Number.isNaN(n) && n >= 0 && n <= 100) updates.tvaRate = n;
+      }
 
       if (Object.keys(updates).length === 0) {
         return res.status(400).json({ error: "Aucune donnée à mettre à jour" });
@@ -457,7 +466,7 @@ export function registerPrestataireRoutes(app: Express) {
 
       const [updated] = await db
         .update(prestataires)
-        .set(updates)
+        .set(updates as any)
         .where(eq(prestataires.id, req.prestataire.id))
         .returning();
 
@@ -484,6 +493,9 @@ export function registerPrestataireRoutes(app: Express) {
           numeroTahiti: updated.numeroTahiti,
           email: updated.email,
           phone: updated.phone,
+          address: (updated as any).address ?? null,
+          tvaRegime: (updated as any).tvaRegime || "franchise",
+          tvaRate: (updated as any).tvaRate ?? 16,
           isActive: updated.isActive,
           isSociete: isSociete(updated.type),
           createdAt: updated.createdAt.toISOString(),
@@ -1306,6 +1318,9 @@ export function registerPrestataireRoutes(app: Express) {
           numeroTahiti: prestataireInfo.numeroTahiti,
           email: prestataireInfo.email,
           phone: prestataireInfo.phone,
+          address: (prestataireInfo as any).address ?? null,
+          tvaRegime: (prestataireInfo as any).tvaRegime || "franchise",
+          tvaRate: (prestataireInfo as any).tvaRate ?? 16,
         } : null,
         ratings: {
           client: clientRating, // Note du client sur le chauffeur

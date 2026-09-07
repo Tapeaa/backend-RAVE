@@ -58,6 +58,9 @@ interface CourseDetails {
     numeroTahiti: string | null;
     email: string | null;
     phone: string | null;
+    address?: string | null;
+    tvaRegime?: string | null;
+    tvaRate?: number | null;
   } | null;
   waitingRatePerMin?: number;
   freeMinutes?: number;
@@ -121,10 +124,12 @@ export function PrestataireCourseDetails() {
         #invoice-pdf-source .trajet-dot.start { background: #22c55e; }
         #invoice-pdf-source .trajet-dot.end { background: #ef4444; }
         #invoice-pdf-source .pricing-table { width: 100%; border-collapse: collapse; margin-top: 12px; font-size: 9pt; }
-        #invoice-pdf-source .pricing-table th, #invoice-pdf-source .pricing-table td { padding: 8px 10px; border-bottom: 1px solid #e5e7eb; }
-        #invoice-pdf-source .pricing-table td:last-child { text-align: right; }
+        #invoice-pdf-source .pricing-table th, #invoice-pdf-source .pricing-table td { padding: 8px 10px; border-bottom: 1px solid #e5e7eb; text-align: left; }
+        #invoice-pdf-source .pricing-table th.num, #invoice-pdf-source .pricing-table td.num { text-align: right; white-space: nowrap; }
         #invoice-pdf-source .pricing-table .total td { font-weight: 700; background: #f9fafb; padding: 10px; }
         #invoice-pdf-source .payment-line { margin-top: 12px; padding: 10px 12px; background: #f9fafb; border-radius: 4px; font-size: 9pt; display: flex; justify-content: space-between; }
+        #invoice-pdf-source .legal { margin-top: 14px; font-size: 8pt; color: #6b7280; line-height: 1.45; }
+        #invoice-pdf-source .period-line { font-size: 9pt; margin-bottom: 4px; }
       </style>
       <div id="invoice-pdf-source">${printContent.innerHTML}</div>
     `;
@@ -568,13 +573,27 @@ export function PrestataireCourseDetails() {
             <div>
               <div className="prestataire-name">{prestataire?.nom ?? 'Prestataire'}</div>
               <div className="prestataire-details">
-                {[prestataire?.numeroTahiti && `N° Tahiti : ${prestataire.numeroTahiti}`, prestataire?.email, prestataire?.phone].filter(Boolean).join(' · ')}
+                {[
+                  prestataire?.numeroTahiti && `N° Tahiti : ${prestataire.numeroTahiti}`,
+                  prestataire?.email,
+                  prestataire?.phone,
+                ].filter(Boolean).join(' · ')}
               </div>
+              {prestataire?.address ? (
+                <div className="prestataire-details" style={{ marginTop: 4 }}>
+                  {prestataire.address}
+                </div>
+              ) : (
+                <div className="prestataire-details" style={{ marginTop: 4, color: '#b45309' }}>
+                  Adresse siège non renseignée — complétez-la dans Profil
+                </div>
+              )}
             </div>
             <div className="invoice-info">
               <div className="invoice-label">FACTURE</div>
               <div className="invoice-meta">N° {course.id.slice(0, 8).toUpperCase()}</div>
               <div className="invoice-meta">
+                Émise le{' '}
                 {new Date(course.date).toLocaleDateString('fr-FR', {
                   day: 'numeric', month: 'long', year: 'numeric',
                 })}
@@ -588,71 +607,212 @@ export function PrestataireCourseDetails() {
               <div className="block-content">
                 <div>{course.clientName}</div>
                 <div style={{ color: '#6b7280', marginTop: '2px' }}>{course.clientPhone}</div>
+                {(course.rideOption as any)?.clientBillingAddress ? (
+                  <div style={{ marginTop: 6 }}>{(course.rideOption as any).clientBillingAddress}</div>
+                ) : (
+                  <div style={{ marginTop: 6, color: '#b45309' }}>Adresse de facturation non renseignée</div>
+                )}
               </div>
             </div>
-            {driver && (
-              <div className="block">
-                <div className="block-title">Loueur</div>
-                <div className="block-content">
-                  <div>{driver.firstName} {driver.lastName}</div>
-                  {driver.vehicleModel && (
-                    <div style={{ color: '#6b7280', marginTop: '2px' }}>{driver.vehicleModel} — {driver.vehiclePlate}</div>
-                  )}
+            <div className="block">
+              <div className="block-title">Loueur</div>
+              <div className="block-content">
+                <div>{prestataire?.nom || (driver ? `${driver.firstName} ${driver.lastName}` : '—')}</div>
+                {prestataire?.address && (
+                  <div style={{ color: '#6b7280', marginTop: '2px' }}>{prestataire.address}</div>
+                )}
+                {driver?.vehiclePlate && (
+                  <div style={{ color: '#6b7280', marginTop: '2px' }}>
+                    Véhicule {driver.vehicleModel || ''} — {driver.vehiclePlate}
+                  </div>
+                )}
+              </div>
+            </div>
+          </div>
+
+          {isRental ? (
+            <div className="block" style={{ marginBottom: '12px' }}>
+              <div className="block-title">Période de location</div>
+              <div className="block-content">
+                <div className="period-line">
+                  <strong>Début</strong> —{' '}
+                  {(() => {
+                    const d = (course.rideOption as any)?.startDate || course.scheduledTime;
+                    return d
+                      ? new Date(d).toLocaleString('fr-FR', {
+                          day: 'numeric', month: 'long', year: 'numeric',
+                          hour: '2-digit', minute: '2-digit',
+                          timeZone: 'Pacific/Tahiti',
+                        })
+                      : '—';
+                  })()}
+                </div>
+                <div className="period-line">
+                  <strong>Restitution</strong> —{' '}
+                  {(() => {
+                    const d = (course.rideOption as any)?.endDate;
+                    return d
+                      ? new Date(d).toLocaleString('fr-FR', {
+                          day: 'numeric', month: 'long', year: 'numeric',
+                          hour: '2-digit', minute: '2-digit',
+                          timeZone: 'Pacific/Tahiti',
+                        })
+                      : '—';
+                  })()}
+                </div>
+                <div className="period-line">
+                  <strong>Prise en charge</strong> — {course.pickupAddress || (course.rideOption as any)?.pickupLocation || '—'}
+                </div>
+                <div className="period-line">
+                  <strong>Durée</strong> — {(course.rideOption as any)?.days || 1} jour{((course.rideOption as any)?.days || 1) > 1 ? 's' : ''}
                 </div>
               </div>
-            )}
-          </div>
-
-          <div className="block" style={{ marginBottom: '12px' }}>
-            <div className="block-title">Trajet</div>
-            <div className="block-content">
-              <div className="trajet-row">
-                <div className="trajet-dot start" />
-                <div><strong>Départ</strong> — {course.pickupAddress}</div>
-              </div>
-              <div className="trajet-row">
-                <div className="trajet-dot end" />
-                <div><strong>Arrivée</strong> — {course.dropoffAddress}</div>
+            </div>
+          ) : (
+            <div className="block" style={{ marginBottom: '12px' }}>
+              <div className="block-title">Trajet</div>
+              <div className="block-content">
+                <div className="trajet-row">
+                  <div className="trajet-dot start" />
+                  <div><strong>Départ</strong> — {course.pickupAddress}</div>
+                </div>
+                <div className="trajet-row">
+                  <div className="trajet-dot end" />
+                  <div><strong>Arrivée</strong> — {course.dropoffAddress}</div>
+                </div>
               </div>
             </div>
-          </div>
+          )}
 
-          <table className="pricing-table">
-            <thead>
-              <tr>
-                <th>Description</th>
-                <th>Montant</th>
-              </tr>
-            </thead>
-            <tbody>
-              <tr>
-                <td>{course.rideOption?.label || 'Location'}</td>
-                <td>{(course.rideOption?.baseFare || 0).toLocaleString()} XPF</td>
-              </tr>
-              {distanceKm > 0 && (
-                <tr>
-                  <td>Distance ({distanceKm.toFixed(1)} km)</td>
-                  <td>{Math.round(distanceKm * (course.rideOption?.pricePerKm || 0)).toLocaleString()} XPF</td>
-                </tr>
-              )}
-              {course.waitingTimeMinutes && course.waitingTimeMinutes > 0 && (() => {
-                const rate = data?.waitingRatePerMin ?? 42;
-                const free = data?.freeMinutes ?? 0;
-                const billable = Math.max(0, (course.waitingTimeMinutes || 0) - free);
-                const fee = Math.round(billable * rate);
-                return (
-                  <tr>
-                    <td>Attente ({billable} min × {rate} XPF)</td>
-                    <td>{fee.toLocaleString()} XPF</td>
-                  </tr>
-                );
-              })()}
-              <tr className="total">
-                <td>TOTAL TTC</td>
-                <td>{course.totalPrice?.toLocaleString()} XPF TTC</td>
-              </tr>
-            </tbody>
-          </table>
+          {(() => {
+            const ro = course.rideOption as any;
+            const days = Math.max(1, Number(ro?.days) || 1);
+            const unitPrice = Number(ro?.price || ro?.baseFare || 0);
+            const lineRental = Number(ro?.pricingSubtotal) || unitPrice * days;
+            const supplements = Array.isArray(course.supplements) ? course.supplements : [];
+            const tvaRegime = prestataire?.tvaRegime === 'assujetti' ? 'assujetti' : 'franchise';
+            const tvaRate = Number(prestataire?.tvaRate) || 16;
+            const total = Number(course.totalPrice) || 0;
+            const ht = tvaRegime === 'assujetti' ? Math.round(total / (1 + tvaRate / 100)) : total;
+            const tvaAmount = tvaRegime === 'assujetti' ? total - ht : 0;
+
+            if (isRental) {
+              return (
+                <>
+                  <table className="pricing-table">
+                    <thead>
+                      <tr>
+                        <th>Description</th>
+                        <th className="num">Qté</th>
+                        <th className="num">Prix unitaire</th>
+                        <th className="num">Montant</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      <tr>
+                        <td>{ro?.label || ro?.title || 'Location véhicule'}</td>
+                        <td className="num">{days} j</td>
+                        <td className="num">{unitPrice.toLocaleString('fr-FR')} XPF</td>
+                        <td className="num">{lineRental.toLocaleString('fr-FR')} XPF</td>
+                      </tr>
+                      {supplements.map((s: any, i: number) => {
+                        const qty = Number(s.days || s.quantity || days) || days;
+                        const pu = Number(s.pricePerDay || s.unitPrice || 0);
+                        const amt = Number(s.total) || pu * qty;
+                        return (
+                          <tr key={i}>
+                            <td>{s.name || s.label || 'Supplément'}</td>
+                            <td className="num">{qty}</td>
+                            <td className="num">{pu.toLocaleString('fr-FR')} XPF</td>
+                            <td className="num">{amt.toLocaleString('fr-FR')} XPF</td>
+                          </tr>
+                        );
+                      })}
+                      {tvaRegime === 'assujetti' ? (
+                        <>
+                          <tr>
+                            <td colSpan={3}>Total HT</td>
+                            <td className="num">{ht.toLocaleString('fr-FR')} XPF</td>
+                          </tr>
+                          <tr>
+                            <td colSpan={3}>TVA ({tvaRate} %)</td>
+                            <td className="num">{tvaAmount.toLocaleString('fr-FR')} XPF</td>
+                          </tr>
+                          <tr className="total">
+                            <td colSpan={3}>Total TTC</td>
+                            <td className="num">{total.toLocaleString('fr-FR')} XPF</td>
+                          </tr>
+                        </>
+                      ) : (
+                        <tr className="total">
+                          <td colSpan={3}>Total net à payer</td>
+                          <td className="num">{total.toLocaleString('fr-FR')} XPF</td>
+                        </tr>
+                      )}
+                    </tbody>
+                  </table>
+                  <div className="legal">
+                    {tvaRegime === 'assujetti'
+                      ? `TVA ${tvaRate} % applicable.`
+                      : 'TVA non applicable, article 293 B du CGI (franchise en base) — ou disposition équivalente du code des impôts de la Polynésie française.'}
+                  </div>
+                </>
+              );
+            }
+
+            return (
+              <>
+                <table className="pricing-table">
+                  <thead>
+                    <tr>
+                      <th>Description</th>
+                      <th className="num">Montant</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    <tr>
+                      <td>{course.rideOption?.label || 'Prestation'}</td>
+                      <td className="num">{(course.rideOption?.baseFare || 0).toLocaleString('fr-FR')} XPF</td>
+                    </tr>
+                    {distanceKm > 0 && (
+                      <tr>
+                        <td>Distance ({distanceKm.toFixed(1)} km)</td>
+                        <td className="num">
+                          {Math.round(distanceKm * (course.rideOption?.pricePerKm || 0)).toLocaleString('fr-FR')} XPF
+                        </td>
+                      </tr>
+                    )}
+                    {tvaRegime === 'assujetti' ? (
+                      <>
+                        <tr>
+                          <td>Total HT</td>
+                          <td className="num">{ht.toLocaleString('fr-FR')} XPF</td>
+                        </tr>
+                        <tr>
+                          <td>TVA ({tvaRate} %)</td>
+                          <td className="num">{tvaAmount.toLocaleString('fr-FR')} XPF</td>
+                        </tr>
+                        <tr className="total">
+                          <td>Total TTC</td>
+                          <td className="num">{total.toLocaleString('fr-FR')} XPF</td>
+                        </tr>
+                      </>
+                    ) : (
+                      <tr className="total">
+                        <td>Total net à payer</td>
+                        <td className="num">{total.toLocaleString('fr-FR')} XPF</td>
+                      </tr>
+                    )}
+                  </tbody>
+                </table>
+                <div className="legal">
+                  {tvaRegime === 'assujetti'
+                    ? `TVA ${tvaRate} % applicable.`
+                    : 'TVA non applicable, article 293 B du CGI (franchise en base) — ou disposition équivalente du code des impôts de la Polynésie française.'}
+                </div>
+              </>
+            );
+          })()}
 
           <div className="payment-line">
             <span>Méthode de paiement</span>

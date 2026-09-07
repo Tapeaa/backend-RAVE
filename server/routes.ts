@@ -2228,6 +2228,8 @@ app.post("/api/rental-orders", async (req, res) => {
         maxRentalDays,
         rentalContractMode: (vehicleRow as any).rentalContractMode || "app_default",
         customContractText: (vehicleRow as any).customContractText || null,
+        clientBillingAddress:
+          (body.client?.address || body.client?.billingAddress || "").trim() || null,
         ...(body.signature ? {
           clientSignatureSvg: body.signature.clientSignatureSvg || null,
           clientSignedAt: body.signature.clientSignedAt,
