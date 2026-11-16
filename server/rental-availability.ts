@@ -13,7 +13,11 @@ const INACTIVE_STATUSES = new Set([
   "declined",
   "expired",
   "payment_confirmed",
+  "payment_failed",
 ]);
+
+/** Une location carte non payée bloque les dates le temps du paiement uniquement. */
+const AWAITING_PAYMENT_HOLD_MS = 30 * 60 * 1000;
 
 function parseDate(value: unknown): Date | null {
   if (!value) return null;
@@ -98,13 +102,21 @@ export async function getBusyRangesMapForVehicles(
       id: orders.id,
       status: orders.status,
       rideOption: orders.rideOption,
+      createdAt: orders.createdAt,
     })
     .from(orders)
     .orderBy(sql`${orders.createdAt} DESC`)
     .limit(1200);
 
+  const now = Date.now();
   for (const order of candidates) {
     if (INACTIVE_STATUSES.has(String(order.status || ""))) continue;
+    if (
+      order.status === "awaiting_payment" &&
+      now - new Date(order.createdAt as any).getTime() > AWAITING_PAYMENT_HOLD_MS
+    ) {
+      continue;
+    }
     const ro = (order.rideOption || {}) as Record<string, unknown>;
     const isRental =
       ro.type === "rental" ||

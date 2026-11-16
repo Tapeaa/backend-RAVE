@@ -10,12 +10,11 @@ import {
   TrendingUp,
   ArrowRight,
   Calendar,
-  CreditCard,
-  Banknote,
   ClipboardList,
   Plus,
   Sparkles,
 } from 'lucide-react';
+import { PaymentStatusBadge } from '@/components/rental/PaymentStatusBadge';
 
 interface PrestataireInfo {
   id: string;
@@ -48,6 +47,7 @@ interface Course {
   paymentMethod: string;
   status: string;
   driverName?: string;
+  rideOption?: any;
 }
 
 interface SubscriptionSummary {
@@ -309,16 +309,8 @@ export function PrestataireDashboard() {
                           <div className="text-sm font-semibold text-gray-900">
                             {formatXpf(course.totalPrice || course.driverEarnings)}
                           </div>
-                          <div className="mt-0.5 inline-flex items-center gap-1 text-xs text-gray-500">
-                            {course.paymentMethod === 'card' ? (
-                              <>
-                                <CreditCard className="h-3 w-3" /> Carte
-                              </>
-                            ) : (
-                              <>
-                                <Banknote className="h-3 w-3" /> Chez le loueur
-                              </>
-                            )}
+                          <div className="mt-0.5">
+                            <PaymentStatusBadge course={course} />
                           </div>
                         </div>
                       </div>

@@ -4,9 +4,11 @@
 
 import { useEffect, useState } from 'react';
 import { Link } from 'wouter';
-import { Car, CreditCard, Banknote, Eye, Calendar } from 'lucide-react';
+import { Car, Eye, Calendar } from 'lucide-react';
+import { PaymentStatusBadge } from '@/components/rental/PaymentStatusBadge';
 
 interface Course {
+  rideOption?: any;
   id: string;
   date: string;
   clientName: string;
@@ -207,18 +209,8 @@ export function PrestataireCourses() {
                     <div className="text-lg font-bold text-gray-900">
                       {course.totalPrice?.toLocaleString()} XPF
                     </div>
-                    <div className="mt-1 flex items-center justify-end gap-1 text-xs text-gray-500">
-                      {course.paymentMethod === 'card' ? (
-                        <>
-                          <CreditCard className="h-3 w-3" />
-                          <span>Carte</span>
-                        </>
-                      ) : (
-                        <>
-                          <Banknote className="h-3 w-3" />
-                          <span>Espèces</span>
-                        </>
-                      )}
+                    <div className="mt-1 flex justify-end">
+                      <PaymentStatusBadge course={course} />
                     </div>
                   </div>
 

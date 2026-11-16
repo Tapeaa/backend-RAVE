@@ -1982,6 +1982,37 @@ app.get("/api/yousign/signature-requests/:id", async (req, res) => {
 // ============================================
 // COMMANDES DE LOCATION DE VÉHICULE (RAVE)
 // ============================================
+/** Notifie le loueur propriétaire d'une nouvelle location (socket + push OneSignal). */
+async function dispatchRentalOrderToLoueur(orderId: string, payload?: Record<string, any>) {
+  const order = await dbStorage.getOrder(orderId);
+  if (!order) return;
+  const ro = (order.rideOption || {}) as any;
+  const driverId = ro.targetDriverId as string | undefined;
+  if (!driverId) return;
+  const rentalPayload = {
+    ...(payload || ro.loueurNotifyPayload || { id: order.id, type: "rental" }),
+    status: order.status,
+    paymentMethod: order.paymentMethod,
+    payzenStatus: ro.payzenStatus || null,
+  };
+  io.to(`driver:${driverId}`).emit("rental-order:new", rentalPayload);
+  console.log(`[RENTAL] Emitted rental-order:new to driver:${driverId}`);
+  try {
+    await driverNotifications.newRentalOrder(
+      driverId,
+      order.id,
+      `${ro.title || "Location"} — ${ro.days || "?"}j${ro.payzenStatus === "paid" ? " (payée)" : ""}`,
+      order.totalPrice
+    );
+  } catch (pushErr) {
+    console.warn("[RENTAL] OneSignal push to loueur failed:", pushErr);
+  }
+  if (ro.loueurNotifyPayload) {
+    const { loueurNotifyPayload: _drop, ...rest } = ro;
+    await db.update(orders).set({ rideOption: rest as any }).where(eq(orders.id, order.id));
+  }
+}
+
 app.post("/api/rental-orders", async (req, res) => {
   try {
     const body = req.body;
@@ -2512,19 +2543,27 @@ app.post("/api/rental-orders", async (req, res) => {
       isAdvanceBooking: true,
       createdAt: order.createdAt,
       expiresAt: order.expiresAt,
+      paymentMethod: order.paymentMethod,
     };
-    // Notification ciblée au loueur propriétaire (socket + push OneSignal)
-    io.to(`driver:${vehicleRow.driverId}`).emit("rental-order:new", rentalPayload);
-    console.log(`[RENTAL] Emitted rental-order:new to driver:${vehicleRow.driverId}`);
-    try {
-      await driverNotifications.newRentalOrder(
-        vehicleRow.driverId,
-        order.id,
-        `${modelName} — ${days}j`,
-        grandTotal
-      );
-    } catch (pushErr) {
-      console.warn("[RENTAL] OneSignal push to loueur failed:", pushErr);
+
+    // Carte : la commande n'est transmise au loueur qu'une fois le paiement PayZen validé
+    const holdForPayment =
+      order.paymentMethod === "card" && body.payBeforeDispatch === true;
+    if (holdForPayment) {
+      const heldRideOpt = {
+        ...(order.rideOption as any),
+        payzenStatus: "awaiting",
+        loueurNotifyPayload: rentalPayload,
+      };
+      await db
+        .update(orders)
+        .set({ status: "awaiting_payment", rideOption: heldRideOpt as any } as any)
+        .where(eq(orders.id, order.id));
+      (order as any).status = "awaiting_payment";
+      (order as any).rideOption = heldRideOpt;
+      console.log(`[RENTAL] Order ${order.id} held until card payment`);
+    } else {
+      await dispatchRentalOrderToLoueur(order.id, rentalPayload);
     }
 
     res.json({ success: true, order, clientToken, id: order.id, orderId: order.id });
@@ -2610,6 +2649,8 @@ app.get("/api/rental-orders/pending", async (req, res) => {
           isAdvanceBooking: o.isAdvanceBooking,
           createdAt: o.createdAt,
           expiresAt: o.expiresAt,
+          paymentMethod: o.paymentMethod,
+          payzenStatus: ro.payzenStatus || null,
         };
       });
 
@@ -4619,6 +4660,9 @@ app.post("/api/live-activities/end", async (req, res) => {
         clientSignatureAudit: rideOpt.clientSignatureAudit || null,
         loueurSigned: !!rideOpt.loueurSignatureSvg,
         loueurSignedAt: rideOpt.loueurSignedAt || null,
+        paymentMethod: order.paymentMethod,
+        payzenStatus: rideOpt.payzenStatus || null,
+        payzenPaidAt: rideOpt.payzenPaidAt || null,
         yousignSignatureRequestId: rideOpt.yousignSignatureRequestId || null,
         licenses: {
           front: isEphemeralLocalUri(rideOpt.clientLicenseFront)
@@ -8224,21 +8268,30 @@ h1{font-size:18px;margin:0 0 4px}
 <div class="kr-embedded" kr-form-token="${formToken}"></div>
 <p class="err" id="err"></p>
 <script>
-function post(type){
-  var msg = JSON.stringify({ type: type });
+function post(type, message){
+  var msg = JSON.stringify({ type: type, message: message || null });
   try { if (window.ReactNativeWebView) { window.ReactNativeWebView.postMessage(msg); return; } } catch(e){}
   try { window.parent && window.parent !== window && window.parent.postMessage(msg, "*"); } catch(e){}
+}
+function friendly(e){
+  var code = String((e && e.errorCode) || "");
+  var detail = (e && (e.detailedErrorMessage || e.errorMessage)) || "";
+  if (/^(ACQ|PSP_0?99|AUTH)/.test(code) || /refus/i.test(detail)) {
+    return "Paiement refusé par votre banque (solde insuffisant, plafond atteint ou carte non acceptée). Essayez une autre carte." + (detail ? " — " + detail : "");
+  }
+  return detail;
 }
 function init(){
   if (typeof KR === "undefined") { setTimeout(init, 200); return; }
   KR.onSubmit(function(event){
     var st = event && event.clientAnswer && event.clientAnswer.orderStatus;
-    post(st === "PAID" || st === "AUTHORISED" ? "payzen_success" : "payzen_error");
+    if (st === "PAID" || st === "AUTHORISED") post("payzen_success");
+    else post("payzen_error", "Paiement refusé par votre banque (solde insuffisant, plafond atteint ou carte non acceptée).");
     return false;
   });
   KR.onError(function(e){
     var el = document.getElementById("err");
-    if (el) el.textContent = (e && (e.errorMessage || e.detailedErrorMessage)) || "";
+    if (el) el.textContent = friendly(e);
   });
 }
 init();
@@ -8318,7 +8371,8 @@ init();
 
       const status = String(answer?.orderStatus || answer?.transactions?.[0]?.status || "");
       if (status === "PAID" || status === "AUTHORISED") {
-        await markOrderPayzenPaid(orderId, { payzenIpnStatus: status });
+        const paid = await markOrderPayzenPaid(orderId, { payzenIpnStatus: status });
+        if (paid?.released) await dispatchRentalOrderToLoueur(orderId);
       }
 
       return res.status(200).send("OK");
@@ -8345,42 +8399,11 @@ init();
         return res.status(404).json({ success: false, error: "Commande introuvable" });
       }
 
-      const ro = (order.rideOption || {}) as any;
-      const loueurVehicleId = String(ro.loueurVehicleId || "").trim();
-      const [vehicle] = await db
-        .select({ prestataireId: loueurVehicles.prestataireId })
-        .from(loueurVehicles)
-        .where(eq(loueurVehicles.id, loueurVehicleId))
-        .limit(1);
-      const [prestataire] = vehicle?.prestataireId
-        ? await db.select().from(prestataires).where(eq(prestataires.id, vehicle.prestataireId)).limit(1)
-        : [null];
-
-      if (
-        !prestataire ||
-        !(await import("./osb-crypto")).prestataireHasOsbCredentials(prestataire as any)
-      ) {
-        return res.status(400).json({ success: false, code: "OSB_NOT_CONFIGURED" });
-      }
-
-      const { decryptOsbCertificate } = await import("./osb-crypto");
-      const { getPayzenApiBase, markOrderPayzenPaid } = await import("./payzen");
-      const shopId = String((prestataire as any).osbShopId).trim();
-      const certificate = await decryptOsbCertificate(
-        String((prestataire as any).osbCertificateEncrypted)
-      );
-      const auth =
-        "Basic " + Buffer.from(`${shopId}:${certificate}`, "utf8").toString("base64");
-
-      const pzRes = await fetch(`${getPayzenApiBase()}/V4/Order/Get`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json", Authorization: auth },
-        body: JSON.stringify({ orderId }),
-      });
-      const pzJson = (await pzRes.json().catch(() => null)) as any;
-      const orderStatus = pzJson?.answer?.orderStatus || pzJson?.answer?.transactions?.[0]?.status;
-      if (pzJson?.status === "SUCCESS" && (orderStatus === "PAID" || orderStatus === "AUTHORISED")) {
-        await markOrderPayzenPaid(orderId, { payzenConfirmStatus: orderStatus });
+      const { fetchPayzenOrderStatus, markOrderPayzenPaid } = await import("./payzen");
+      const { orderStatus } = await fetchPayzenOrderStatus(orderId);
+      if (orderStatus === "PAID" || orderStatus === "AUTHORISED") {
+        const paid = await markOrderPayzenPaid(orderId, { payzenConfirmStatus: orderStatus });
+        if (paid?.released) await dispatchRentalOrderToLoueur(orderId);
         return res.json({ success: true, paid: true, status: orderStatus });
       }
 
@@ -8391,6 +8414,45 @@ init();
       });
     } catch (error: any) {
       console.error("[PayZen] confirm:", error);
+      return res
+        .status(error?.status || 500)
+        .json({ success: false, code: error?.code, error: error?.message || "Erreur serveur" });
+    }
+  });
+
+  /** Paiement refusé ou abandonné par le client : la location n'est pas transmise au loueur. */
+  app.post("/api/payzen/fail", async (req, res) => {
+    try {
+      const authClientId = await getAuthenticatedClient(req);
+      if (!authClientId) {
+        return res.status(401).json({ success: false, error: "Session client requise" });
+      }
+      const orderId = String(req.body?.orderId || "").trim();
+      const reason = String(req.body?.reason || "abandoned").slice(0, 200);
+      const [order] = orderId ? await db.select().from(orders).where(eq(orders.id, orderId)) : [];
+      if (!order || (order.clientId && order.clientId !== authClientId)) {
+        return res.status(404).json({ success: false, error: "Commande introuvable" });
+      }
+
+      const { fetchPayzenOrderStatus, markOrderPayzenPaid, markOrderPayzenFailed } = await import("./payzen");
+      // Le client a pu payer juste avant de fermer : PayZen fait foi
+      let pzError: string | null = null;
+      try {
+        const pz = await fetchPayzenOrderStatus(orderId);
+        if (pz.orderStatus === "PAID" || pz.orderStatus === "AUTHORISED") {
+          const paid = await markOrderPayzenPaid(orderId, { payzenConfirmStatus: pz.orderStatus });
+          if (paid?.released) await dispatchRentalOrderToLoueur(orderId);
+          return res.json({ success: true, paid: true });
+        }
+        pzError = pz.errorMessage;
+      } catch (e) {
+        console.warn("[PayZen] fail: status check failed", e);
+      }
+
+      await markOrderPayzenFailed(orderId, pzError ? `${reason}: ${pzError}` : reason);
+      return res.json({ success: true, paid: false, error: pzError });
+    } catch (error: any) {
+      console.error("[PayZen] fail:", error);
       return res.status(500).json({ success: false, error: error?.message || "Erreur serveur" });
     }
   });

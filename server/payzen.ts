@@ -190,20 +190,117 @@ export function verifyPayzenIpnHash(
   }
 }
 
-export async function markOrderPayzenPaid(orderId: string, meta?: Record<string, unknown>) {
+/** Statuts d'une location carte pas encore transmise au loueur (paiement non abouti). */
+export const AWAITING_PAYMENT_STATUS = "awaiting_payment";
+export const PAYMENT_FAILED_STATUS = "payment_failed";
+
+/**
+ * Paiement validé : la location rejoint le circuit normal (pending → acceptation loueur).
+ * `released` = la commande vient d'être libérée vers le loueur (à notifier).
+ */
+export async function markOrderPayzenPaid(
+  orderId: string,
+  meta?: Record<string, unknown>
+): Promise<{ order: typeof orders.$inferSelect; released: boolean } | null> {
   const [order] = await db.select().from(orders).where(eq(orders.id, orderId));
   if (!order) return null;
-  const ro = { ...(order.rideOption as any), payzenStatus: "paid", ...meta, payzenPaidAt: new Date().toISOString() };
+  const prev = (order.rideOption || {}) as any;
+  const isRental = prev.type === "rental" || prev.isRentalOrder === true;
+  const wasHeld = order.status === AWAITING_PAYMENT_STATUS || order.status === PAYMENT_FAILED_STATUS;
+  // Anciennes locations payées passées à tort en payment_confirmed (statut « terminé ») avant acceptation
+  const wrongDone = isRental && order.status === "payment_confirmed" && !order.assignedDriverId;
+  if (prev.payzenStatus === "paid" && !wasHeld && !wrongDone) {
+    return { order, released: false };
+  }
+  const ro = {
+    ...prev,
+    ...meta,
+    payzenStatus: "paid",
+    payzenPaidAt: prev.payzenPaidAt || new Date().toISOString(),
+    payzenFailReason: null,
+  };
+  const nextStatus = isRental ? (wasHeld || wrongDone ? "pending" : order.status) : "payment_confirmed";
   const [updated] = await db
     .update(orders)
     .set({
-      status: "payment_confirmed",
+      status: nextStatus,
       paymentMethod: "card",
       rideOption: ro,
+      ...(nextStatus === "pending" && order.status !== "pending"
+        ? { expiresAt: new Date(Date.now() + 3 * 24 * 60 * 60 * 1000) }
+        : {}),
+    } as any)
+    .where(eq(orders.id, orderId))
+    .returning();
+  return { order: updated, released: isRental && (wasHeld || wrongDone) };
+}
+
+/** Paiement refusé / abandonné : la location n'est jamais transmise au loueur. */
+export async function markOrderPayzenFailed(orderId: string, reason: string) {
+  const [order] = await db.select().from(orders).where(eq(orders.id, orderId));
+  if (!order) return null;
+  const prev = (order.rideOption || {}) as any;
+  if (prev.payzenStatus === "paid" || order.status !== AWAITING_PAYMENT_STATUS) return order;
+  const [updated] = await db
+    .update(orders)
+    .set({
+      status: PAYMENT_FAILED_STATUS,
+      rideOption: {
+        ...prev,
+        payzenStatus: "failed",
+        payzenFailReason: reason.slice(0, 300),
+        payzenFailedAt: new Date().toISOString(),
+      },
     } as any)
     .where(eq(orders.id, orderId))
     .returning();
   return updated;
+}
+
+/** Statut réel côté PayZen (Order/Get) avec les identifiants OSB du loueur de la commande. */
+export async function fetchPayzenOrderStatus(orderId: string): Promise<{
+  orderStatus: string | null;
+  errorMessage: string | null;
+}> {
+  const [order] = await db.select().from(orders).where(eq(orders.id, orderId));
+  if (!order) throw Object.assign(new Error("Commande introuvable"), { status: 404 });
+  const loueurVehicleId = String((order.rideOption as any)?.loueurVehicleId || "").trim();
+  const [vehicle] = loueurVehicleId
+    ? await db
+        .select({ prestataireId: loueurVehicles.prestataireId })
+        .from(loueurVehicles)
+        .where(eq(loueurVehicles.id, loueurVehicleId))
+        .limit(1)
+    : [];
+  const [prestataire] = vehicle?.prestataireId
+    ? await db.select().from(prestataires).where(eq(prestataires.id, vehicle.prestataireId)).limit(1)
+    : [];
+  if (!prestataire || !prestataireHasOsbCredentials(prestataire as any)) {
+    throw Object.assign(new Error("Paiement en ligne non configuré"), {
+      status: 400,
+      code: "OSB_NOT_CONFIGURED",
+    });
+  }
+  const shopId = String((prestataire as any).osbShopId).trim();
+  const certificate = await decryptOsbCertificate(String((prestataire as any).osbCertificateEncrypted));
+  const pzRes = await fetch(`${getPayzenApiBase()}/V4/Order/Get`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json", Authorization: basicAuthHeader(shopId, certificate) },
+    body: JSON.stringify({ orderId }),
+  });
+  const pzJson = (await pzRes.json().catch(() => null)) as any;
+  if (pzJson?.status !== "SUCCESS") {
+    return {
+      orderStatus: null,
+      errorMessage: pzJson?.answer?.errorMessage || `PayZen HTTP ${pzRes.status}`,
+    };
+  }
+  const txs: any[] = Array.isArray(pzJson?.answer?.transactions) ? pzJson.answer.transactions : [];
+  const lastTx = txs[txs.length - 1];
+  return {
+    orderStatus: pzJson?.answer?.orderStatus || lastTx?.status || null,
+    errorMessage: lastTx?.detailedErrorMessage || lastTx?.errorMessage || null,
+  };
 }
 
 export async function getPrestataireOsbForVehicle(loueurVehicleId: string): Promise<{

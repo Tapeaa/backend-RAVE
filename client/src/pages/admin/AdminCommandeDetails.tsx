@@ -138,6 +138,8 @@ export function AdminCommandeDetails() {
       completed: { label: 'Terminée', color: 'bg-green-100 text-green-700' },
       payment_pending: { label: 'Paiement en attente', color: 'bg-yellow-100 text-yellow-700' },
       payment_confirmed: { label: 'Paiement confirmé', color: 'bg-green-100 text-green-700' },
+      awaiting_payment: { label: 'Paiement carte en cours', color: 'bg-amber-100 text-amber-700' },
+      payment_failed: { label: 'Paiement refusé', color: 'bg-red-100 text-red-700' },
       cancelled: { label: 'Annulée', color: 'bg-red-100 text-red-700' },
     };
     const config = statusConfig[status] || { label: status, color: 'bg-gray-100 text-gray-700' };
@@ -644,14 +646,24 @@ export function AdminCommandeDetails() {
               Tarification & Paiement
             </h2>
             <div className="space-y-4">
-              <p className="text-xs font-medium text-gray-500">
-                {commande.rideOption?.payzenStatus === 'paid' || commande.status === 'payment_confirmed'
-                  ? 'Payé en ligne (PayZen / OSB)'
-                  : commande.rideOption?.payzenStatus === 'pending'
-                    ? 'Paiement en ligne en attente (PayZen / OSB)'
+              <p
+                className={`text-sm font-semibold ${
+                  commande.rideOption?.payzenStatus === 'paid'
+                    ? 'text-emerald-700'
                     : commande.paymentMethod === 'card'
-                      ? 'Carte bancaire (PayZen / OSB)'
-                      : 'Paiement chez le loueur'}
+                      ? 'text-red-700'
+                      : 'text-gray-600'
+                }`}
+              >
+                {commande.rideOption?.payzenStatus === 'paid'
+                  ? 'Payée par carte en ligne (PayZen / OSB)'
+                  : commande.status === 'payment_failed'
+                    ? `Paiement carte refusé — non transmise au loueur${commande.rideOption?.payzenFailReason ? ` (${commande.rideOption.payzenFailReason})` : ''}`
+                    : commande.status === 'awaiting_payment'
+                      ? 'Paiement carte en cours (pas encore transmise au loueur)'
+                      : commande.paymentMethod === 'card'
+                        ? 'Paiement carte non abouti — à encaisser par le loueur'
+                        : 'Paiement chez le loueur'}
               </p>
               <div className="space-y-4">
                 <div className="border-t border-gray-200 pt-4">

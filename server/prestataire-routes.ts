@@ -1198,7 +1198,10 @@ export function registerPrestataireRoutes(app: Express) {
 
       return res.json({
         fraisServicePercent, // Inclure le % pour l'affichage
-        courses: driverOrders.map(o => {
+        courses: driverOrders
+          // Locations carte non payées : jamais transmises au loueur
+          .filter((o) => o.status !== "awaiting_payment" && o.status !== "payment_failed")
+          .map(o => {
           const addresses = o.addresses as any;
           // Extraire les adresses - le champ s'appelle "value" dans le schema
           let pickupAddress = '';
