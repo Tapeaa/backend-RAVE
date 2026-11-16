@@ -19,7 +19,15 @@ import { assertVehicleAvailableForRental, getVehicleBusyRanges, filterVehicleIds
 import { computeDigressiveRentalPrice, validatePricingTiers, MAX_RENTAL_DAYS_CAP } from "./rental-pricing";
 import { normalizeListingExtras, resolveVehicleSpecs } from "@shared/listing-extras";
 import { persistImageUri, persistContractHtml, isEphemeralLocalUri } from "./persist-media";
-import { buildRentalContractHtml } from "./rental-contract";
+import {
+  buildRentalContractHtml,
+  computeContractHash,
+  getRequestIp,
+  isClientContractSigned,
+  isSnapshotStale,
+  isValidDrawnSignature,
+  refreshContractSnapshot,
+} from "./rental-contract";
 import {
   getYousignPublicConfig,
   isYousignConfigured,
@@ -2269,6 +2277,35 @@ app.post("/api/rental-orders", async (req, res) => {
       }
     }
 
+    const drawnSignature =
+      typeof body.signature?.clientSignatureSvg === "string"
+        ? body.signature.clientSignatureSvg.trim()
+        : "";
+    if (!yousignSrId) {
+      if (!drawnSignature) {
+        return res.status(400).json({
+          success: false,
+          error: "Signature du contrat requise avant de commander.",
+          code: "SIGNATURE_REQUIRED",
+        });
+      }
+      if (!isValidDrawnSignature(drawnSignature)) {
+        return res.status(400).json({
+          success: false,
+          error: "Signature invalide. Refaites la signature du contrat.",
+          code: "SIGNATURE_INVALID",
+        });
+      }
+      if (body.signature?.consent !== true) {
+        return res.status(400).json({
+          success: false,
+          error: "Vous devez accepter le contrat (lu et approuvé) avant de signer.",
+          code: "SIGNATURE_CONSENT_REQUIRED",
+        });
+      }
+    }
+    const serverSignedAt = new Date().toISOString();
+
     const orderData = {
       clientName: `${resolvedFirstName} ${resolvedLastName}`,
       clientPhone: resolvedPhone,
@@ -2326,15 +2363,20 @@ app.post("/api/rental-orders", async (req, res) => {
         priceTtc: tvaBreakdown.ttc,
         tvaLabel: publicTvaMeta(tvaOpts).tvaLabel,
         ownerAddress: (vehicleRow as any).prestataireAddress || null,
-        ...(body.signature ? {
-          clientSignatureSvg: body.signature.clientSignatureSvg || null,
-          clientSignedAt: body.signature.clientSignedAt,
+        ...(yousignSrId ? {
+          clientSignatureSvg: drawnSignature || null,
+          clientSignedAt: body.signature.clientSignedAt || serverSignedAt,
           clientSignatureName: `${resolvedFirstName} ${resolvedLastName}`,
-          yousignSignatureRequestId: body.signature.yousignSignatureRequestId || null,
+          yousignSignatureRequestId: yousignSrId,
           yousignSignerId: body.signature.yousignSignerId || null,
           yousignDocumentId: body.signature.yousignDocumentId || null,
-          signedVia: body.signature.yousignSignatureRequestId ? "yousign" : "canvas",
-        } : {}),
+          signedVia: "yousign",
+        } : {
+          clientSignatureSvg: drawnSignature,
+          clientSignedAt: serverSignedAt,
+          clientSignatureName: `${resolvedFirstName} ${resolvedLastName}`,
+          signedVia: "drawn",
+        }),
         ...(licenseFront || licenseBack ? {
           clientLicenseFront: licenseFront,
           clientLicenseBack: licenseBack,
@@ -2370,18 +2412,36 @@ app.post("/api/rental-orders", async (req, res) => {
     const order = await dbStorage.createOrder(orderData as any, clientId);
 
     // Snapshot contrat permanent (HTML en base + URL Cloudinary si possible)
-    if (body.signature?.clientSignatureSvg || body.signature?.yousignSignatureRequestId) {
+    {
       try {
+        const baseRideOpt: any = { ...(order.rideOption as any) };
+        if (!yousignSrId) {
+          baseRideOpt.clientSignatureAudit = {
+            method: "drawn",
+            consent: true,
+            signedAt: serverSignedAt,
+            ip: getRequestIp(req),
+            userAgent: String(req.headers["user-agent"] || "").slice(0, 300) || null,
+            clientId: clientId || null,
+            contractHash: computeContractHash({
+              id: order.id,
+              clientName: order.clientName,
+              totalPrice: order.totalPrice,
+              driverName: ownerName,
+              rideOption: baseRideOpt,
+            }),
+          };
+        }
         const html = buildRentalContractHtml({
           id: order.id,
           clientName: order.clientName,
           totalPrice: order.totalPrice,
           driverName: ownerName,
-          rideOption: order.rideOption,
+          rideOption: baseRideOpt,
         });
         const contractUrl = await persistContractHtml(html, order.id);
         const rideOpt: any = {
-          ...(order.rideOption as any),
+          ...baseRideOpt,
           contractHtmlSnapshot: html,
           clientSignatureName: `${resolvedFirstName} ${resolvedLastName}`,
           ...(contractUrl ? { contractUrl } : {}),
@@ -2680,8 +2740,10 @@ app.post("/api/rental-orders/:id/accept", async (req, res) => {
       (currentRideOption?.pickupLocation || "").trim() ||
       "";
 
-    const loueurSignature = req.body.loueurSignature || null;
-    const rideOptionPatch: Record<string, unknown> = {
+    const loueurSignature = isValidDrawnSignature(req.body.loueurSignature)
+      ? String(req.body.loueurSignature).trim()
+      : null;
+    const rideOptionPatch: Record<string, any> = {
       ...currentRideOption,
     };
     if (meetingPoint) {
@@ -2700,6 +2762,20 @@ app.post("/api/rental-orders/:id/accept", async (req, res) => {
     const updatedOrder = await dbStorage.tryAcceptOrderIfStillPending(id, session.driverId);
     if (!updatedOrder) {
       return res.status(409).json({ success: false, error: "Commande déjà traitée" });
+    }
+
+    if (loueurSignature) {
+      try {
+        await refreshContractSnapshot({
+          id,
+          clientName: updatedOrder.clientName,
+          totalPrice: updatedOrder.totalPrice,
+          driverName: rideOptionPatch.owner || session.driverName,
+          rideOption: { ...((updatedOrder.rideOption as any) || {}), ...rideOptionPatch },
+        });
+      } catch (e) {
+        console.warn("[RENTAL] Contract snapshot refresh failed:", e);
+      }
     }
 
     // Notify the client via socket
@@ -3135,8 +3211,22 @@ app.patch("/api/orders/:id/loueur-signature", async (req, res) => {
     const order = await dbStorage.getOrder(id);
     if (!order) return res.status(404).json({ success: false, error: "Commande introuvable" });
     const currentRideOption = order.rideOption as any;
+    if (!isValidDrawnSignature(loueurSignature)) {
+      return res.status(400).json({ success: false, error: "Signature invalide" });
+    }
     const newRideOption = { ...currentRideOption, loueurSignatureSvg: loueurSignature, loueurSignedAt: new Date().toISOString() };
     await db.update(orders).set({ rideOption: newRideOption as any }).where(eq(orders.id, id));
+    try {
+      await refreshContractSnapshot({
+        id,
+        clientName: order.clientName,
+        totalPrice: order.totalPrice,
+        driverName: newRideOption.owner || session.driverName,
+        rideOption: newRideOption,
+      });
+    } catch (e) {
+      console.warn("[RENTAL] Contract snapshot refresh failed:", e);
+    }
     console.log(`[RENTAL] Loueur signature updated for order ${id}`);
     res.json({ success: true });
   } catch (error) {
@@ -4384,6 +4474,9 @@ app.post("/api/live-activities/end", async (req, res) => {
       if (!clientSignatureSvg) {
         return res.status(400).json({ error: "clientSignatureSvg is required" });
       }
+      if (!isValidDrawnSignature(clientSignatureSvg)) {
+        return res.status(400).json({ error: "Signature invalide" });
+      }
 
       const order = await dbStorage.getOrder(orderId);
       if (!order) {
@@ -4395,11 +4488,28 @@ app.post("/api/live-activities/end", async (req, res) => {
       }
 
       // Stocker la signature dans rideOption (JSONB, passthrough)
+      const signedAtServer = new Date().toISOString();
       let updatedRideOption: any = {
         ...order.rideOption,
         clientSignatureSvg,
-        clientSignedAt: clientSignedAt || new Date().toISOString(),
+        clientSignedAt: signedAtServer,
         clientSignatureName: clientName || order.clientName,
+        signedVia: "drawn",
+      };
+      updatedRideOption.clientSignatureAudit = {
+        method: "drawn",
+        consent: true,
+        signedAt: signedAtServer,
+        ip: getRequestIp(req),
+        userAgent: String(req.headers["user-agent"] || "").slice(0, 300) || null,
+        clientId,
+        contractHash: computeContractHash({
+          id: order.id,
+          clientName: order.clientName,
+          totalPrice: order.totalPrice,
+          driverName: (order as any).driverName || (order.rideOption as any)?.owner,
+          rideOption: updatedRideOption,
+        }),
       };
 
       // Snapshot contrat permanent
@@ -4472,12 +4582,7 @@ app.post("/api/live-activities/end", async (req, res) => {
       }
 
       const rideOpt = (order.rideOption || {}) as any;
-      const clientSigned = !!(
-        rideOpt.clientSignatureSvg ||
-        rideOpt.clientSignedAt ||
-        rideOpt.yousignSignatureRequestId ||
-        rideOpt.signedVia === "yousign"
-      );
+      const clientSigned = isClientContractSigned(rideOpt);
       const viaYousign = !!(
         rideOpt.yousignSignatureRequestId ||
         rideOpt.signedVia === "yousign"
@@ -4486,14 +4591,7 @@ app.post("/api/live-activities/end", async (req, res) => {
       let html = rideOpt.contractHtmlSnapshot as string | undefined;
       let contractUrl = rideOpt.contractUrl as string | undefined;
 
-      // Snapshot obsolète (Yousign sans SVG affichait « Non signé ») → régénérer
-      const snapshotStaleYousign =
-        !!html &&
-        viaYousign &&
-        !rideOpt.clientSignatureSvg &&
-        /Non signé/i.test(html);
-
-      if (!html || snapshotStaleYousign) {
+      if (!html || isSnapshotStale(html, rideOpt)) {
         html = buildRentalContractHtml({
           id: order.id,
           clientName: order.clientName,
@@ -4518,6 +4616,9 @@ app.post("/api/live-activities/end", async (req, res) => {
         signedVia: rideOpt.signedVia || (viaYousign ? "yousign" : rideOpt.clientSignatureSvg ? "canvas" : null),
         clientSignedAt: rideOpt.clientSignedAt || null,
         clientSignatureName: rideOpt.clientSignatureName || null,
+        clientSignatureAudit: rideOpt.clientSignatureAudit || null,
+        loueurSigned: !!rideOpt.loueurSignatureSvg,
+        loueurSignedAt: rideOpt.loueurSignedAt || null,
         yousignSignatureRequestId: rideOpt.yousignSignatureRequestId || null,
         licenses: {
           front: isEphemeralLocalUri(rideOpt.clientLicenseFront)

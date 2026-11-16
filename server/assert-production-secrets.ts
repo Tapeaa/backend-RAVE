@@ -62,8 +62,8 @@ export function assertProductionSecrets(): void {
   }
 
   if (!process.env.YOUSIGN_API_KEY) {
-    console.warn(
-      "[WARN] YOUSIGN_API_KEY unset — la signature électronique Yousign sera indisponible."
+    console.log(
+      "[INFO] YOUSIGN_API_KEY absente — PDF Yousign des anciennes commandes non récupérables (signature RAVE intégrée utilisée)."
     );
   }
 

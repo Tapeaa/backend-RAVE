@@ -7,10 +7,41 @@ import {
   buildDefaultRentalContractHtml,
 } from "@shared/rental-contract-html";
 import { persistContractHtml, persistContractPdf } from "./persist-media";
+import { createHash } from "crypto";
+import type { Request } from "express";
 import { downloadSignedDocumentPdf } from "./yousign";
 import { db } from "./db";
 import { orders } from "@shared/schema";
 import { eq } from "drizzle-orm";
+
+type ContractOrder = {
+  id: string;
+  clientName?: string | null;
+  totalPrice?: number | null;
+  driverName?: string | null;
+  rideOption?: any;
+};
+
+const MAX_SIGNATURE_BYTES = 400 * 1024;
+
+export function isValidDrawnSignature(value: unknown): boolean {
+  if (typeof value !== "string") return false;
+  const m = /^data:image\/png;base64,([A-Za-z0-9+/=]+)$/.exec(value.trim());
+  if (!m) return false;
+  const bytes = Math.floor((m[1].length * 3) / 4);
+  return bytes > 200 && bytes <= MAX_SIGNATURE_BYTES;
+}
+
+export function getRequestIp(req: Request): string | null {
+  const fwd = String(req.headers["x-forwarded-for"] || "").split(",")[0].trim();
+  return fwd || req.ip || req.socket?.remoteAddress || null;
+}
+
+/** SHA-256 du contrat sans les blocs de signature (reproductible à partir de la commande). */
+export function computeContractHash(order: ContractOrder): string {
+  const html = buildRentalContractHtml(order, { unsignedForHash: true });
+  return createHash("sha256").update(html, "utf8").digest("hex");
+}
 
 export function isClientContractSigned(rideOpt: any): boolean {
   if (!rideOpt) return false;
@@ -18,17 +49,45 @@ export function isClientContractSigned(rideOpt: any): boolean {
     rideOpt.clientSignatureSvg ||
     rideOpt.clientSignedAt ||
     rideOpt.yousignSignatureRequestId ||
-    rideOpt.signedVia === "yousign"
+    rideOpt.signedVia === "yousign" ||
+    rideOpt.signedVia === "drawn"
   );
 }
 
-export function buildRentalContractHtml(order: {
-  id: string;
-  clientName?: string | null;
-  totalPrice?: number | null;
-  driverName?: string | null;
-  rideOption?: any;
-}): string {
+function escapeHtml(s: unknown): string {
+  return String(s ?? "")
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;");
+}
+
+function signatureCertificateHtml(rideOpt: any, sigName: string): string {
+  const audit = rideOpt.clientSignatureAudit;
+  if (!audit) return "";
+  const at = audit.signedAt ? new Date(audit.signedAt) : null;
+  const when = at
+    ? `${at.toLocaleDateString("fr-FR", { timeZone: "Pacific/Tahiti" })} à ${at.toLocaleTimeString("fr-FR", {
+        timeZone: "Pacific/Tahiti",
+        hour: "2-digit",
+        minute: "2-digit",
+        second: "2-digit",
+      })} (heure de Tahiti)`
+    : "—";
+  const hash = audit.contractHash ? String(audit.contractHash) : "";
+  return `<div style="margin-top:8px;padding:8px 10px;border:1px solid #e5e7eb;border-radius:6px;background:#f9fafb;font-size:9px;line-height:1.5;color:#4b5563;text-align:left">
+  <div style="font-weight:700;color:#111827;margin-bottom:2px">Certificat de signature électronique RAVE</div>
+  <div>Signataire : ${escapeHtml(sigName)} — « Lu et approuvé »</div>
+  <div>Date : ${escapeHtml(when)}</div>
+  ${audit.ip ? `<div>Adresse IP : ${escapeHtml(audit.ip)}</div>` : ""}
+  ${hash ? `<div>Empreinte du contrat (SHA-256) : <span style="font-family:monospace">${escapeHtml(hash.slice(0, 16))}…</span></div>` : ""}
+</div>`;
+}
+
+export function buildRentalContractHtml(
+  order: ContractOrder,
+  opts?: { unsignedForHash?: boolean }
+): string {
   const rideOpt = order.rideOption || {};
   const rd = rideOpt.rentalData || {
     vehicleName: rideOpt.title || "Véhicule",
@@ -101,13 +160,17 @@ export function buildRentalContractHtml(order: {
     ? `<div class="sig-date">Non signé</div>`
     : signatureImg
       ? `<img class="sig-img" src="${signatureImg}" alt="Signature"/>
-  <div class="sig-date">✓ Signé le ${signedDate}${signedTime ? " à " + signedTime : ""}</div>`
+  <div class="sig-date">✓ Signé électroniquement${viaYousign ? " via Yousign" : ""} le ${signedDate}${signedTime ? " à " + signedTime : ""}</div>
+  ${signatureCertificateHtml(rideOpt, sigName)}`
       : `<div style="margin-top:8px;padding:14px;border:2px solid #22c55e;border-radius:8px;background:#f0fdf4;text-align:center">
   <div style="font-size:28px;font-family:Georgia,serif;font-style:italic;color:#166534">${String(sigName).replace(/</g, "")}</div>
   <div class="sig-date" style="color:#166534;margin-top:6px">✓ Signé électroniquement${viaYousign ? " via Yousign" : ""} le ${signedDate}${signedTime ? " à " + signedTime : ""}</div>
 </div>`;
 
-  const signatureHtml = `<div class="signature-box">
+  const signatureHtml = opts?.unsignedForHash
+    ? `<div class="signature-box"><div class="sig-label">Le locataire</div><div class="sig-name">${sigName}</div></div>
+<div class="signature-box"><div class="sig-label">Le loueur</div><div class="sig-name">${loueurName}</div></div>`
+    : `<div class="signature-box">
   <div class="sig-label">Le locataire</div>
   <div class="sig-name">${sigName}</div>
   ${clientSigBlock}
@@ -118,7 +181,11 @@ export function buildRentalContractHtml(order: {
   ${
     loueurSigImg
       ? `<img class="sig-img" src="${loueurSigImg}" alt="Signature loueur"/>
-  <div class="sig-date">✓ Signé</div>`
+  <div class="sig-date">✓ Signé${
+    rideOpt.loueurSignedAt
+      ? ` le ${new Date(rideOpt.loueurSignedAt).toLocaleDateString("fr-FR", { timeZone: "Pacific/Tahiti" })}`
+      : ""
+  }</div>`
       : `<div class="sig-date">En attente</div>`
   }
 </div>`;
@@ -165,6 +232,28 @@ export function buildRentalContractHtml(order: {
     : buildDefaultRentalContractHtml(params);
 }
 
+export function isSnapshotStale(html: string, rideOpt: any): boolean {
+  if (isClientContractSigned(rideOpt) && /Non signé/i.test(html)) return true;
+  if (rideOpt.loueurSignatureSvg && /<div class="sig-date">En attente<\/div>/.test(html)) return true;
+  if (rideOpt.clientSignatureAudit && !/Certificat de signature électronique RAVE/.test(html)) return true;
+  return false;
+}
+
+/** Régénère le snapshot HTML (après ajout d'une signature) et le persiste. Retourne le rideOption mis à jour. */
+export async function refreshContractSnapshot(order: ContractOrder): Promise<any> {
+  const rideOpt = { ...((order.rideOption || {}) as any) };
+  const html = buildRentalContractHtml({ ...order, rideOption: rideOpt });
+  rideOpt.contractHtmlSnapshot = html;
+  try {
+    const url = await persistContractHtml(html, order.id);
+    if (url) rideOpt.contractUrl = url;
+  } catch (e) {
+    console.warn("[CONTRACT] snapshot upload failed:", e);
+  }
+  await db.update(orders).set({ rideOption: rideOpt as any }).where(eq(orders.id, order.id));
+  return rideOpt;
+}
+
 export type ResolvedContract = {
   html: string;
   contractUrl: string | null;
@@ -173,6 +262,8 @@ export type ResolvedContract = {
   signedVia: string | null;
   /** PDF Yousign natif (base64) si disponible */
   pdfBase64: string | null;
+  clientSignatureAudit?: any;
+  loueurSigned?: boolean;
   error?: string | null;
 };
 
@@ -197,13 +288,7 @@ export async function resolveOrderContract(order: {
   let pdfBase64: string | null = null;
   let error: string | null = null;
 
-  const snapshotStaleYousign =
-    !!html &&
-    viaYousign &&
-    !rideOpt.clientSignatureSvg &&
-    /Non signé/i.test(html);
-
-  if (!html || snapshotStaleYousign) {
+  if (!html || isSnapshotStale(html, rideOpt)) {
     html = buildRentalContractHtml({ ...order, rideOption: rideOpt });
     try {
       const url = await persistContractHtml(html, order.id);
@@ -270,6 +355,8 @@ export async function resolveOrderContract(order: {
       rideOpt.signedVia ||
       (viaYousign ? "yousign" : rideOpt.clientSignatureSvg ? "canvas" : null),
     pdfBase64,
+    clientSignatureAudit: rideOpt.clientSignatureAudit || null,
+    loueurSigned: !!rideOpt.loueurSignatureSvg,
     error,
   };
 }

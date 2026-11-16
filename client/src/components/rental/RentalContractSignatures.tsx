@@ -1,5 +1,5 @@
 /**
- * Affiche signatures + téléchargement PDF (Yousign natif ou HTML→PDF).
+ * Affiche signatures + téléchargement PDF (HTML signé → PDF, ou PDF Yousign pour les anciennes commandes).
  */
 
 import { useState } from "react";
@@ -12,7 +12,8 @@ function hasClientSigned(ro: Record<string, unknown> | null | undefined): boolea
     ro.clientSignatureSvg ||
     ro.clientSignedAt ||
     ro.yousignSignatureRequestId ||
-    ro.signedVia === "yousign"
+    ro.signedVia === "yousign" ||
+    ro.signedVia === "drawn"
   );
 }
 
@@ -125,6 +126,12 @@ export function RentalContractSignatures({
     typeof ro.yousignSignatureRequestId === "string"
       ? ro.yousignSignatureRequestId
       : null;
+  const audit = (ro.clientSignatureAudit || null) as {
+    signedAt?: string;
+    ip?: string | null;
+    userAgent?: string | null;
+    contractHash?: string | null;
+  } | null;
 
   async function fetchContract() {
     if (!orderId) throw new Error("Commande introuvable");
@@ -193,7 +200,7 @@ export function RentalContractSignatures({
           setMsg(
             viaYousign
               ? "PDF généré. La signature Yousign officielle n’a pas pu être récupérée — le document indique la signature électronique."
-              : "PDF du contrat généré."
+              : "PDF du contrat signé généré."
           );
           return;
         } catch (pdfErr) {
@@ -261,7 +268,7 @@ export function RentalContractSignatures({
       <span className="inline-flex flex-wrap items-center gap-2 text-sm">
         {clientOk ? (
           <span className="text-green-700 font-medium">
-            Signature client OK{viaYousign ? " (Yousign)" : ""}
+            Contrat signé par le client{viaYousign ? " (Yousign)" : ""}
           </span>
         ) : (
           <span className="text-slate-500">Signature client manquante</span>
@@ -278,9 +285,9 @@ export function RentalContractSignatures({
       <div className="flex flex-wrap items-center justify-between gap-2">
         <h3 className="font-semibold text-slate-900">Contrat &amp; signatures</h3>
         <div className="flex flex-wrap items-center gap-2">
-          {viaYousign && (
-            <span className="rounded-full bg-indigo-50 px-2.5 py-0.5 text-xs font-medium text-indigo-700">
-              Yousign
+          {clientOk && (
+            <span className="rounded-full bg-gray-100 px-2.5 py-0.5 text-xs font-medium text-gray-700">
+              {viaYousign ? "Yousign" : "Signature électronique RAVE"}
             </span>
           )}
         </div>
@@ -292,7 +299,7 @@ export function RentalContractSignatures({
             type="button"
             onClick={handleDownload}
             disabled={downloading}
-            className="rounded-lg bg-indigo-600 px-4 py-2.5 text-sm font-semibold text-white hover:bg-indigo-700 disabled:opacity-60"
+            className="rounded-lg bg-gray-900 px-4 py-2.5 text-sm font-semibold text-white hover:bg-gray-800 disabled:opacity-60"
           >
             {downloading ? "Téléchargement…" : "Télécharger le contrat PDF signé"}
           </button>
@@ -359,7 +366,26 @@ export function RentalContractSignatures({
                 <div className="mt-2 rounded border border-slate-200 bg-white p-2">
                   <img src={clientSvg} alt="Signature client" className="max-h-24 w-full object-contain" />
                 </div>
-              ) : viaYousign && clientName ? (
+              ) : null}
+              {audit ? (
+                <div className="mt-2 space-y-0.5 rounded border border-slate-200 bg-white p-2 text-[11px] text-slate-600">
+                  <p className="font-semibold text-slate-800">Certificat de signature</p>
+                  <p>« Lu et approuvé » accepté</p>
+                  {audit.signedAt && <p>Horodatage serveur : {formatWhen(audit.signedAt)}</p>}
+                  {audit.ip && <p>Adresse IP : {audit.ip}</p>}
+                  {audit.userAgent && (
+                    <p className="truncate" title={audit.userAgent}>
+                      Appareil : {audit.userAgent}
+                    </p>
+                  )}
+                  {audit.contractHash && (
+                    <p className="truncate font-mono text-[10px] text-slate-400" title={audit.contractHash}>
+                      SHA-256 : {audit.contractHash}
+                    </p>
+                  )}
+                </div>
+              ) : null}
+              {!clientSvg && viaYousign && clientName ? (
                 <div className="mt-2 rounded-lg border-2 border-green-500 bg-green-50 p-4 text-center">
                   <p className="font-serif text-2xl italic text-green-800">{clientName}</p>
                   <p className="mt-1 text-xs font-medium text-green-700">✓ Signé via Yousign</p>
@@ -392,7 +418,7 @@ export function RentalContractSignatures({
       {(contractUrl || htmlSnapshot) && !previewPdfUrl && (
         <details className="rounded-lg border border-slate-200 bg-slate-50">
           <summary className="cursor-pointer px-3 py-2 text-sm font-medium text-slate-700">
-            Aperçu HTML du contrat (optionnel)
+            Aperçu du contrat signé
           </summary>
           <div className="space-y-2 border-t border-slate-100 px-3 pb-3 pt-2">
             {contractUrl && (
