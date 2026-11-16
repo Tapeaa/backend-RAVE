@@ -24,23 +24,31 @@ export async function generateInvoicePDF(
       });
       doc.on('error', reject);
 
+      const rideOpt = (order as any).rideOption || {};
+      const isRental = rideOpt.type === 'rental';
+      const tvaRegime = rideOpt.tvaRegime === 'assujetti' ? 'assujetti' : 'franchise';
+      const tvaRate = Number(rideOpt.tvaRate) || 16;
+      const tvaMode = rideOpt.tvaMode === 'extra' ? 'extra' : 'included';
+      const priceHt = Number(rideOpt.priceHt);
+      const priceTva = Number(rideOpt.priceTva);
+      const priceTtc = Number(rideOpt.priceTtc) || Number(invoice.amount) || Number(order.totalPrice) || 0;
+      const showTva = isRental && tvaRegime === 'assujetti' && Number.isFinite(priceHt) && Number.isFinite(priceTva);
+
       // === EN-TÊTE ===
-      // "Tape'a" en gros
       doc.fontSize(36)
-        .fillColor('#F5C400') // Couleur jaune TAPEA
+        .fillColor('#1a1a1a')
         .font('Helvetica-Bold')
-        .text('Tape\'a', 50, 50, { align: 'center' });
-      
-      // "numéro tahiti! F11193" en petit en dessous
-      doc.fontSize(14)
-        .fillColor('#666666')
-        .font('Helvetica')
-        .text('numéro tahiti! F11193', 50, 95, { align: 'center' });
+        .text('RAVE', 50, 50, { align: 'center' });
       
       doc.fontSize(12)
         .fillColor('#666666')
         .font('Helvetica')
-        .text('Reçu de paiement', 50, 115, { align: 'center' });
+        .text("EI Tape'a · N° Tahiti F11193", 50, 95, { align: 'center' });
+      
+      doc.fontSize(12)
+        .fillColor('#666666')
+        .font('Helvetica')
+        .text(isRental ? 'Facture de location' : 'Reçu de paiement', 50, 115, { align: 'center' });
 
       // Ligne de séparation avec couleur TAPEA
       doc.moveTo(50, 135)
@@ -72,7 +80,7 @@ export async function generateInvoicePDF(
       doc.fontSize(11)
         .fillColor('#666666')
         .font('Helvetica-Bold')
-        .text('Détails de la course:', 50, orderY);
+        .text(isRental ? 'Détails de la location:' : 'Détails de la course:', 50, orderY);
       
       doc.fontSize(10)
         .fillColor('#333333')
@@ -158,18 +166,34 @@ export async function generateInvoicePDF(
       const availableHeight = pageHeight - footerY - 50; // Espace disponible avant le footer
       const amountY = paymentCurrentY + (footerY - paymentCurrentY - 100) / 2; // Centré verticalement
       
-      // Label "Montant total TTC" centré
+      if (showTva) {
+        doc.fontSize(11)
+          .fillColor('#333333')
+          .font('Helvetica')
+          .text(`Total HT : ${Math.round(priceHt).toLocaleString('fr-FR')} XPF`, 50, amountY - 36, { align: 'center', width: 500 });
+        doc.text(
+          `TVA ${tvaRate} % ${tvaMode === 'extra' ? 'en sus' : 'incluse'} : ${Math.round(priceTva).toLocaleString('fr-FR')} XPF`,
+          50,
+          amountY - 20,
+          { align: 'center', width: 500 }
+        );
+      } else if (isRental) {
+        doc.fontSize(10)
+          .fillColor('#666666')
+          .font('Helvetica')
+          .text('TVA non applicable (franchise) — code des impôts de la Polynésie française', 50, amountY - 20, { align: 'center', width: 500 });
+      }
+
       doc.fontSize(16)
         .fillColor('#666666')
         .font('Helvetica-Bold')
-        .text('Montant total TTC:', 50, amountY, { align: 'center', width: 500 });
+        .text(showTva ? 'Montant total TTC :' : 'Montant total :', 50, amountY, { align: 'center', width: 500 });
       
-      // Montant en gros, centré
       doc.fontSize(32)
-        .fillColor('#F5C400') // Jaune TAPEA pour le montant
+        .fillColor('#1a1a1a')
         .font('Helvetica-Bold')
         .text(
-          `${invoice.amount.toFixed(0)} ${invoice.currency || 'XPF'} TTC`,
+          `${Math.round(showTva ? priceTtc : invoice.amount).toLocaleString('fr-FR')} ${invoice.currency || 'XPF'}${showTva ? ' TTC' : ''}`,
           50,
           amountY + 30,
           { align: 'center', width: 500 }
@@ -188,7 +212,9 @@ export async function generateInvoicePDF(
         .fillColor('#333333')
         .font('Helvetica')
         .text(
-          'Merci d\'avoir utilisé Tape\'a pour votre déplacement.',
+          isRental
+            ? "Merci d'avoir utilisé RAVE. Le contrat de location est conclu entre le locataire et le loueur."
+            : "Merci d'avoir utilisé RAVE.",
           50,
           footerY,
           { align: 'center', width: 500 }

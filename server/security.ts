@@ -30,7 +30,8 @@ export const apiLimiter = rateLimit({
     req.path === '/health' ||
     req.path.startsWith('/api/messages') ||
     req.path.startsWith('/api/admin/messages') ||
-    req.path.startsWith('/api/orders/active'),
+    req.path.startsWith('/api/orders/active') ||
+    req.path.includes('/webhooks/stripe'),
 });
 
 /**
@@ -90,6 +91,10 @@ export const smsLimiter = rateLimit({
  * Middleware pour valider les headers essentiels
  */
 export const validateHeaders = (req: Request, res: Response, next: NextFunction) => {
+  if (req.originalUrl?.includes('/webhooks/stripe')) {
+    return next();
+  }
+
   // En production, forcer HTTPS (Render le fait déjà, mais on vérifie)
   if (process.env.NODE_ENV === 'production' && req.headers['x-forwarded-proto'] !== 'https') {
     // Render ajoute automatiquement x-forwarded-proto, donc ce cas ne devrait pas arriver

@@ -1462,7 +1462,7 @@ Cliquez sur Titre pour une section verte.`}
                             />
                           </div>
                           <div className="sm:col-span-3">
-                            <label className="text-[10px] uppercase text-gray-500">XPF / jour</label>
+                            <label className="text-[10px] uppercase text-gray-500">XPF / jour (selon votre TVA)</label>
                             <input
                               type="number"
                               min={1}

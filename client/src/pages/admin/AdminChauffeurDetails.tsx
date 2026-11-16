@@ -57,6 +57,17 @@ interface ChauffeurDetails {
     paymentMethod: string;
     createdAt: string;
   }>;
+  subscription?: {
+    status: string;
+    pending: boolean;
+    plan: string | null;
+    amount: number | null;
+    endsAt: string | null;
+    daysRemaining: number | null;
+    graceDaysRemaining: number | null;
+    access: boolean;
+    catalogVisible: boolean;
+  };
 }
 
 export function AdminChauffeurDetails() {
@@ -79,6 +90,7 @@ export function AdminChauffeurDetails() {
   const [isDeleting, setIsDeleting] = useState(false);
   const [testingOsb, setTestingOsb] = useState(false);
   const [osbTestResult, setOsbTestResult] = useState<{ ok: boolean; message: string } | null>(null);
+  const [actingSub, setActingSub] = useState<string | null>(null);
   const [editForm, setEditForm] = useState({
     firstName: '',
     lastName: '',
@@ -316,6 +328,32 @@ export function AdminChauffeurDetails() {
       setShowDeleteConfirm(false);
     } finally {
       setIsDeleting(false);
+    }
+  }
+
+  async function handleSubscriptionAction(action: 'activate' | 'reject' | 'trial', plan?: 'monthly' | 'semiannual') {
+    setActingSub(action);
+    try {
+      const token = localStorage.getItem('admin_token');
+      const response = await fetch(`/api/admin/chauffeurs/${chauffeurId}/subscription`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${token}`,
+        },
+        body: JSON.stringify({ action, plan }),
+      });
+      const data = await response.json();
+      if (response.ok) {
+        await fetchDetails();
+        alert(data.message || 'Abonnement mis à jour');
+      } else {
+        alert(data.error || 'Erreur abonnement');
+      }
+    } catch {
+      alert('Erreur réseau abonnement');
+    } finally {
+      setActingSub(null);
     }
   }
 
@@ -687,6 +725,70 @@ export function AdminChauffeurDetails() {
                     : ""}
               </p>
             )}
+          </div>
+
+          {/* Abonnement plateforme */}
+          <div className="mt-6 rounded-xl border border-amber-200 bg-white p-6 shadow-sm">
+            <h2 className="text-lg font-semibold text-gray-900">Abonnement RAVE</h2>
+            <p className="mt-1 text-sm text-gray-500">
+              {details.subscription?.status === 'trial'
+                ? `Essai gratuit${details.subscription.daysRemaining != null ? ` · ${details.subscription.daysRemaining} j restants` : ''}`
+                : details.subscription?.status === 'active'
+                  ? `Actif${details.subscription.daysRemaining != null ? ` · ${details.subscription.daysRemaining} j restants` : ''}`
+                  : details.subscription?.status === 'pending'
+                    ? details.subscription.access
+                      ? 'Demande en attente — essai encore actif'
+                      : 'Demande en attente de validation'
+                    : details.subscription?.status === 'grace'
+                      ? `Délai de grâce (${details.subscription.graceDaysRemaining ?? 0} j) — ensuite masqué du catalogue`
+                      : details.subscription?.status === 'expired'
+                        ? 'Expiré — véhicules masqués du catalogue'
+                        : 'Aucun abonnement (compte héritage)'}
+            </p>
+            {details.subscription?.plan ? (
+              <p className="mt-1 text-sm text-gray-600">
+                Formule : {details.subscription.plan}
+                {details.subscription.amount != null
+                  ? ` · ${details.subscription.amount.toLocaleString('fr-FR')} XPF`
+                  : ''}
+              </p>
+            ) : null}
+            <div className="mt-4 flex flex-wrap gap-2">
+              <button
+                type="button"
+                disabled={!!actingSub}
+                onClick={() => handleSubscriptionAction('activate', 'monthly')}
+                className="rounded-lg bg-emerald-600 px-3 py-2 text-sm font-medium text-white hover:bg-emerald-700 disabled:opacity-50"
+              >
+                {actingSub === 'activate' ? '…' : 'Valider mensuel'}
+              </button>
+              <button
+                type="button"
+                disabled={!!actingSub}
+                onClick={() => handleSubscriptionAction('activate', 'semiannual')}
+                className="rounded-lg bg-emerald-700 px-3 py-2 text-sm font-medium text-white hover:bg-emerald-800 disabled:opacity-50"
+              >
+                Valider 6 mois
+              </button>
+              <button
+                type="button"
+                disabled={!!actingSub}
+                onClick={() => handleSubscriptionAction('trial')}
+                className="rounded-lg border border-amber-300 px-3 py-2 text-sm font-medium text-amber-800 hover:bg-amber-50 disabled:opacity-50"
+              >
+                Accorder 30 j d’essai
+              </button>
+              {details.subscription?.pending ? (
+                <button
+                  type="button"
+                  disabled={!!actingSub}
+                  onClick={() => handleSubscriptionAction('reject')}
+                  className="rounded-lg border border-red-200 px-3 py-2 text-sm font-medium text-red-700 hover:bg-red-50 disabled:opacity-50"
+                >
+                  Refuser la demande
+                </button>
+              ) : null}
+            </div>
           </div>
 
           {/* Paiement OSB / PayZen */}

@@ -26,6 +26,8 @@ import {
 } from "./rental-stats";
 import {
   getLoueurSubscriptionPlans,
+  resolveSubscriptionStatus,
+  buildLoueurStripeCheckoutUrl,
 } from "./ensure-loueur-subscription";
 import { getLinkedAppDrivers } from "./sync-prestataire-app";
 import {
@@ -349,35 +351,24 @@ export function registerPrestataireRoutes(app: Express) {
         });
       }
 
-      const endsAt = driver.subscriptionEndsAt || null;
-      let status = driver.subscriptionStatus || "none";
-      let daysRemaining: number | null = null;
-      if (status === "pending") {
-        daysRemaining = null;
-      } else if (endsAt) {
-        const end = new Date(endsAt).getTime();
-        const now = Date.now();
-        daysRemaining = Math.max(0, Math.ceil((end - now) / (24 * 60 * 60 * 1000)));
-        status = end > now ? "active" : "expired";
-        if (status !== (driver.subscriptionStatus || "none")) {
-          await db
-            .update(drivers)
-            .set({ subscriptionStatus: status } as any)
-            .where(eq(drivers.id, driver.id));
-        }
-      }
+      const resolved = resolveSubscriptionStatus(driver);
 
       return res.json({
         success: true,
         subscription: {
           plan: driver.subscriptionPlan || null,
-          status,
+          status: resolved.status,
           startsAt: driver.subscriptionStartsAt || null,
-          endsAt,
+          endsAt: resolved.endsAt,
           amount: driver.subscriptionAmount ?? null,
-          daysRemaining: status === "active" ? daysRemaining : status === "expired" ? 0 : null,
+          daysRemaining: resolved.daysRemaining,
+          graceDaysRemaining: resolved.graceDaysRemaining,
+          access: resolved.access,
+          catalogVisible: resolved.catalogVisible,
+          pending: resolved.pending,
           plans,
           driverId: driver.id,
+          paymentUrl: buildLoueurStripeCheckoutUrl(driver.id, prestataire.email),
         },
       });
     } catch (error) {
@@ -423,29 +414,43 @@ export function registerPrestataireRoutes(app: Express) {
       if (!driver) return res.status(404).json({ error: "Compte loueur introuvable" });
 
       const now = new Date();
+      const keepEndsAt = driver.subscriptionEndsAt || null;
       await db
         .update(drivers)
         .set({
           subscriptionPlan: plan.id,
           subscriptionStatus: "pending",
-          subscriptionStartsAt: now,
-          subscriptionEndsAt: null,
+          subscriptionStartsAt: driver.subscriptionStartsAt || now,
+          subscriptionEndsAt: keepEndsAt,
           subscriptionAmount: plan.amountXpf,
         } as any)
         .where(eq(drivers.id, driver.id));
+
+      const resolved = resolveSubscriptionStatus({
+        subscriptionStatus: "pending",
+        subscriptionEndsAt: keepEndsAt,
+      });
+      const paymentUrl = buildLoueurStripeCheckoutUrl(driver.id, prestataire.email);
 
       return res.json({
         success: true,
         subscription: {
           plan: plan.id,
-          status: "pending",
-          startsAt: now.toISOString(),
-          endsAt: null,
+          status: resolved.status,
+          startsAt: (driver.subscriptionStartsAt || now).toString(),
+          endsAt: resolved.endsAt,
           amount: plan.amountXpf,
-          daysRemaining: null,
+          daysRemaining: resolved.daysRemaining,
+          graceDaysRemaining: resolved.graceDaysRemaining,
+          access: resolved.access,
+          catalogVisible: resolved.catalogVisible,
+          pending: true,
           plans,
           driverId: driver.id,
-          message: `Demande d'abonnement ${plan.label} enregistrée (${plan.amountXpf.toLocaleString("fr-FR")} XPF). Activation après validation / règlement RAVE.`,
+          paymentUrl,
+          message: resolved.access
+            ? `Paiement ${plan.label} (${plan.amountXpf.toLocaleString("fr-FR")} XPF). Votre essai reste actif ; l’abonnement s’active dès confirmation Stripe.`
+            : `Paiement ${plan.label} (${plan.amountXpf.toLocaleString("fr-FR")} XPF). L’accès s’active automatiquement dès confirmation Stripe.`,
         },
       });
     } catch (error) {

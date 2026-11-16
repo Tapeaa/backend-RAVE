@@ -73,14 +73,15 @@ type SubscriptionInfo = {
   endsAt: string | null;
   amount: number | null;
   daysRemaining: number | null;
+  paymentUrl?: string | null;
   plans?: { monthly: SubPlan; semiannual: SubPlan };
 };
 
 const DOC_FIELDS = [
-  { key: 'docNumeroTahiti', label: 'Numéro Tahiti ou K-BIS' },
+  { key: 'docNumeroTahiti', label: 'Extrait N° Tahiti / avis ISPF' },
   { key: 'docAttestationQualification', label: 'Attestation de qualification professionnelle' },
-  { key: 'docLicenceTransport', label: 'Licence de transport ou Autorisation d\'exercer' },
-  { key: 'docAssurancePro', label: 'Assurances professionnelles' },
+  { key: 'docLicenceTransport', label: 'Licence / autorisation de location sans chauffeur' },
+  { key: 'docAssurancePro', label: 'Attestation d’assurance professionnelle (location sans chauffeur)' },
 ] as const;
 
 const typeLabels: Record<string, string> = {
@@ -146,7 +147,7 @@ export function PrestataireProfil() {
     const def = subscription?.plans?.[plan];
     const label = def?.label || (plan === 'monthly' ? 'Mensuel' : '6 mois');
     const amount = def?.amountXpf ?? (plan === 'monthly' ? 5000 : 30000);
-    if (!confirm(`Demander l’abonnement ${label} — ${amount.toLocaleString('fr-FR')} XPF ? (activation après validation RAVE)`)) return;
+    if (!confirm(`Payer l’abonnement ${label} — ${amount.toLocaleString('fr-FR')} XPF via Stripe ? L’accès s’active dès confirmation du paiement.`)) return;
     setSubscribing(plan);
     try {
       const token = localStorage.getItem('admin_token');
@@ -160,9 +161,17 @@ export function PrestataireProfil() {
       });
       const data = await response.json();
       if (response.ok) {
-        setSuccessMessage(data.subscription?.message || 'Demande d’abonnement enregistrée');
-        setTimeout(() => setSuccessMessage(null), 5000);
+        const payUrl = data.subscription?.paymentUrl as string | undefined;
+        setSuccessMessage(data.subscription?.message || 'Redirection vers Stripe…');
+        setTimeout(() => setSuccessMessage(null), 8000);
+        if (payUrl) window.open(payUrl, '_blank', 'noopener,noreferrer');
         await fetchSubscription();
+        let ticks = 0;
+        const timer = window.setInterval(async () => {
+          ticks += 1;
+          await fetchSubscription();
+          if (ticks >= 40) window.clearInterval(timer);
+        }, 3000);
       } else {
         alert(data.error || 'Erreur abonnement');
       }
@@ -608,14 +617,30 @@ export function PrestataireProfil() {
           <div>
             <h2 className="font-semibold text-gray-900">Abonnement RAVE</h2>
             <p className="text-sm text-gray-500">
-              {subscription?.status === 'active'
+              {subscription?.status === 'trial'
+                ? `Essai gratuit${subscription.daysRemaining != null ? ` · ${subscription.daysRemaining} j restants` : ''}`
+                : subscription?.status === 'active'
                 ? `En cours${subscription.daysRemaining != null ? ` · ${subscription.daysRemaining} j restants` : ''}`
+                : subscription?.status === 'pending'
+                  ? 'Paiement Stripe en cours — activation automatique dès confirmation'
+                : subscription?.status === 'grace'
+                  ? `Délai de grâce (${(subscription as any).graceDaysRemaining ?? 0} j) puis masquage catalogue`
                 : subscription?.status === 'expired'
-                  ? 'Expiré — renouvelez pour continuer'
+                  ? 'Expiré — vos véhicules sont masqués du catalogue'
                   : 'Aucun abonnement actif'}
             </p>
           </div>
         </div>
+        {subscription?.paymentUrl && subscription.status !== 'active' ? (
+          <a
+            href={subscription.paymentUrl}
+            target="_blank"
+            rel="noreferrer"
+            className="mb-4 inline-flex items-center rounded-lg bg-[#635BFF] px-4 py-2 text-sm font-semibold text-white hover:opacity-90"
+          >
+            Payer maintenant avec Stripe
+          </a>
+        ) : null}
         <div className="grid gap-3 sm:grid-cols-2">
           {(['monthly', 'semiannual'] as const).map((key) => {
             const plan = subscription?.plans?.[key];
@@ -1021,14 +1046,14 @@ export function PrestataireProfil() {
             <div className="flex items-center gap-2">
               <FileText className="h-5 w-5 text-purple-600" />
               <h3 className="text-sm font-semibold text-gray-900">Documentation</h3>
-              <span className="text-xs text-gray-500">(optionnel)</span>
+              <span className="text-xs text-amber-700">(recommandé — conformité CGS Pro)</span>
             </div>
             {docsExpanded ? <ChevronDown className="h-5 w-5 text-gray-500" /> : <ChevronRight className="h-5 w-5 text-gray-500" />}
           </CollapsibleTrigger>
           <CollapsibleContent>
             <div className="border-t border-gray-100 px-5 py-4 space-y-4">
               <p className="text-sm text-gray-500">
-                Ces documents ne sont pas obligatoires pour utiliser la plateforme. S'ils sont renseignés, ils seront visibles sur votre fiche dans le back office admin.
+                Déposez vos justificatifs professionnels (N° Tahiti et assurance « location de véhicules sans chauffeur »). RAVE peut les demander à tout moment et suspendre un compte non conforme.
               </p>
               {DOC_FIELDS.map(({ key, label }) => (
                 <div key={key} className="space-y-2">

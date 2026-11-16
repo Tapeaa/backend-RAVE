@@ -66,4 +66,11 @@ export function assertProductionSecrets(): void {
       "[WARN] YOUSIGN_API_KEY unset — la signature électronique Yousign sera indisponible."
     );
   }
+
+  if (!process.env.STRIPE_SECRET_KEY || !process.env.STRIPE_WEBHOOK_SECRET) {
+    console.warn(
+      "[WARN] STRIPE_SECRET_KEY / STRIPE_WEBHOOK_SECRET unset — " +
+        "l’activation automatique de l’abonnement loueur (Payment Link) sera indisponible."
+    );
+  }
 }

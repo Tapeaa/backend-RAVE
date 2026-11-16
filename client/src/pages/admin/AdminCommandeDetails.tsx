@@ -645,7 +645,13 @@ export function AdminCommandeDetails() {
             </h2>
             <div className="space-y-4">
               <p className="text-xs font-medium text-gray-500">
-                {commande.paymentMethod === 'card' ? 'Carte bancaire' : 'Espèces'}
+                {commande.rideOption?.payzenStatus === 'paid' || commande.status === 'payment_confirmed'
+                  ? 'Payé en ligne (PayZen / OSB)'
+                  : commande.rideOption?.payzenStatus === 'pending'
+                    ? 'Paiement en ligne en attente (PayZen / OSB)'
+                    : commande.paymentMethod === 'card'
+                      ? 'Carte bancaire (PayZen / OSB)'
+                      : 'Paiement chez le loueur'}
               </p>
               <div className="space-y-4">
                 <div className="border-t border-gray-200 pt-4">
@@ -660,8 +666,22 @@ export function AdminCommandeDetails() {
                           {commande.rideOption?.label || commande.rideOption?.title || 'Location'}
                         </span>
                       </div>
+                      {commande.rideOption?.tvaRegime === 'assujetti' && commande.rideOption?.priceHt != null ? (
+                        <>
+                          <div className="flex justify-between text-gray-600">
+                            <span>Total HT</span>
+                            <span>{Number(commande.rideOption.priceHt).toLocaleString('fr-FR')} XPF</span>
+                          </div>
+                          <div className="flex justify-between text-gray-600">
+                            <span>TVA ({commande.rideOption.tvaRate || 16} %)</span>
+                            <span>{Number(commande.rideOption.priceTva || 0).toLocaleString('fr-FR')} XPF</span>
+                          </div>
+                        </>
+                      ) : commande.rideOption?.type === 'rental' ? (
+                        <p className="text-xs text-gray-500">TVA non applicable (franchise loueur)</p>
+                      ) : null}
                       <div className="border-t border-gray-200 pt-3 flex flex-wrap justify-between gap-x-2 font-semibold">
-                        <span>Prix total</span>
+                        <span>{commande.rideOption?.tvaRegime === 'assujetti' ? 'Prix total TTC' : 'Prix total'}</span>
                         <span className="text-lg text-purple-600">{commande.totalPrice.toLocaleString()} XPF</span>
                       </div>
                     </div>

@@ -930,7 +930,15 @@ export function PrestataireCourseDetails() {
 
           <div className="payment-line">
             <span>Méthode de paiement</span>
-            <span style={{ fontWeight: 600 }}>{course.paymentMethod === 'card' ? 'Carte bancaire' : 'Espèces'}</span>
+            <span style={{ fontWeight: 600 }}>
+              {(course as any)?.rideOption?.payzenStatus === 'paid' || course.status === 'payment_confirmed'
+                ? 'Payé en ligne (PayZen / OSB)'
+                : (course as any)?.rideOption?.payzenStatus === 'pending'
+                  ? 'Paiement en ligne en attente (PayZen / OSB)'
+                  : course.paymentMethod === 'card'
+                    ? 'Carte bancaire (PayZen / OSB)'
+                    : 'Chez le loueur'}
+            </span>
           </div>
         </div>
       </div>

@@ -2,9 +2,223 @@
  * Abonnement plateforme loueur : colonnes drivers + config prix (admin-editable).
  */
 import { db } from "./db";
-import { sql } from "drizzle-orm";
+import { eq, sql } from "drizzle-orm";
+import { drivers } from "@shared/schema";
 
 export type LoueurPlanId = "monthly" | "semiannual";
+
+export const TRIAL_DAYS = 30;
+export const GRACE_DAYS = 5;
+
+export type SubscriptionStatus =
+  | "none"
+  | "trial"
+  | "pending"
+  | "active"
+  | "grace"
+  | "expired";
+
+export type SubscriptionAccess = {
+  status: SubscriptionStatus;
+  /** Peut accepter des locations et ajouter des véhicules */
+  access: boolean;
+  /** Visible dans le catalogue public */
+  catalogVisible: boolean;
+  daysRemaining: number | null;
+  graceDaysRemaining: number | null;
+  endsAt: string | null;
+  pending: boolean;
+};
+
+function parseEndsAt(raw: string | Date | null | undefined): Date | null {
+  if (!raw) return null;
+  const d = raw instanceof Date ? raw : new Date(raw);
+  return Number.isNaN(d.getTime()) ? null : d;
+}
+
+function daysBetween(fromMs: number, toMs: number): number {
+  return Math.max(0, Math.ceil((toMs - fromMs) / (24 * 60 * 60 * 1000)));
+}
+
+export const DEFAULT_LOUEUR_STRIPE_PAYMENT_LINK =
+  "https://buy.stripe.com/8x2eVd6Uc19Q8tnfye0Jq04";
+
+export function getLoueurStripePaymentLink(): string {
+  return (process.env.LOUEUR_STRIPE_PAYMENT_LINK || DEFAULT_LOUEUR_STRIPE_PAYMENT_LINK).trim();
+}
+
+export function buildLoueurStripeCheckoutUrl(
+  driverId: string,
+  email?: string | null
+): string {
+  const url = new URL(getLoueurStripePaymentLink());
+  url.searchParams.set("client_reference_id", `drv_${driverId}`);
+  const mail = String(email || "").trim();
+  if (mail.includes("@")) url.searchParams.set("prefilled_email", mail);
+  return url.toString();
+}
+
+export function parseLoueurDriverRef(ref: string | null | undefined): string | null {
+  const raw = String(ref || "").trim();
+  if (!raw) return null;
+  if (raw.startsWith("drv_")) return raw.slice(4) || null;
+  return raw;
+}
+
+export async function activatePaidLoueurSubscription(opts: {
+  driverId: string;
+  plan?: LoueurPlanId;
+  amountXpf?: number | null;
+  stripeSessionId?: string | null;
+}): Promise<{ ok: true; endsAt: string; alreadyProcessed?: boolean } | { ok: false; error: string }> {
+  const [driver] = await db.select().from(drivers).where(eq(drivers.id, opts.driverId)).limit(1);
+  if (!driver) return { ok: false, error: "Loueur introuvable" };
+
+  if (
+    opts.stripeSessionId &&
+    (driver as any).subscriptionStripeSessionId &&
+    (driver as any).subscriptionStripeSessionId === opts.stripeSessionId
+  ) {
+    const current = resolveSubscriptionStatus(driver as any);
+    return {
+      ok: true,
+      alreadyProcessed: true,
+      endsAt: current.endsAt || new Date().toISOString(),
+    };
+  }
+
+  const plans = await getLoueurSubscriptionPlans();
+  const plan = plans[opts.plan === "semiannual" ? "semiannual" : "monthly"];
+  const now = new Date();
+  const currentEnd = parseEndsAt((driver as any).subscriptionEndsAt);
+  const startFrom =
+    currentEnd && currentEnd.getTime() > now.getTime() ? currentEnd : now;
+  const ends = new Date(startFrom.getTime() + plan.days * 24 * 60 * 60 * 1000);
+
+  await db
+    .update(drivers)
+    .set({
+      subscriptionPlan: plan.id,
+      subscriptionStatus: "active",
+      subscriptionStartsAt: now,
+      subscriptionEndsAt: ends,
+      subscriptionAmount: opts.amountXpf != null ? opts.amountXpf : plan.amountXpf,
+      ...(opts.stripeSessionId
+        ? { subscriptionStripeSessionId: opts.stripeSessionId }
+        : {}),
+    } as any)
+    .where(eq(drivers.id, opts.driverId));
+
+  return { ok: true, endsAt: ends.toISOString() };
+}
+
+export function trialSubscriptionValues(now = new Date()) {
+  const ends = new Date(now.getTime() + TRIAL_DAYS * 24 * 60 * 60 * 1000);
+  return {
+    subscriptionPlan: "trial" as const,
+    subscriptionStatus: "trial" as const,
+    subscriptionStartsAt: now,
+    subscriptionEndsAt: ends,
+    subscriptionAmount: 0,
+  };
+}
+
+/**
+ * Statut opérationnel d'un loueur.
+ * - trial / active / grace : accès + catalogue
+ * - pending avec endsAt encore valide (essai en cours) : accès conservé
+ * - none sans date : comptes hérités, accès conservé
+ * - expired après grâce 5 j : hors catalogue
+ */
+export function resolveSubscriptionStatus(driver: {
+  subscriptionStatus?: string | null;
+  subscriptionEndsAt?: string | Date | null;
+} | null | undefined): SubscriptionAccess {
+  if (!driver) {
+    return {
+      status: "none",
+      access: false,
+      catalogVisible: false,
+      daysRemaining: null,
+      graceDaysRemaining: null,
+      endsAt: null,
+      pending: false,
+    };
+  }
+
+  const raw = (driver.subscriptionStatus || "none") as string;
+  const pending = raw === "pending";
+  const end = parseEndsAt(driver.subscriptionEndsAt);
+  const endsAt = end ? end.toISOString() : null;
+  const now = Date.now();
+
+  const fromEndDate = (statusIfActive: SubscriptionStatus): SubscriptionAccess => {
+    if (!end) {
+      return {
+        status: pending ? "pending" : (raw as SubscriptionStatus) || "none",
+        access: !pending && (raw === "none" || raw === "trial" || raw === "active"),
+        catalogVisible: !pending && (raw === "none" || raw === "trial" || raw === "active"),
+        daysRemaining: null,
+        graceDaysRemaining: null,
+        endsAt,
+        pending,
+      };
+    }
+    if (end.getTime() > now) {
+      const status: SubscriptionStatus = pending
+        ? "pending"
+        : raw === "trial"
+          ? "trial"
+          : "active";
+      return {
+        status,
+        access: true,
+        catalogVisible: true,
+        daysRemaining: daysBetween(now, end.getTime()),
+        graceDaysRemaining: null,
+        endsAt,
+        pending,
+      };
+    }
+    const graceUntil = end.getTime() + GRACE_DAYS * 24 * 60 * 60 * 1000;
+    if (now <= graceUntil) {
+      return {
+        status: "grace",
+        access: true,
+        catalogVisible: true,
+        daysRemaining: 0,
+        graceDaysRemaining: daysBetween(now, graceUntil),
+        endsAt,
+        pending,
+      };
+    }
+    return {
+      status: "expired",
+      access: false,
+      catalogVisible: false,
+      daysRemaining: 0,
+      graceDaysRemaining: 0,
+      endsAt,
+      pending,
+    };
+  };
+
+  if (pending) {
+    return fromEndDate("pending");
+  }
+  if (raw === "none" && !end) {
+    return {
+      status: "none",
+      access: true,
+      catalogVisible: true,
+      daysRemaining: null,
+      graceDaysRemaining: null,
+      endsAt: null,
+      pending: false,
+    };
+  }
+  return fromEndDate(raw === "trial" ? "trial" : "active");
+}
 
 export type LoueurPlanDef = {
   id: LoueurPlanId;
@@ -52,6 +266,10 @@ export async function ensureLoueurSubscriptionColumns(): Promise<void> {
     await db.execute(sql`
       ALTER TABLE drivers
       ADD COLUMN IF NOT EXISTS subscription_amount REAL
+    `);
+    await db.execute(sql`
+      ALTER TABLE drivers
+      ADD COLUMN IF NOT EXISTS subscription_stripe_session_id TEXT
     `);
     await db.execute(sql`
       ALTER TABLE loueur_vehicles

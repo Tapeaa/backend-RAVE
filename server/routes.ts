@@ -28,6 +28,9 @@ import {
 } from "./yousign";
 import {
   getLoueurSubscriptionPlans,
+  resolveSubscriptionStatus,
+  trialSubscriptionValues,
+  buildLoueurStripeCheckoutUrl,
 } from "./ensure-loueur-subscription";
 import {
   assertVehicleOwnedByDriver,
@@ -87,35 +90,6 @@ async function getDriverSessionWithFallback(sessionId: string): Promise<DriverSe
   return session;
 }
 
-/** Statut abonnement loueur (none | pending | active | expired) */
-function resolveSubscriptionStatus(driver: {
-  subscriptionStatus?: string | null;
-  subscriptionEndsAt?: string | Date | null;
-} | null | undefined): { status: string; daysRemaining: number | null; endsAt: string | null } {
-  if (!driver) {
-    return { status: "none", daysRemaining: null, endsAt: null };
-  }
-  const rawStatus = driver.subscriptionStatus || "none";
-  // Demande en attente de paiement / validation admin — ne pas promouvoir via endsAt
-  if (rawStatus === "pending") {
-    return { status: "pending", daysRemaining: null, endsAt: null };
-  }
-  const endsAtRaw = driver.subscriptionEndsAt || null;
-  const endsAt =
-    endsAtRaw instanceof Date
-      ? endsAtRaw.toISOString()
-      : endsAtRaw
-        ? String(endsAtRaw)
-        : null;
-  if (!endsAt) {
-    return { status: rawStatus, daysRemaining: null, endsAt: null };
-  }
-  const end = new Date(endsAt).getTime();
-  const now = Date.now();
-  const daysRemaining = Math.max(0, Math.ceil((end - now) / (24 * 60 * 60 * 1000)));
-  const status = end > now ? "active" : "expired";
-  return { status, daysRemaining: status === "active" ? daysRemaining : 0, endsAt };
-}
 
 // Initialize Stripe (only if key is provided)
 const STRIPE_SECRET_KEY = process.env.STRIPE_SECRET_KEY;
@@ -2160,6 +2134,8 @@ app.post("/api/rental-orders", async (req, res) => {
     // Documents : uniquement des URLs durables (Cloudinary). Refuse file:// ImagePicker.
     let licenseFront: string | null = null;
     let licenseBack: string | null = null;
+    let idFront: string | null = null;
+    let idBack: string | null = null;
     if (body.clientDocuments?.licenseFrontUri) {
       if (isEphemeralLocalUri(body.clientDocuments.licenseFrontUri)) {
         return res.status(400).json({
@@ -2187,6 +2163,36 @@ app.post("/api/rental-orders", async (req, res) => {
         return res.status(400).json({
           error: "Impossible d'enregistrer le permis verso. Réessayez.",
           code: "LICENSE_UPLOAD_FAILED",
+        });
+      }
+    }
+    if (body.clientDocuments?.idFrontUri) {
+      if (isEphemeralLocalUri(body.clientDocuments.idFrontUri)) {
+        return res.status(400).json({
+          error: "Pièce d'identité recto invalide : renvoyez la photo (upload requis).",
+          code: "EPHEMERAL_ID",
+        });
+      }
+      idFront = await persistImageUri(body.clientDocuments.idFrontUri, "rave/identity");
+      if (!idFront) {
+        return res.status(400).json({
+          error: "Impossible d'enregistrer la pièce d'identité recto. Réessayez.",
+          code: "ID_UPLOAD_FAILED",
+        });
+      }
+    }
+    if (body.clientDocuments?.idBackUri) {
+      if (isEphemeralLocalUri(body.clientDocuments.idBackUri)) {
+        return res.status(400).json({
+          error: "Pièce d'identité verso invalide : renvoyez la photo (upload requis).",
+          code: "EPHEMERAL_ID",
+        });
+      }
+      idBack = await persistImageUri(body.clientDocuments.idBackUri, "rave/identity");
+      if (!idBack) {
+        return res.status(400).json({
+          error: "Impossible d'enregistrer la pièce d'identité verso. Réessayez.",
+          code: "ID_UPLOAD_FAILED",
         });
       }
     }
@@ -2321,6 +2327,10 @@ app.post("/api/rental-orders", async (req, res) => {
         ...(licenseFront || licenseBack ? {
           clientLicenseFront: licenseFront,
           clientLicenseBack: licenseBack,
+        } : {}),
+        ...(idFront || idBack ? {
+          clientIdFront: idFront,
+          clientIdBack: idBack,
         } : {}),
       },
       routeInfo: undefined,
@@ -2602,13 +2612,15 @@ app.post("/api/rental-orders/:id/accept", async (req, res) => {
 
     const driver = await dbStorage.getDriver(session.driverId);
     const subGate = resolveSubscriptionStatus(driver || { subscriptionStatus: "none" });
-      if (subGate.status !== "active") {
+      if (!subGate.access) {
         return res.status(403).json({
           success: false,
           error:
             subGate.status === "pending"
               ? "Abonnement en attente de validation RAVE — vous ne pouvez pas encore accepter de locations."
-              : "Abonnement RAVE inactif — activez votre abonnement pour accepter des locations.",
+              : subGate.status === "expired"
+                ? "Abonnement RAVE expiré — vos véhicules sont masqués du catalogue. Demandez un renouvellement."
+                : "Abonnement RAVE inactif — activez votre abonnement pour accepter des locations.",
           code: "SUBSCRIPTION_REQUIRED",
           subscriptionStatus: subGate.status,
         });
@@ -4869,6 +4881,7 @@ app.post("/api/live-activities/end", async (req, res) => {
       const driverIds = Array.from(new Set(rows.map((r) => r.driverId).filter(Boolean))) as string[];
       const driverNameById = new Map<string, string>();
       const driverActiveById = new Map<string, boolean>();
+      const driverCatalogById = new Map<string, boolean>();
       const driverRatingById = new Map<string, { averageRating: number | null; ratingsCount: number }>();
       if (driverIds.length > 0) {
         const driverRows = await db
@@ -4878,12 +4891,21 @@ app.post("/api/live-activities/end", async (req, res) => {
             lastName: drivers.lastName,
             isActive: drivers.isActive,
             averageRating: drivers.averageRating,
+            subscriptionStatus: drivers.subscriptionStatus,
+            subscriptionEndsAt: drivers.subscriptionEndsAt,
           })
           .from(drivers)
           .where(inArray(drivers.id, driverIds));
         for (const d of driverRows) {
           driverNameById.set(d.id, `${d.firstName} ${d.lastName}`.trim());
           driverActiveById.set(d.id, d.isActive !== false);
+          driverCatalogById.set(
+            d.id,
+            resolveSubscriptionStatus({
+              subscriptionStatus: d.subscriptionStatus,
+              subscriptionEndsAt: d.subscriptionEndsAt,
+            }).catalogVisible
+          );
           const avg =
             d.averageRating != null && Number.isFinite(Number(d.averageRating))
               ? Math.round(Number(d.averageRating) * 10) / 10
@@ -4915,17 +4937,7 @@ app.post("/api/live-activities/end", async (req, res) => {
         if (row.prestataireActive === false) continue;
         // Loueur désactivé côté admin → hors catalogue (même si org encore active)
         if (row.driverId && driverActiveById.get(row.driverId) === false) continue;
-
-        const billingOk = isBillingProfileComplete({
-          nom: row.prestataireNom,
-          phone: row.prestatairePhone,
-          numeroTahiti: row.prestataireNumeroTahiti,
-          address: row.prestataireAddress,
-          tvaRegime: row.prestataireTvaRegime,
-          tvaRate: row.prestataireTvaRate,
-          tvaMode: row.prestataireTvaMode,
-        });
-        if (!billingOk.ok) continue;
+        if (row.driverId && driverCatalogById.get(row.driverId) === false) continue;
 
         const matchesService =
           serviceType === 'delivery' || serviceType === 'longterm'
@@ -5091,16 +5103,6 @@ app.post("/api/live-activities/end", async (req, res) => {
       const { prestataireHasOsbCredentials } = await import("./osb-crypto");
       for (const row of rows) {
         if (row.prestataireActive === false) continue;
-        const billingOk = isBillingProfileComplete({
-          nom: row.prestataireNom,
-          phone: row.prestatairePhone,
-          numeroTahiti: row.prestataireNumeroTahiti,
-          address: row.prestataireAddress,
-          tvaRegime: row.prestataireTvaRegime,
-          tvaRate: row.prestataireTvaRate,
-          tvaMode: row.prestataireTvaMode,
-        });
-        if (!billingOk.ok) continue;
         let ownerName = (row.prestataireNom || "").trim() || "Loueur";
         let ownerAverageRating: number | null = null;
         let ownerRatingsCount = 0;
@@ -5110,10 +5112,22 @@ app.post("/api/live-activities/end", async (req, res) => {
               firstName: drivers.firstName,
               lastName: drivers.lastName,
               averageRating: drivers.averageRating,
+              subscriptionStatus: drivers.subscriptionStatus,
+              subscriptionEndsAt: drivers.subscriptionEndsAt,
+              isActive: drivers.isActive,
             })
             .from(drivers)
             .where(eq(drivers.id, row.driverId));
           if (driver) {
+            if (driver.isActive === false) continue;
+            if (
+              !resolveSubscriptionStatus({
+                subscriptionStatus: driver.subscriptionStatus,
+                subscriptionEndsAt: driver.subscriptionEndsAt,
+              }).catalogVisible
+            ) {
+              continue;
+            }
             if (!row.prestataireNom) {
               ownerName = `${driver.firstName} ${driver.lastName}`.trim() || ownerName;
             }
@@ -5425,12 +5439,14 @@ app.post("/api/live-activities/end", async (req, res) => {
       if (!driver) return res.status(403).json({ error: "Chauffeur introuvable" });
 
       const subGate = resolveSubscriptionStatus(driver);
-      if (subGate.status !== "active") {
+      if (!subGate.access) {
         return res.status(403).json({
           error:
             subGate.status === "pending"
               ? "Abonnement en attente de validation RAVE — vous ne pouvez pas encore ajouter de véhicule."
-              : "Abonnement RAVE inactif — activez votre abonnement pour ajouter un véhicule.",
+              : subGate.status === "expired"
+                ? "Abonnement RAVE expiré — renouvelez pour ajouter un véhicule."
+                : "Abonnement RAVE inactif — activez votre abonnement pour ajouter un véhicule.",
           code: "SUBSCRIPTION_REQUIRED",
           subscriptionStatus: subGate.status,
         });
@@ -7114,14 +7130,27 @@ const sessionId = headerSessionId || cookieSessionId;
       if (!driver) return res.status(404).json({ success: false, error: "Loueur introuvable" });
 
       const resolved = resolveSubscriptionStatus(driver);
-      if (resolved.status !== (driver.subscriptionStatus || "none")) {
+      if (
+        driver.subscriptionStatus !== "pending" &&
+        resolved.status === "expired" &&
+        resolved.status !== (driver.subscriptionStatus || "none")
+      ) {
         await db
           .update(drivers)
-          .set({ subscriptionStatus: resolved.status } as any)
+          .set({ subscriptionStatus: "expired" } as any)
           .where(eq(drivers.id, driver.id));
       }
 
       const plans = await getLoueurSubscriptionPlans();
+      let paymentEmail: string | null = null;
+      if (driver.prestataireId) {
+        const [p] = await db
+          .select({ email: prestataires.email })
+          .from(prestataires)
+          .where(eq(prestataires.id, driver.prestataireId))
+          .limit(1);
+        paymentEmail = p?.email || null;
+      }
 
       return res.json({
         success: true,
@@ -7132,7 +7161,12 @@ const sessionId = headerSessionId || cookieSessionId;
           endsAt: resolved.endsAt,
           amount: driver.subscriptionAmount ?? null,
           daysRemaining: resolved.daysRemaining,
+          graceDaysRemaining: resolved.graceDaysRemaining,
+          access: resolved.access,
+          catalogVisible: resolved.catalogVisible,
+          pending: resolved.pending,
           plans,
+          paymentUrl: buildLoueurStripeCheckoutUrl(driver.id, paymentEmail),
         },
       });
     } catch (error) {
@@ -7159,31 +7193,55 @@ const sessionId = headerSessionId || cookieSessionId;
       const driver = await dbStorage.getDriver(session.driverId);
       if (!driver) return res.status(404).json({ success: false, error: "Loueur introuvable" });
 
-      // Ne pas activer sans paiement : statut pending jusqu'à validation RAVE / règlement
+      // Demande pending sans couper l'essai en cours (on conserve endsAt)
       const now = new Date();
+      const keepEndsAt = driver.subscriptionEndsAt || null;
       await db
         .update(drivers)
         .set({
           subscriptionPlan: plan.id,
           subscriptionStatus: "pending",
-          subscriptionStartsAt: now,
-          subscriptionEndsAt: null,
+          subscriptionStartsAt: driver.subscriptionStartsAt || now,
+          subscriptionEndsAt: keepEndsAt,
           subscriptionAmount: plan.amountXpf,
         } as any)
         .where(eq(drivers.id, driver.id));
+
+      const resolved = resolveSubscriptionStatus({
+        subscriptionStatus: "pending",
+        subscriptionEndsAt: keepEndsAt,
+      });
+
+      let paymentEmail: string | null = null;
+      if (driver.prestataireId) {
+        const [p] = await db
+          .select({ email: prestataires.email })
+          .from(prestataires)
+          .where(eq(prestataires.id, driver.prestataireId))
+          .limit(1);
+        paymentEmail = p?.email || null;
+      }
+      const paymentUrl = buildLoueurStripeCheckoutUrl(driver.id, paymentEmail);
 
       return res.json({
         success: true,
         subscription: {
           plan: plan.id,
-          status: "pending",
-          startsAt: now.toISOString(),
-          endsAt: null,
+          status: resolved.status,
+          startsAt: (driver.subscriptionStartsAt || now).toString(),
+          endsAt: resolved.endsAt,
           amount: plan.amountXpf,
-          daysRemaining: null,
+          daysRemaining: resolved.daysRemaining,
+          graceDaysRemaining: resolved.graceDaysRemaining,
+          access: resolved.access,
+          catalogVisible: resolved.catalogVisible,
+          pending: true,
           label: plan.label,
           plans,
-          message: `Demande d'abonnement ${plan.label} enregistrée (${plan.amountXpf.toLocaleString("fr-FR")} XPF). Votre accès sera activé après validation / règlement auprès de RAVE.`,
+          paymentUrl,
+          message: resolved.access
+            ? `Paiement ${plan.label} (${plan.amountXpf.toLocaleString("fr-FR")} XPF). Votre essai reste actif ; l’abonnement s’active dès que Stripe confirme le paiement.`
+            : `Paiement ${plan.label} (${plan.amountXpf.toLocaleString("fr-FR")} XPF). L’accès s’active automatiquement dès confirmation Stripe.`,
         },
       });
     } catch (error) {

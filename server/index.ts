@@ -4,6 +4,7 @@ import cors from "cors";
 import cookieParser from "cookie-parser";
 import path from "path";
 import { registerRoutes } from "./routes";
+import { registerStripeLoueurWebhook } from "./stripe-loueur-webhook";
 import { setupVite, serveStatic, log } from "./vite";
 import { apiLimiter, validateHeaders, validateUrlParams } from "./security";
 import { logger } from "./logger";
@@ -33,10 +34,17 @@ app.use(cors({
   origin: true,
   credentials: true,
   methods: ["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
-  allowedHeaders: ["Content-Type", "Cookie", "Authorization", "X-Client-Session-Id", "X-Driver-Session-Id", "X-Driver-Session", "X-Admin-Secret"],
+  allowedHeaders: ["Content-Type", "Cookie", "Authorization", "X-Client-Session-Id", "X-Driver-Session-Id", "X-Driver-Session", "X-Admin-Secret", "X-App-Supports-Menu-Burger", "X-App-Version"],
 }));
 
-app.use(express.json({ limit: '50mb' }));
+app.use(express.json({
+  limit: '50mb',
+  verify: (req, _res, buf) => {
+    if (req.originalUrl?.includes("/webhooks/stripe")) {
+      (req as any).rawBody = buf;
+    }
+  },
+}));
 app.use(express.urlencoded({ extended: false, limit: '50mb' }));
 app.use(cookieParser());
 
@@ -120,6 +128,8 @@ app.use((req, res, next) => {
     // Credentials PayZen / OSB multi-tenant (prestataires)
     await ensureOsbCredentialsColumns();
     
+    registerStripeLoueurWebhook(app);
+
     const server = await registerRoutes(app);
 
     // ═══════════════════════════════════════════════════════════════════════════

@@ -18,6 +18,11 @@ interface Chauffeur {
   vehiclePlate: string | null;
   isActive: boolean;
   createdAt: string;
+  subscription?: {
+    status: string;
+    pending: boolean;
+    plan?: string | null;
+  };
 }
 
 function getDriverTypeDisplay(_chauffeur: Chauffeur) {
@@ -278,6 +283,21 @@ export function AdminChauffeurs() {
                     <IconComponent className="h-3 w-3" />
                     {typeDisplay.label}
                   </span>
+                  {chauffeur.subscription?.status ? (
+                    <span className="inline-flex items-center rounded-full bg-amber-50 px-2.5 py-1 text-xs font-medium text-amber-800 border border-amber-200">
+                      {chauffeur.subscription.pending
+                        ? 'Abo. en attente'
+                        : chauffeur.subscription.status === 'trial'
+                          ? 'Essai'
+                          : chauffeur.subscription.status === 'active'
+                            ? 'Abo. actif'
+                            : chauffeur.subscription.status === 'grace'
+                              ? 'Grâce'
+                              : chauffeur.subscription.status === 'expired'
+                                ? 'Abo. expiré'
+                                : chauffeur.subscription.status}
+                    </span>
+                  ) : null}
                   {chauffeur.vehicleModel && (
                     <span className="text-xs text-slate-500 bg-slate-100 px-2 py-1 rounded-full">
                       {chauffeur.vehicleModel} • {chauffeur.vehiclePlate}
@@ -379,6 +399,13 @@ export function AdminChauffeurs() {
                         <Power className={`h-3 w-3 ${chauffeur.isActive ? 'text-green-600' : 'text-slate-500'}`} />
                         {chauffeur.isActive ? 'Actif' : 'Inactif'}
                       </button>
+                      {chauffeur.subscription?.pending ? (
+                        <span className="ml-2 text-xs font-medium text-amber-700">Abo. attente</span>
+                      ) : chauffeur.subscription?.status === 'expired' ? (
+                        <span className="ml-2 text-xs font-medium text-red-600">Abo. expiré</span>
+                      ) : chauffeur.subscription?.status === 'trial' ? (
+                        <span className="ml-2 text-xs font-medium text-amber-700">Essai</span>
+                      ) : null}
                     </td>
                     <td className="px-6 py-4 text-sm text-slate-500">
                       {new Date(chauffeur.createdAt).toLocaleDateString('fr-FR')}

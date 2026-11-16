@@ -14,6 +14,12 @@ import { notifyClient, notifyDriver } from "./onesignal";
 import { clients, drivers, orders, invoices, tarifs, supplements, carouselImages, homeCategories, messages, prestataires, collecteFrais, vehicleModels, loueurVehicles, driverSessions } from "@shared/schema";
 import { eq, desc, asc, count, sql, and, gte, inArray, isNotNull, or } from "drizzle-orm";
 import { syncTahitiVehicleCatalog } from "./sync-vehicle-catalog";
+import {
+  getLoueurSubscriptionPlans,
+  resolveSubscriptionStatus,
+  trialSubscriptionValues,
+  TRIAL_DAYS,
+} from "./ensure-loueur-subscription";
 
 // ============================================================================
 // ROUTES D'AUTHENTIFICATION ADMIN
@@ -836,6 +842,7 @@ export function registerAdminRoutes(app: Express) {
           isActive: true,
           cguAccepted: false,
           privacyPolicyRead: false,
+          ...trialSubscriptionValues(),
         })
         .returning();
 
@@ -878,6 +885,10 @@ export function registerAdminRoutes(app: Express) {
           isActive: drivers.isActive,
           createdAt: drivers.createdAt,
           code: drivers.code,
+          subscriptionStatus: drivers.subscriptionStatus,
+          subscriptionPlan: drivers.subscriptionPlan,
+          subscriptionEndsAt: drivers.subscriptionEndsAt,
+          subscriptionAmount: drivers.subscriptionAmount,
         })
         .from(drivers)
         .leftJoin(prestataires, eq(drivers.prestataireId, prestataires.id))
@@ -887,7 +898,25 @@ export function registerAdminRoutes(app: Express) {
       const paginatedDrivers = allDriversWithPrestataire.slice(offset, offset + limit);
 
       return res.json({
-        chauffeurs: paginatedDrivers,
+        chauffeurs: paginatedDrivers.map((c) => {
+          const sub = resolveSubscriptionStatus({
+            subscriptionStatus: c.subscriptionStatus,
+            subscriptionEndsAt: c.subscriptionEndsAt,
+          });
+          return {
+            ...c,
+            subscription: {
+              status: sub.status,
+              pending: sub.pending,
+              endsAt: sub.endsAt,
+              daysRemaining: sub.daysRemaining,
+              access: sub.access,
+              catalogVisible: sub.catalogVisible,
+              plan: c.subscriptionPlan,
+              amount: c.subscriptionAmount,
+            },
+          };
+        }),
         total,
         page,
         totalPages: Math.ceil(total / limit),
@@ -958,15 +987,104 @@ export function registerAdminRoutes(app: Express) {
         .where(eq(loueurVehicles.driverId, driver!.id))
         .orderBy(desc(loueurVehicles.createdAt));
 
+      const sub = resolveSubscriptionStatus(driver as any);
       return res.json({
         chauffeur: driver,
         prestataire,
         vehicles,
         commandes: driverOrders,
+        subscription: {
+          status: sub.status,
+          pending: sub.pending,
+          plan: (driver as any).subscriptionPlan || null,
+          amount: (driver as any).subscriptionAmount ?? null,
+          startsAt: (driver as any).subscriptionStartsAt || null,
+          endsAt: sub.endsAt,
+          daysRemaining: sub.daysRemaining,
+          graceDaysRemaining: sub.graceDaysRemaining,
+          access: sub.access,
+          catalogVisible: sub.catalogVisible,
+        },
       });
     } catch (error) {
       console.error("Get loueur error:", error);
       return res.status(500).json({ error: "Erreur serveur", code: "SERVER_ERROR" });
+    }
+  });
+
+  // Valider / refuser / accorder un essai d'abonnement loueur
+  app.post("/api/admin/chauffeurs/:id/subscription", requireAdminAuth, async (req: AuthenticatedRequest, res) => {
+    try {
+      const driver = await dbStorage.getDriver(req.params.id);
+      if (!driver) {
+        return res.status(404).json({ error: "Loueur introuvable" });
+      }
+      const action = String(req.body?.action || "").trim();
+      const plans = await getLoueurSubscriptionPlans();
+      const now = new Date();
+
+      if (action === "trial") {
+        const trial = trialSubscriptionValues(now);
+        await db.update(drivers).set(trial as any).where(eq(drivers.id, driver.id));
+        return res.json({
+          success: true,
+          subscription: resolveSubscriptionStatus(trial),
+          message: `Essai de ${TRIAL_DAYS} jours activé`,
+        });
+      }
+
+      if (action === "reject") {
+        const current = resolveSubscriptionStatus(driver as any);
+        const keepAccess = current.access && !!current.endsAt;
+        const restoredStatus = keepAccess
+          ? ((driver as any).subscriptionPlan === "trial" ? "trial" : "active")
+          : "expired";
+        await db
+          .update(drivers)
+          .set({
+            subscriptionStatus: restoredStatus,
+            subscriptionPlan: keepAccess ? ((driver as any).subscriptionPlan === "monthly" || (driver as any).subscriptionPlan === "semiannual" ? "trial" : (driver as any).subscriptionPlan) : (driver as any).subscriptionPlan,
+          } as any)
+          .where(eq(drivers.id, driver.id));
+        const updated = await dbStorage.getDriver(driver.id);
+        return res.json({
+          success: true,
+          subscription: resolveSubscriptionStatus(updated as any),
+          message: "Demande d’abonnement refusée",
+        });
+      }
+
+      if (action === "activate") {
+        const planKey =
+          req.body?.plan === "semiannual" || (driver as any).subscriptionPlan === "semiannual"
+            ? "semiannual"
+            : "monthly";
+        const plan = plans[planKey];
+        const ends = new Date(now.getTime() + plan.days * 24 * 60 * 60 * 1000);
+        await db
+          .update(drivers)
+          .set({
+            subscriptionPlan: plan.id,
+            subscriptionStatus: "active",
+            subscriptionStartsAt: now,
+            subscriptionEndsAt: ends,
+            subscriptionAmount: plan.amountXpf,
+          } as any)
+          .where(eq(drivers.id, driver.id));
+        return res.json({
+          success: true,
+          subscription: resolveSubscriptionStatus({
+            subscriptionStatus: "active",
+            subscriptionEndsAt: ends,
+          }),
+          message: `Abonnement ${plan.label} activé jusqu’au ${ends.toLocaleDateString("fr-FR")}`,
+        });
+      }
+
+      return res.status(400).json({ error: "Action invalide (activate | reject | trial)" });
+    } catch (error) {
+      console.error("Admin subscription action:", error);
+      return res.status(500).json({ error: "Erreur serveur" });
     }
   });
 

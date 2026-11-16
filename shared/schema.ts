@@ -65,11 +65,12 @@ export const drivers = pgTable("drivers", {
   /** Lieu de RDV proposé par défaut à l'acceptation d'une location */
   defaultMeetingPoint: text("default_meeting_point"),
   /** Abonnement plateforme RAVE Loueur */
-  subscriptionPlan: text("subscription_plan"), // monthly | semiannual
-  subscriptionStatus: text("subscription_status").default("none"), // none | pending | active | expired
+  subscriptionPlan: text("subscription_plan"), // trial | monthly | semiannual
+  subscriptionStatus: text("subscription_status").default("none"), // none | trial | pending | active | grace | expired
   subscriptionStartsAt: timestamp("subscription_starts_at"),
   subscriptionEndsAt: timestamp("subscription_ends_at"),
   subscriptionAmount: real("subscription_amount"),
+  subscriptionStripeSessionId: text("subscription_stripe_session_id"),
   // Champs légaux (CGU et politique de confidentialité)
   cguAccepted: boolean("cgu_accepted").default(false),
   cguAcceptedAt: timestamp("cgu_accepted_at"),
@@ -185,6 +186,7 @@ export const driverSchema = z.object({
   subscriptionStartsAt: z.string().nullable().optional(),
   subscriptionEndsAt: z.string().nullable().optional(),
   subscriptionAmount: z.number().nullable().optional(),
+  subscriptionStripeSessionId: z.string().nullable().optional(),
   cguAccepted: z.boolean().optional(),
   cguAcceptedAt: z.string().nullable().optional(),
   cguVersion: z.string().nullable().optional(),
