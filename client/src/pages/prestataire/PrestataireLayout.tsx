@@ -11,7 +11,6 @@ import {
   LogOut,
   Menu,
   X,
-  Building2,
   User,
 } from 'lucide-react';
 import { LoueurNoticeProvider } from '@/components/loueur/LoueurNotice';
@@ -25,6 +24,19 @@ interface PrestataireInfo {
 
 interface Props {
   children: React.ReactNode;
+}
+
+const navItems = [
+  { href: '/prestataire', icon: LayoutDashboard, label: 'Tableau de bord', exact: true },
+  { href: '/prestataire/vehicles', icon: CarFront, label: 'Mes véhicules', exact: false },
+  { href: '/prestataire/courses', icon: ClipboardList, label: 'Réservations', exact: false },
+  { href: '/prestataire/profil', icon: User, label: 'Profil & abonnement', exact: false },
+];
+
+function initials(name?: string | null): string {
+  const parts = String(name || '').trim().split(/\s+/).filter(Boolean);
+  if (parts.length === 0) return 'R';
+  return (parts[0][0] + (parts[1]?.[0] || '')).toUpperCase();
 }
 
 export function PrestataireLayout({ children }: Props) {
@@ -43,6 +55,10 @@ export function PrestataireLayout({ children }: Props) {
     window.addEventListener('prestataire-updated', onUpdated as EventListener);
     return () => window.removeEventListener('prestataire-updated', onUpdated as EventListener);
   }, []);
+
+  useEffect(() => {
+    setIsMobileMenuOpen(false);
+  }, [location]);
 
   async function fetchPrestataireInfo() {
     try {
@@ -67,13 +83,6 @@ export function PrestataireLayout({ children }: Props) {
     setLocation('/admin/login');
   }
 
-  const navItems = [
-    { href: '/prestataire', icon: LayoutDashboard, label: 'Dashboard', exact: true },
-    { href: '/prestataire/profil', icon: User, label: 'Profil', exact: false },
-    { href: '/prestataire/vehicles', icon: CarFront, label: 'Mes Véhicules', exact: false },
-    { href: '/prestataire/courses', icon: ClipboardList, label: 'Réservations', exact: false },
-  ];
-
   const isActive = (href: string, exact: boolean) => {
     if (exact) return location === href;
     return location.startsWith(href);
@@ -88,113 +97,96 @@ export function PrestataireLayout({ children }: Props) {
           ? 'Société'
           : 'Indépendant';
 
-  return (
-    <LoueurNoticeProvider>
-    <div className="flex min-h-screen bg-gray-100">
-      <aside className="hidden w-64 flex-shrink-0 bg-white shadow-lg lg:block">
-        <div className="flex h-full flex-col">
-          <div className="flex h-16 items-center justify-center border-b px-4">
-            <div className="flex items-center gap-2">
-              <div className="flex h-10 w-10 items-center justify-center rounded-lg bg-gradient-to-br from-amber-400 to-yellow-500">
-                <Building2 className="h-5 w-5 text-slate-900" />
-              </div>
-              <div>
-                <span className="text-lg font-bold text-gray-900">RAVE</span>
-                <span className="ml-1 text-xs text-amber-600">Loueur</span>
-              </div>
-            </div>
-          </div>
-
-          <div className="border-b p-4">
-            <div className="text-sm font-medium text-gray-900 truncate">
-              {prestataire?.nom || 'Chargement...'}
-            </div>
-            <div className="text-xs text-gray-500">{typeLabel}</div>
-          </div>
-
-          <nav className="flex-1 p-4 space-y-1">
-            {navItems.map((item) => (
-              <Link key={item.href} href={item.href}>
-                <div
-                  className={`flex items-center gap-3 rounded-lg px-3 py-2 transition-colors cursor-pointer ${
-                    isActive(item.href, item.exact)
-                      ? 'bg-amber-100 text-amber-800'
-                      : 'text-gray-600 hover:bg-gray-100'
-                  }`}
-                >
-                  <item.icon className="h-5 w-5" />
-                  <span className="font-medium">{item.label}</span>
-                </div>
-              </Link>
-            ))}
-          </nav>
-
-          <div className="border-t p-4">
-            <button
-              onClick={handleLogout}
-              className="flex w-full items-center gap-3 rounded-lg px-3 py-2 text-gray-600 hover:bg-gray-100"
+  const nav = (
+    <nav className="space-y-0.5">
+      {navItems.map((item) => {
+        const active = isActive(item.href, item.exact);
+        return (
+          <Link key={item.href} href={item.href}>
+            <div
+              className={`flex cursor-pointer items-center gap-3 rounded-lg px-3 py-2 text-sm transition-colors ${
+                active
+                  ? 'bg-gray-900 text-white'
+                  : 'text-gray-600 hover:bg-gray-100 hover:text-gray-900'
+              }`}
             >
-              <LogOut className="h-5 w-5" />
-              <span className="font-medium">Déconnexion</span>
-            </button>
-          </div>
+              <item.icon className="h-[18px] w-[18px]" />
+              <span className="font-medium">{item.label}</span>
+            </div>
+          </Link>
+        );
+      })}
+    </nav>
+  );
+
+  const account = (
+    <div className="flex items-center gap-3">
+      <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-amber-100 text-sm font-semibold text-amber-800">
+        {initials(prestataire?.nom)}
+      </div>
+      <div className="min-w-0 flex-1">
+        <div className="truncate text-sm font-medium text-gray-900">
+          {prestataire?.nom || 'Chargement…'}
         </div>
-      </aside>
+        <div className="truncate text-xs text-gray-500">{typeLabel}</div>
+      </div>
+      <button
+        type="button"
+        onClick={handleLogout}
+        title="Déconnexion"
+        className="rounded-lg p-2 text-gray-400 hover:bg-gray-100 hover:text-gray-700"
+      >
+        <LogOut className="h-4 w-4" />
+      </button>
+    </div>
+  );
 
-      <div className="flex flex-1 flex-col">
-        <header className="flex h-16 items-center justify-between bg-white px-4 shadow-sm lg:hidden">
-          <div className="flex items-center gap-2">
-            <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-gradient-to-br from-amber-400 to-yellow-500">
-              <Building2 className="h-4 w-4 text-slate-900" />
-            </div>
-            <span className="font-bold text-gray-900">RAVE Loueur</span>
-          </div>
-          <button
-            onClick={() => setIsMobileMenuOpen(!isMobileMenuOpen)}
-            className="rounded-lg p-2 text-gray-600 hover:bg-gray-100"
-          >
-            {isMobileMenuOpen ? <X className="h-6 w-6" /> : <Menu className="h-6 w-6" />}
-          </button>
-        </header>
-
-        {isMobileMenuOpen && (
-          <div className="absolute inset-x-0 top-16 z-50 bg-white shadow-lg lg:hidden">
-            <div className="p-4 border-b">
-              <div className="text-sm font-medium text-gray-900">{prestataire?.nom}</div>
-              <div className="text-xs text-gray-500">{typeLabel}</div>
-            </div>
-            <nav className="p-4 space-y-1">
-              {navItems.map((item) => (
-                <Link key={item.href} href={item.href}>
-                  <div
-                    onClick={() => setIsMobileMenuOpen(false)}
-                    className={`flex items-center gap-3 rounded-lg px-3 py-2 cursor-pointer ${
-                      isActive(item.href, item.exact)
-                        ? 'bg-amber-100 text-amber-800'
-                        : 'text-gray-600'
-                    }`}
-                  >
-                    <item.icon className="h-5 w-5" />
-                    <span className="font-medium">{item.label}</span>
-                  </div>
-                </Link>
-              ))}
-            </nav>
-            <div className="border-t p-4">
-              <button
-                onClick={handleLogout}
-                className="flex w-full items-center gap-3 rounded-lg px-3 py-2 text-gray-600"
-              >
-                <LogOut className="h-5 w-5" />
-                <span className="font-medium">Déconnexion</span>
-              </button>
-            </div>
-          </div>
-        )}
-
-        <main className="flex-1 overflow-auto p-4 lg:p-6">{children}</main>
+  const brand = (
+    <div className="flex items-center gap-2.5">
+      <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-amber-400 text-sm font-black text-gray-900">
+        R
+      </div>
+      <div className="leading-tight">
+        <div className="text-[15px] font-bold tracking-tight text-gray-900">RAVE</div>
+        <div className="text-[11px] font-medium uppercase tracking-wider text-gray-400">Espace loueur</div>
       </div>
     </div>
+  );
+
+  return (
+    <LoueurNoticeProvider>
+      <div className="flex min-h-screen bg-[#f6f7f9]">
+        <aside className="sticky top-0 hidden h-screen w-64 shrink-0 flex-col border-r border-gray-200 bg-white lg:flex">
+          <div className="flex h-16 items-center px-5">{brand}</div>
+          <div className="flex-1 overflow-y-auto px-3 py-4">{nav}</div>
+          <div className="border-t border-gray-100 p-3">{account}</div>
+        </aside>
+
+        <div className="flex min-w-0 flex-1 flex-col">
+          <header className="sticky top-0 z-40 flex h-14 items-center justify-between border-b border-gray-200 bg-white px-4 lg:hidden">
+            {brand}
+            <button
+              type="button"
+              onClick={() => setIsMobileMenuOpen((v) => !v)}
+              className="rounded-lg p-2 text-gray-600 hover:bg-gray-100"
+              aria-label="Menu"
+            >
+              {isMobileMenuOpen ? <X className="h-5 w-5" /> : <Menu className="h-5 w-5" />}
+            </button>
+          </header>
+
+          {isMobileMenuOpen && (
+            <div className="fixed inset-x-0 top-14 z-40 border-b border-gray-200 bg-white p-3 shadow-lg lg:hidden">
+              {nav}
+              <div className="mt-3 border-t border-gray-100 pt-3">{account}</div>
+            </div>
+          )}
+
+          <main className="flex-1">
+            <div className="mx-auto w-full max-w-6xl px-4 py-6 sm:px-6 lg:px-8 lg:py-8">{children}</div>
+          </main>
+        </div>
+      </div>
     </LoueurNoticeProvider>
   );
 }

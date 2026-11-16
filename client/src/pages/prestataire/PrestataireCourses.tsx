@@ -103,7 +103,7 @@ export function PrestataireCourses() {
           <div className="text-sm text-gray-500">Terminées</div>
         </div>
         <div className="rounded-2xl bg-white p-5 shadow-sm">
-          <div className="text-3xl font-bold text-purple-600">
+          <div className="text-3xl font-bold text-gray-900">
             {totalRevenu.toLocaleString()} XPF
           </div>
           <div className="text-sm text-gray-500">Revenus locations</div>
@@ -118,7 +118,7 @@ export function PrestataireCourses() {
 
         {isLoading ? (
           <div className="flex h-64 items-center justify-center">
-            <div className="h-8 w-8 animate-spin rounded-full border-4 border-purple-600 border-t-transparent" />
+            <div className="h-8 w-8 animate-spin rounded-full border-2 border-gray-900 border-t-transparent" />
           </div>
         ) : courses.length === 0 ? (
           <div className="flex h-64 flex-col items-center justify-center text-gray-500">
@@ -224,7 +224,7 @@ export function PrestataireCourses() {
 
                   {/* Action */}
                   <div className="flex-shrink-0">
-                    <div className="rounded-lg p-2 text-gray-400 hover:bg-gray-100 hover:text-purple-600">
+                    <div className="rounded-lg p-2 text-gray-400 hover:bg-gray-100 hover:text-gray-900">
                       <Eye className="h-5 w-5" />
                     </div>
                   </div>

@@ -161,7 +161,7 @@ export function PrestataireCourseDetails() {
   if (isLoading) {
     return (
       <div className="flex h-96 items-center justify-center">
-        <div className="h-10 w-10 animate-spin rounded-full border-4 border-purple-600 border-t-transparent" />
+        <div className="h-10 w-10 animate-spin rounded-full border-2 border-gray-900 border-t-transparent" />
       </div>
     );
   }
@@ -171,7 +171,7 @@ export function PrestataireCourseDetails() {
       <div className="text-center py-12">
         <p className="text-gray-500">Réservation non trouvée</p>
         <Link href="/prestataire/courses">
-          <button className="mt-4 text-purple-600 hover:underline">Retour</button>
+          <button className="mt-4 text-gray-900 hover:underline">Retour</button>
         </Link>
       </div>
     );
@@ -233,7 +233,7 @@ export function PrestataireCourseDetails() {
           </Link>
           <div>
             <nav className="flex items-center gap-2 text-sm text-gray-500">
-              <Link href="/prestataire/courses" className="hover:text-purple-600">Courses</Link>
+              <Link href="/prestataire/courses" className="hover:text-gray-900">Courses</Link>
               <span>/</span>
               <span className="font-medium text-gray-900 truncate max-w-[180px]">{course.id.slice(0, 8).toUpperCase()}…</span>
             </nav>
@@ -249,7 +249,7 @@ export function PrestataireCourseDetails() {
         <button
           onClick={downloadInvoice}
           disabled={isDownloadingPdf}
-          className="flex items-center gap-2 rounded-xl bg-purple-600 px-4 py-2 text-white hover:bg-purple-700 shrink-0 disabled:opacity-70 disabled:cursor-not-allowed"
+          className="flex items-center gap-2 rounded-lg bg-gray-900 px-4 py-2 text-sm font-medium text-white hover:bg-gray-800 shrink-0 disabled:opacity-70 disabled:cursor-not-allowed"
         >
           {isDownloadingPdf ? (
             <>
@@ -268,12 +268,12 @@ export function PrestataireCourseDetails() {
       {/* Bandeau récap */}
       <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
         <div className="rounded-xl border border-gray-200/80 bg-white p-4 shadow-sm flex items-start gap-3">
-          <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-purple-100">
-            <DollarSign className="h-4 w-4 text-purple-600" />
+          <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-gray-100">
+            <DollarSign className="h-4 w-4 text-gray-600" />
           </div>
           <div className="min-w-0">
             <p className="text-xs font-medium uppercase tracking-wider text-gray-500">Total</p>
-            <p className="mt-1 text-lg font-bold text-purple-600">{course.totalPrice?.toLocaleString()} XPF</p>
+            <p className="mt-1 text-lg font-bold text-gray-900">{course.totalPrice?.toLocaleString()} XPF</p>
           </div>
         </div>
         <div className="rounded-xl border border-gray-200/80 bg-white p-4 shadow-sm flex items-start gap-3">
@@ -403,8 +403,8 @@ export function PrestataireCourseDetails() {
           ) : (
             <div className="rounded-xl border border-gray-200/80 bg-white p-6 shadow-sm">
               <h2 className="mb-5 flex items-center gap-2 text-base font-semibold text-gray-900">
-                <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-purple-100">
-                  <Navigation className="h-4 w-4 text-purple-600" />
+                <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-gray-100">
+                  <Navigation className="h-4 w-4 text-gray-600" />
                 </div>
                 Parcours
               </h2>
@@ -490,7 +490,7 @@ export function PrestataireCourseDetails() {
                     <p className="text-sm text-gray-600">{driver.vehicleModel} — {driver.vehiclePlate}</p>
                   )}
                   {prestataire && (
-                    <p className="inline-flex items-center gap-1 rounded-full bg-purple-100 px-2 py-0.5 text-xs font-medium text-purple-700">
+                    <p className="inline-flex items-center gap-1 rounded-full bg-gray-100 px-2 py-0.5 text-xs font-medium text-gray-800">
                       <Building2 className="h-3 w-3" />
                       {prestataire.nom}
                     </p>
@@ -552,15 +552,15 @@ export function PrestataireCourseDetails() {
           <div className="sticky top-20 space-y-6">
             <div className="rounded-xl border border-gray-200/80 bg-white p-6 shadow-sm">
               <h2 className="mb-4 flex items-center gap-2 text-base font-semibold text-gray-900">
-                <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-purple-100">
-                  <FileText className="h-4 w-4 text-purple-600" />
+                <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-gray-100">
+                  <FileText className="h-4 w-4 text-gray-600" />
                 </div>
                 Tarification
               </h2>
             
             <div className="space-y-3">
-              <div className="bg-purple-50 p-3 rounded-lg mb-3">
-                <div className="text-sm font-medium text-purple-700">
+              <div className="bg-gray-50 p-3 rounded-lg mb-3">
+                <div className="text-sm font-medium text-gray-800">
                   {course.rideOption?.label || (course.rideOption as any)?.title || (isRental ? 'Location' : 'Course standard')}
                 </div>
               </div>

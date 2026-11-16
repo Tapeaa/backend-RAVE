@@ -617,7 +617,7 @@ export function PrestataireProfil() {
   if (isLoading) {
     return (
       <div className="flex h-96 items-center justify-center">
-        <div className="h-10 w-10 animate-spin rounded-full border-4 border-purple-600 border-t-transparent" />
+        <div className="h-8 w-8 animate-spin rounded-full border-2 border-gray-900 border-t-transparent" />
       </div>
     );
   }
@@ -630,232 +630,249 @@ export function PrestataireProfil() {
     );
   }
 
+  const subDays = subscription?.daysRemaining ?? null;
+  const subDaysLabel =
+    subDays != null ? `${subDays} jour${subDays > 1 ? 's' : ''} restant${subDays > 1 ? 's' : ''}` : '';
+  const subEndLabel = subscription?.endsAt
+    ? `jusqu’au ${new Date(subscription.endsAt).toLocaleDateString('fr-FR')}`
+    : '';
+  const subHeadline = subscription?.waitingFirstVehicle
+    ? { title: 'Essai non activé', tone: 'amber' as const }
+    : subscription?.status === 'active'
+      ? { title: 'Abonnement payé et en cours', tone: 'green' as const }
+      : subscription?.status === 'trial'
+        ? { title: 'Période d’essai lancée', tone: 'neutral' as const }
+        : subscription?.status === 'pending'
+          ? { title: 'Paiement en cours', tone: 'amber' as const }
+          : subscription?.status === 'grace'
+            ? { title: 'Délai de grâce', tone: 'amber' as const }
+            : subscription?.status === 'expired'
+              ? { title: 'Abonnement expiré', tone: 'red' as const }
+              : { title: 'Aucun abonnement', tone: 'neutral' as const };
+  const subToneClass = {
+    green: 'bg-emerald-50 text-emerald-800 ring-emerald-200',
+    amber: 'bg-amber-50 text-amber-800 ring-amber-200',
+    red: 'bg-red-50 text-red-700 ring-red-200',
+    neutral: 'bg-gray-50 text-gray-800 ring-gray-200',
+  }[subHeadline.tone];
+
+  const cardClass = 'rounded-xl border border-gray-200 bg-white';
+  const inputClass =
+    'w-full rounded-lg border border-gray-300 px-3 py-2 text-sm text-gray-900 focus:border-gray-900 focus:outline-none focus:ring-1 focus:ring-gray-900';
+  const labelClass = 'mb-1 block text-xs font-medium text-gray-500';
+  const readClass = 'text-sm text-gray-900';
+
   return (
-    <div className="mx-auto max-w-2xl">
-      {/* Header */}
-      <div className="mb-6">
-        <h1 className="text-2xl font-bold text-gray-900">Mon profil</h1>
-        <p className="mt-1 text-sm text-gray-500">
-          Gérez les informations de votre compte prestataire
-        </p>
+    <div className="space-y-6">
+      <div className="flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between">
+        <div>
+          <h1 className="text-2xl font-semibold tracking-tight text-gray-900">Profil & abonnement</h1>
+          <p className="mt-1 text-sm text-gray-500">
+            {typeLabels[prestataire.type] || 'Loueur'} · compte créé le{' '}
+            {new Date(prestataire.createdAt).toLocaleDateString('fr-FR', {
+              day: 'numeric',
+              month: 'long',
+              year: 'numeric',
+            })}
+          </p>
+        </div>
+        <span
+          className={`inline-flex w-fit items-center gap-1.5 rounded-full px-2.5 py-1 text-xs font-medium ${
+            prestataire.isActive ? 'bg-emerald-50 text-emerald-700' : 'bg-gray-100 text-gray-600'
+          }`}
+        >
+          <span className={`h-1.5 w-1.5 rounded-full ${prestataire.isActive ? 'bg-emerald-500' : 'bg-gray-400'}`} />
+          {prestataire.isActive ? 'Compte actif' : 'Compte inactif'}
+        </span>
       </div>
 
       {successMessage && (
-        <div className="mb-6 flex items-center gap-2 rounded-lg bg-emerald-50 px-4 py-3 text-emerald-700">
-          <CheckCircle className="h-5 w-5 shrink-0" />
+        <div className="flex items-center gap-2 rounded-lg border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm text-emerald-800">
+          <CheckCircle className="h-4 w-4 shrink-0" />
           <span>{successMessage}</span>
         </div>
       )}
 
-      {prestataire && prestataire.billingComplete === false && (
-        <div className="mb-6 rounded-lg border border-amber-300 bg-amber-50 px-4 py-3 text-amber-900">
-          <p className="font-medium">Profil facturation incomplet</p>
-          <p className="mt-1 text-sm">
-            Complétez l’adresse de facturation, le N° Tahiti, le téléphone et vos infos TVA pour
-            publier des véhicules et accepter des locations.
-            {Array.isArray(prestataire.billingMissing) && prestataire.billingMissing.length > 0
-              ? ` Manquant : ${prestataire.billingMissing.join(', ')}.`
-              : ''}
-          </p>
+      {prestataire.billingComplete === false && (
+        <div className="flex flex-col gap-3 rounded-xl border border-amber-200 bg-amber-50/70 p-4 sm:flex-row sm:items-center sm:justify-between">
+          <div>
+            <p className="text-sm font-semibold text-amber-900">Profil de facturation incomplet</p>
+            <p className="mt-0.5 text-sm text-amber-900/80">
+              Requis pour publier des véhicules et accepter des locations.
+              {Array.isArray(prestataire.billingMissing) && prestataire.billingMissing.length > 0
+                ? ` Manquant : ${prestataire.billingMissing.join(', ')}.`
+                : ''}
+            </p>
+          </div>
           {!isEditing && (
             <button
               type="button"
               onClick={() => setIsEditing(true)}
-              className="mt-2 text-sm font-medium text-amber-800 underline"
+              className="shrink-0 rounded-lg border border-amber-300 bg-white px-3 py-1.5 text-sm font-medium text-amber-900 hover:bg-amber-50"
             >
-              Compléter maintenant
+              Compléter
             </button>
           )}
         </div>
       )}
 
+      <div className="grid items-start gap-6 lg:grid-cols-5">
+      <div className="space-y-6 lg:order-2 lg:col-span-2">
       {/* Abonnement plateforme */}
-      <div className={`mb-6 rounded-xl border p-5 shadow-sm ${subscription?.status === 'active' ? 'border-emerald-300 bg-emerald-50' : 'border-gray-200 bg-white'}`}>
-        {subscription?.status === 'active' ? (
-          <div className="mb-4 rounded-xl bg-emerald-600 px-4 py-5 text-center text-white">
-            <p className="text-2xl font-black tracking-tight sm:text-3xl">Abonnement payé et en cours</p>
-            {subscription.daysRemaining != null ? (
-              <p className="mt-2 text-sm text-emerald-100">
-                {subscription.daysRemaining} jour{subscription.daysRemaining > 1 ? 's' : ''} restants
-                {subscription.endsAt
-                  ? ` · jusqu’au ${new Date(subscription.endsAt).toLocaleDateString('fr-FR')}`
-                  : ''}
-              </p>
-            ) : null}
+      <section className={cardClass}>
+        <div className="flex items-center justify-between border-b border-gray-100 px-5 py-4">
+          <div className="flex items-center gap-2">
+            <CreditCard className="h-4 w-4 text-gray-500" />
+            <h2 className="text-sm font-semibold text-gray-900">Abonnement Tape’ā</h2>
           </div>
-        ) : subscription?.status === 'trial' && !subscription?.waitingFirstVehicle ? (
-          <div className="mb-4 rounded-xl border border-gray-200 bg-white px-4 py-5 text-center">
-            <p className="text-2xl font-black tracking-tight text-gray-900 sm:text-3xl">Période d’essai lancée</p>
-            {subscription.daysRemaining != null ? (
-              <p className="mt-2 text-sm text-gray-600">
-                {subscription.daysRemaining} jour{subscription.daysRemaining > 1 ? 's' : ''} restant{subscription.daysRemaining > 1 ? 's' : ''}
-                {subscription.endsAt
-                  ? ` · jusqu’au ${new Date(subscription.endsAt).toLocaleDateString('fr-FR')}`
-                  : ''}
-              </p>
-            ) : null}
-          </div>
-        ) : null}
-        <div className="flex items-start gap-3 mb-4">
-          <div className={`flex h-10 w-10 items-center justify-center rounded-lg ${subscription?.status === 'active' ? 'bg-emerald-200' : 'bg-amber-100'}`}>
-            <CreditCard className={`h-5 w-5 ${subscription?.status === 'active' ? 'text-emerald-800' : 'text-amber-700'}`} />
-          </div>
-          <div>
-            <h2 className="font-semibold text-gray-900">Abonnement RAVE</h2>
-            <p className="text-sm text-gray-500">
+        </div>
+        <div className="space-y-4 p-5">
+          <div className={`rounded-lg px-4 py-3 ring-1 ring-inset ${subToneClass}`}>
+            <p className="text-base font-semibold">{subHeadline.title}</p>
+            <p className="mt-0.5 text-sm opacity-80">
               {subscription?.waitingFirstVehicle
-                ? "Veuillez créer votre premier véhicule pour activer votre période d'essai, ou payer l'abonnement Tape'ā"
-                : subscription?.status === 'trial'
-                ? `Période d'essai lancée${subscription.daysRemaining != null ? ` · ${subscription.daysRemaining} jour${subscription.daysRemaining > 1 ? 's' : ''} restant${subscription.daysRemaining > 1 ? 's' : ''}` : ''}`
-                : subscription?.status === 'active'
-                ? 'Paiement Stripe validé — accès complet'
-                : subscription?.status === 'pending'
-                  ? 'Paiement Stripe en cours — activation automatique dès confirmation'
-                : subscription?.status === 'grace'
-                  ? `Délai de grâce (${(subscription as any).graceDaysRemaining ?? 0} j) puis masquage catalogue`
-                  : subscription?.status === 'expired'
-                  ? 'Expiré — vos véhicules sont masqués du catalogue'
-                  : 'Aucun abonnement actif'}
+                ? "Veuillez créer votre premier véhicule pour activer votre période d'essai, ou payer l'abonnement Tape'ā."
+                : subscription?.status === 'active' || subscription?.status === 'trial'
+                  ? [subDaysLabel, subEndLabel].filter(Boolean).join(' · ')
+                  : subscription?.status === 'pending'
+                    ? 'Activation automatique dès confirmation Stripe.'
+                    : subscription?.status === 'grace'
+                      ? `${(subscription as any).graceDaysRemaining ?? 0} jour(s) avant masquage du catalogue.`
+                      : subscription?.status === 'expired'
+                        ? 'Vos véhicules sont masqués du catalogue client.'
+                        : 'Choisissez une formule ci-dessous.'}
             </p>
           </div>
+
+          {subscription?.status !== 'active' && subscription?.plans ? (
+            <div className="space-y-2">
+              {(['monthly', 'semiannual'] as const).map((key) => {
+                const plan = subscription?.plans?.[key];
+                if (!plan) return null;
+                return (
+                  <button
+                    key={key}
+                    type="button"
+                    disabled={!!subscribing}
+                    onClick={() => handleSubscribe(key)}
+                    className="flex w-full items-center justify-between rounded-lg border border-gray-200 px-4 py-3 text-left transition-colors hover:border-gray-900 disabled:opacity-60"
+                  >
+                    <div>
+                      <div className="text-sm font-medium text-gray-900">{plan.label}</div>
+                      <div className="text-xs text-gray-500">{plan.days} jours d’accès</div>
+                    </div>
+                    <div className="text-right">
+                      <div className="text-sm font-semibold text-gray-900">
+                        {plan.amountXpf.toLocaleString('fr-FR')} XPF
+                      </div>
+                      <div className="text-xs font-medium text-[#635BFF]">
+                        {subscribing === key ? 'Ouverture…' : 'Payer avec Stripe'}
+                      </div>
+                    </div>
+                  </button>
+                );
+              })}
+              <p className="text-xs text-gray-500">
+                Paiement sécurisé Stripe. L’accès est activé automatiquement après confirmation.
+              </p>
+            </div>
+          ) : null}
         </div>
-        {subscription?.status !== 'active' && subscription?.plans?.monthly ? (
-          <div className="mb-4 flex flex-wrap gap-2">
-            <button
-              type="button"
-              disabled={!!subscribing}
-              onClick={() => handleSubscribe('monthly')}
-              className="inline-flex items-center rounded-lg bg-[#635BFF] px-4 py-2 text-sm font-semibold text-white hover:opacity-90 disabled:opacity-60"
-            >
-              Payer maintenant avec Stripe
-            </button>
-          </div>
-        ) : null}
-        <div className="grid gap-3 sm:grid-cols-2">
-          {(['monthly', 'semiannual'] as const).map((key) => {
-            const plan = subscription?.plans?.[key];
-            if (!plan) return null;
-            const label = plan.label;
-            const amount = plan.amountXpf;
-            const days = plan.days;
-            return (
-              <button
-                key={key}
-                type="button"
-                disabled={!!subscribing}
-                onClick={() => handleSubscribe(key)}
-                className="rounded-xl border border-gray-200 p-4 text-left hover:border-amber-400 hover:bg-amber-50/50 transition disabled:opacity-60"
-              >
-                <div className="flex justify-between items-baseline">
-                  <span className="font-semibold text-gray-900">{label}</span>
-                  <span className="font-bold text-gray-900">{amount.toLocaleString('fr-FR')} XPF</span>
-                </div>
-                <p className="mt-1 text-xs text-gray-500">{days} jours d’accès</p>
-                {subscribing === key ? (
-                  <p className="mt-2 text-xs text-amber-700">Activation…</p>
-                ) : null}
-              </button>
-            );
-          })}
-        </div>
-      </div>
+      </section>
 
       {/* Configuration de Paiement (OSB) */}
-      <div className="mb-6 rounded-xl border border-gray-200 bg-white p-5 shadow-sm">
-        <div className="flex items-start gap-3 mb-4">
-          <div className="flex h-10 w-10 items-center justify-center rounded-lg bg-emerald-100">
-            <KeyRound className="h-5 w-5 text-emerald-700" />
-          </div>
-          <div className="flex-1">
-            <h2 className="font-semibold text-gray-900">Caisse PayZen / OSB</h2>
-            <p className="text-sm text-gray-500">
-              {prestataire.osbConfigured
-                ? 'Paiement en ligne actif — les clients peuvent payer par carte via PayZen / OSB.'
-                : 'Sans credentials, les clients paient chez le loueur (espèces ou autre moyen convenu).'}
-            </p>
+      <section className={cardClass}>
+        <div className="flex items-center justify-between border-b border-gray-100 px-5 py-4">
+          <div className="flex items-center gap-2">
+            <KeyRound className="h-4 w-4 text-gray-500" />
+            <h2 className="text-sm font-semibold text-gray-900">Paiement en ligne · PayZen / OSB</h2>
           </div>
           {prestataire.osbConfigured ? (
-            <span className="rounded-full bg-emerald-50 px-2.5 py-1 text-xs font-medium text-emerald-700">
+            <span className="rounded-full bg-emerald-50 px-2 py-0.5 text-[11px] font-medium text-emerald-700">
               Configuré
             </span>
           ) : (
-            <span className="rounded-full bg-gray-100 px-2.5 py-1 text-xs font-medium text-gray-600">
+            <span className="rounded-full bg-gray-100 px-2 py-0.5 text-[11px] font-medium text-gray-600">
               Non configuré
             </span>
           )}
         </div>
 
-        <div className="space-y-4">
-          <label className="block text-sm">
-            <span className="font-medium text-gray-700">Shop ID</span>
+        <div className="space-y-4 p-5">
+          <p className="text-sm text-gray-500">
+            {prestataire.osbConfigured
+              ? 'Vos clients peuvent payer par carte au moment de la réservation.'
+              : 'Sans configuration, vos clients paient directement chez vous (espèces ou autre moyen convenu).'}
+          </p>
+          <label className="block">
+            <span className={labelClass}>Shop ID</span>
             <input
               type="text"
-              className="mt-1 w-full rounded-lg border border-gray-200 px-3 py-2"
+              className={inputClass}
               value={osbForm.shopId}
               onChange={(e) => setOsbForm({ ...osbForm, shopId: e.target.value })}
               placeholder="Identifiant boutique PayZen / OSB"
               autoComplete="off"
             />
           </label>
-          <label className="block text-sm">
-            <span className="font-medium text-gray-700">Clé publique</span>
+          <label className="block">
+            <span className={labelClass}>Clé publique</span>
             <input
               type="text"
-              className="mt-1 w-full rounded-lg border border-gray-200 px-3 py-2 font-mono text-sm"
+              className={`${inputClass} font-mono`}
               value={osbForm.publicKey}
               onChange={(e) => setOsbForm({ ...osbForm, publicKey: e.target.value })}
-              placeholder="Clé publique KR (front)"
+              placeholder="Clé publique (front)"
               autoComplete="off"
             />
           </label>
-          <label className="block text-sm">
-            <span className="font-medium text-gray-700">Certificat (Clé API)</span>
+          <label className="block">
+            <span className={labelClass}>Certificat (clé API)</span>
             <input
               type="password"
-              className="mt-1 w-full rounded-lg border border-gray-200 px-3 py-2 font-mono text-sm"
+              className={`${inputClass} font-mono`}
               value={osbForm.certificate}
               onChange={(e) => setOsbForm({ ...osbForm, certificate: e.target.value })}
               placeholder={
                 prestataire.osbConfigured
                   ? '•••••••• (laisser vide pour conserver)'
-                  : 'Certificat API (chiffré côté serveur)'
+                  : 'Certificat API'
               }
               autoComplete="new-password"
             />
-            <p className="mt-1 text-xs text-gray-500">
-              Jamais affiché après enregistrement. Chiffrement enveloppe AES-256-GCM côté serveur
-              (clé data unique + wrap KMS ou clé maître).
-            </p>
+            <span className="mt-1 block text-xs text-gray-400">
+              Chiffré côté serveur, jamais réaffiché après enregistrement.
+            </span>
           </label>
           <div className="flex flex-wrap gap-2">
             <button
               type="button"
               disabled={savingOsb || testingOsb}
               onClick={handleSaveOsb}
-              className="inline-flex items-center gap-2 rounded-lg bg-emerald-600 px-4 py-2 text-sm font-medium text-white hover:bg-emerald-700 disabled:opacity-60"
+              className="inline-flex items-center gap-2 rounded-lg bg-gray-900 px-3.5 py-2 text-sm font-medium text-white hover:bg-gray-800 disabled:opacity-60"
             >
               <Save className="h-4 w-4" />
-              {savingOsb ? 'Enregistrement…' : 'Enregistrer le paiement'}
+              {savingOsb ? 'Enregistrement…' : 'Enregistrer'}
             </button>
             <button
               type="button"
               disabled={savingOsb || testingOsb || (!osbForm.shopId.trim() && !prestataire.osbConfigured)}
               onClick={handleTestOsb}
-              className="inline-flex items-center gap-2 rounded-lg border border-emerald-300 bg-emerald-50 px-4 py-2 text-sm font-medium text-emerald-800 hover:bg-emerald-100 disabled:opacity-60"
+              className="inline-flex items-center gap-2 rounded-lg border border-gray-300 bg-white px-3.5 py-2 text-sm font-medium text-gray-800 hover:bg-gray-50 disabled:opacity-60"
             >
               {testingOsb ? (
                 <Loader2 className="h-4 w-4 animate-spin" />
               ) : (
                 <PlugZap className="h-4 w-4" />
               )}
-              {testingOsb ? 'Test en cours…' : 'Tester la connexion'}
+              {testingOsb ? 'Test…' : 'Tester'}
             </button>
             {prestataire.osbConfigured ? (
               <button
                 type="button"
                 disabled={savingOsb || testingOsb}
                 onClick={handleClearOsb}
-                className="rounded-lg border border-red-200 px-4 py-2 text-sm font-medium text-red-600 hover:bg-red-50 disabled:opacity-60"
+                className="rounded-lg px-3.5 py-2 text-sm font-medium text-red-600 hover:bg-red-50 disabled:opacity-60"
               >
                 Supprimer
               </button>
@@ -869,45 +886,37 @@ export function PrestataireProfil() {
                   : 'bg-red-50 text-red-700'
               }`}
             >
-              {osbTestResult.ok ? '✓ ' : '✗ '}
               {osbTestResult.message}
             </p>
-          ) : (
-            <p className="text-xs text-gray-500">
-              Le test appelle PayZen avec vos identifiants (sans encaisser). Vous pouvez tester avant
-              d’enregistrer si le certificat est saisi dans le champ.
-            </p>
-          )}
+          ) : null}
         </div>
+      </section>
       </div>
 
+      <div className="space-y-6 lg:order-1 lg:col-span-3">
       {/* Carte principale */}
-      <div className="rounded-xl border border-gray-200 bg-white shadow-sm overflow-hidden">
-        {/* Bandeau type */}
-        <div className="bg-gradient-to-r from-purple-600 to-purple-700 px-6 py-4">
-          <div className="flex items-center gap-3">
-            <div className="flex h-14 w-14 items-center justify-center rounded-xl bg-white/20">
-              <Building2 className="h-7 w-7 text-white" />
-            </div>
-            <div>
-              <h2 className="text-lg font-semibold text-white">
-                {typeLabels[prestataire.type] || prestataire.type}
-              </h2>
-              <p className="text-sm text-purple-100">
-                Compte créé le {new Date(prestataire.createdAt).toLocaleDateString('fr-FR', {
-                  day: 'numeric',
-                  month: 'long',
-                  year: 'numeric',
-                })}
-              </p>
-            </div>
+      <section className={cardClass}>
+        <div className="flex items-center justify-between border-b border-gray-100 px-5 py-4">
+          <div className="flex items-center gap-2">
+            <Building2 className="h-4 w-4 text-gray-500" />
+            <h2 className="text-sm font-semibold text-gray-900">Informations du compte</h2>
           </div>
+          {!isEditing ? (
+            <button
+              type="button"
+              onClick={() => setIsEditing(true)}
+              className="inline-flex items-center gap-1.5 rounded-lg border border-gray-300 px-3 py-1.5 text-sm font-medium text-gray-800 hover:bg-gray-50"
+            >
+              <Edit className="h-3.5 w-3.5" />
+              Modifier
+            </button>
+          ) : null}
         </div>
 
         {/* Formulaire / lecture */}
-        <div className="p-6 space-y-6">
+        <div className="grid gap-5 p-5 sm:grid-cols-2">
           <div>
-            <label className="mb-1 block text-sm font-medium text-gray-700">
+            <label className={labelClass}>
               Nom / Raison sociale
             </label>
             {isEditing ? (
@@ -915,11 +924,11 @@ export function PrestataireProfil() {
                 type="text"
                 value={form.nom}
                 onChange={(e) => setForm((f) => ({ ...f, nom: e.target.value }))}
-                className="w-full rounded-lg border border-gray-300 px-3 py-2 focus:border-purple-500 focus:ring-1 focus:ring-purple-500"
+                className={inputClass}
                 placeholder="Nom de l'entreprise ou patenté"
               />
             ) : (
-              <div className="flex items-center gap-2 rounded-lg border border-gray-200 bg-gray-50 px-3 py-2">
+              <div className="flex items-center gap-2 py-1.5 text-sm">
                 <User className="h-4 w-4 text-gray-400" />
                 <span className="font-medium text-gray-900">{prestataire.nom || '—'}</span>
               </div>
@@ -927,7 +936,7 @@ export function PrestataireProfil() {
           </div>
 
           <div>
-            <label className="mb-1 block text-sm font-medium text-gray-700">
+            <label className={labelClass}>
               N° Tahiti / K-BIS
             </label>
             {isEditing ? (
@@ -935,11 +944,11 @@ export function PrestataireProfil() {
                 type="text"
                 value={form.numeroTahiti}
                 onChange={(e) => setForm((f) => ({ ...f, numeroTahiti: e.target.value }))}
-                className="w-full rounded-lg border border-gray-300 px-3 py-2 focus:border-purple-500 focus:ring-1 focus:ring-purple-500"
+                className={inputClass}
                 placeholder="Numéro Tahiti ou K-BIS"
               />
             ) : (
-              <div className="flex items-center gap-2 rounded-lg border border-gray-200 bg-gray-50 px-3 py-2">
+              <div className="flex items-center gap-2 py-1.5 text-sm">
                 <Hash className="h-4 w-4 text-gray-400" />
                 <span className="text-gray-900">{prestataire.numeroTahiti || '—'}</span>
               </div>
@@ -947,7 +956,7 @@ export function PrestataireProfil() {
           </div>
 
           <div>
-            <label className="mb-1 block text-sm font-medium text-gray-700">
+            <label className={labelClass}>
               Email
             </label>
             {isEditing ? (
@@ -955,11 +964,11 @@ export function PrestataireProfil() {
                 type="email"
                 value={form.email}
                 onChange={(e) => setForm((f) => ({ ...f, email: e.target.value }))}
-                className="w-full rounded-lg border border-gray-300 px-3 py-2 focus:border-purple-500 focus:ring-1 focus:ring-purple-500"
+                className={inputClass}
                 placeholder="contact@exemple.pf"
               />
             ) : (
-              <div className="flex items-center gap-2 rounded-lg border border-gray-200 bg-gray-50 px-3 py-2">
+              <div className="flex items-center gap-2 py-1.5 text-sm">
                 <Mail className="h-4 w-4 text-gray-400" />
                 <span className="text-gray-900">{prestataire.email || '—'}</span>
               </div>
@@ -967,7 +976,7 @@ export function PrestataireProfil() {
           </div>
 
           <div>
-            <label className="mb-1 block text-sm font-medium text-gray-700">
+            <label className={labelClass}>
               Téléphone
             </label>
             {isEditing ? (
@@ -975,19 +984,19 @@ export function PrestataireProfil() {
                 type="tel"
                 value={form.phone}
                 onChange={(e) => setForm((f) => ({ ...f, phone: e.target.value }))}
-                className="w-full rounded-lg border border-gray-300 px-3 py-2 focus:border-purple-500 focus:ring-1 focus:ring-purple-500"
+                className={inputClass}
                 placeholder="+689 XX XX XX XX"
               />
             ) : (
-              <div className="flex items-center gap-2 rounded-lg border border-gray-200 bg-gray-50 px-3 py-2">
+              <div className="flex items-center gap-2 py-1.5 text-sm">
                 <Phone className="h-4 w-4 text-gray-400" />
                 <span className="text-gray-900">{prestataire.phone || '—'}</span>
               </div>
             )}
           </div>
 
-          <div>
-            <label className="mb-1 block text-sm font-medium text-gray-700">
+          <div className="sm:col-span-2">
+            <label className={labelClass}>
               Adresse du siège / facturation *
             </label>
             {isEditing ? (
@@ -995,18 +1004,18 @@ export function PrestataireProfil() {
                 value={form.address}
                 onChange={(e) => setForm((f) => ({ ...f, address: e.target.value }))}
                 rows={2}
-                className="w-full rounded-lg border border-gray-300 px-3 py-2 focus:border-purple-500 focus:ring-1 focus:ring-purple-500"
+                className={inputClass}
                 placeholder="Adresse complète (obligatoire sur les factures)"
               />
             ) : (
-              <div className="rounded-lg border border-gray-200 bg-gray-50 px-3 py-2 text-gray-900 whitespace-pre-wrap">
-                {prestataire.address || '— Non renseignée (à compléter)'}
+              <div className={`py-1.5 whitespace-pre-wrap ${prestataire.address ? readClass : 'text-sm text-amber-700'}`}>
+                {prestataire.address || 'Non renseignée — à compléter'}
               </div>
             )}
           </div>
 
-          <div>
-            <label className="mb-1 block text-sm font-medium text-gray-700">
+          <div className="sm:col-span-2">
+            <label className={labelClass}>
               Régime TVA
             </label>
             {isEditing ? (
@@ -1019,7 +1028,7 @@ export function PrestataireProfil() {
                       tvaRegime: e.target.value as 'franchise' | 'assujetti',
                     }))
                   }
-                  className="w-full rounded-lg border border-gray-300 px-3 py-2 focus:border-purple-500 focus:ring-1 focus:ring-purple-500"
+                  className={inputClass}
                 >
                   <option value="franchise">Franchise en base (TVA non applicable)</option>
                   <option value="assujetti">Assujetti à la TVA</option>
@@ -1080,7 +1089,7 @@ export function PrestataireProfil() {
                 )}
               </div>
             ) : (
-              <div className="rounded-lg border border-gray-200 bg-gray-50 px-3 py-2 text-gray-900">
+              <div className={`py-1.5 ${readClass}`}>
                 {prestataire.tvaRegime === 'assujetti'
                   ? `Assujetti — ${prestataire.tvaRate ?? 16} % — ${
                       prestataire.tvaMode === 'extra'
@@ -1092,54 +1101,43 @@ export function PrestataireProfil() {
             )}
           </div>
 
-          {/* Boutons */}
-          <div className="flex items-center gap-3 pt-2 border-t border-gray-100">
-            {isEditing ? (
-              <>
-                <button
-                  onClick={handleSave}
-                  disabled={isSaving}
-                  className="flex items-center gap-2 rounded-lg bg-purple-600 px-4 py-2 text-white hover:bg-purple-700 disabled:opacity-70"
-                >
-                  {isSaving ? (
-                    <div className="h-4 w-4 animate-spin rounded-full border-2 border-white border-t-transparent" />
-                  ) : (
-                    <Save className="h-4 w-4" />
-                  )}
-                  Enregistrer
-                </button>
-                <button
-                  onClick={handleCancel}
-                  disabled={isSaving}
-                  className="flex items-center gap-2 rounded-lg border border-gray-300 px-4 py-2 text-gray-700 hover:bg-gray-50"
-                >
-                  <X className="h-4 w-4" />
-                  Annuler
-                </button>
-              </>
-            ) : (
+          {isEditing ? (
+            <div className="flex items-center justify-end gap-2 border-t border-gray-100 pt-4 sm:col-span-2">
               <button
-                onClick={() => setIsEditing(true)}
-                className="flex items-center gap-2 rounded-lg bg-purple-600 px-4 py-2 text-white hover:bg-purple-700"
+                onClick={handleCancel}
+                disabled={isSaving}
+                className="inline-flex items-center gap-1.5 rounded-lg border border-gray-300 px-3.5 py-2 text-sm font-medium text-gray-700 hover:bg-gray-50"
               >
-                <Edit className="h-4 w-4" />
-                Modifier
+                <X className="h-4 w-4" />
+                Annuler
               </button>
-            )}
-          </div>
+              <button
+                onClick={handleSave}
+                disabled={isSaving}
+                className="inline-flex items-center gap-1.5 rounded-lg bg-gray-900 px-3.5 py-2 text-sm font-medium text-white hover:bg-gray-800 disabled:opacity-70"
+              >
+                {isSaving ? (
+                  <div className="h-4 w-4 animate-spin rounded-full border-2 border-white border-t-transparent" />
+                ) : (
+                  <Save className="h-4 w-4" />
+                )}
+                Enregistrer
+              </button>
+            </div>
+          ) : null}
         </div>
-      </div>
+      </section>
 
       {/* Documentation */}
-      <Collapsible open={docsExpanded} onOpenChange={setDocsExpanded} className="mt-6">
-        <div className="rounded-xl border border-gray-200 bg-white shadow-sm overflow-hidden">
-          <CollapsibleTrigger className="flex w-full items-center justify-between px-5 py-4 text-left hover:bg-gray-50 transition-colors">
+      <Collapsible open={docsExpanded} onOpenChange={setDocsExpanded}>
+        <div className={`${cardClass} overflow-hidden`}>
+          <CollapsibleTrigger className="flex w-full items-center justify-between px-5 py-4 text-left transition-colors hover:bg-gray-50">
             <div className="flex items-center gap-2">
-              <FileText className="h-5 w-5 text-purple-600" />
-              <h3 className="text-sm font-semibold text-gray-900">Documentation</h3>
-              <span className="text-xs text-amber-700">(recommandé — conformité CGS Pro)</span>
+              <FileText className="h-4 w-4 text-gray-500" />
+              <h3 className="text-sm font-semibold text-gray-900">Documents professionnels</h3>
+              <span className="text-xs text-gray-400">recommandé</span>
             </div>
-            {docsExpanded ? <ChevronDown className="h-5 w-5 text-gray-500" /> : <ChevronRight className="h-5 w-5 text-gray-500" />}
+            {docsExpanded ? <ChevronDown className="h-4 w-4 text-gray-400" /> : <ChevronRight className="h-4 w-4 text-gray-400" />}
           </CollapsibleTrigger>
           <CollapsibleContent>
             <div className="border-t border-gray-100 px-5 py-4 space-y-4">
@@ -1165,12 +1163,12 @@ export function PrestataireProfil() {
                       htmlFor={`doc-${key}`}
                       className={`inline-flex items-center gap-2 rounded-lg border px-3 py-2 text-sm cursor-pointer ${
                         uploadingDoc === key
-                          ? 'border-purple-300 bg-purple-50 text-purple-700'
+                          ? 'border-gray-300 bg-gray-50 text-gray-500'
                           : 'border-gray-300 hover:bg-gray-50'
                       }`}
                     >
                       {uploadingDoc === key ? (
-                        <div className="h-4 w-4 animate-spin rounded-full border-2 border-purple-600 border-t-transparent" />
+                        <div className="h-4 w-4 animate-spin rounded-full border-2 border-gray-700 border-t-transparent" />
                       ) : (
                         <Upload className="h-4 w-4" />
                       )}
@@ -1184,7 +1182,7 @@ export function PrestataireProfil() {
                           href={prestataire.documents[key as keyof PrestataireDocuments]!}
                           target="_blank"
                           rel="noopener noreferrer"
-                          className="text-sm text-purple-600 hover:underline"
+                          className="text-sm font-medium text-gray-900 underline-offset-2 hover:underline"
                         >
                           Voir
                         </a>
@@ -1205,25 +1203,15 @@ export function PrestataireProfil() {
         </div>
       </Collapsible>
 
-      {/* Infos non modifiables */}
-      <div className="mt-6 rounded-xl border border-gray-200 bg-white p-4 shadow-sm">
-        <h3 className="mb-3 text-sm font-semibold text-gray-700">Informations système</h3>
-        <div className="space-y-2 text-sm text-gray-500">
-          <p>Statut : {prestataire.isActive ? 'Actif' : 'Inactif'}</p>
-          {prestataire.isSociete && prestataire.totalChauffeurs !== undefined && (
-            <p>Nombre de loueurs : {prestataire.totalChauffeurs}</p>
-          )}
-        </div>
-      </div>
-
       {/* Changer le code à 6 chiffres */}
-      <div className="mt-6 rounded-xl border border-gray-200 bg-white p-5 shadow-sm">
-        <div className="flex items-center gap-2 mb-4">
-          <KeyRound className="h-5 w-5 text-purple-600" />
-          <h3 className="text-sm font-semibold text-gray-900">Changer mon code à 6 chiffres</h3>
+      <section className={cardClass}>
+        <div className="flex items-center gap-2 border-b border-gray-100 px-5 py-4">
+          <KeyRound className="h-4 w-4 text-gray-500" />
+          <h3 className="text-sm font-semibold text-gray-900">Code d’accès à 6 chiffres</h3>
         </div>
-        <p className="text-sm text-gray-500 mb-4">
-          Ce code sert à la fois pour le dashboard et l&apos;application. Une fois modifié, utilisez le nouveau code des deux côtés.
+        <div className="p-5">
+        <p className="mb-4 text-sm text-gray-500">
+          Utilisé pour le dashboard et l&apos;application loueur.
         </p>
         {codeSuccess && (
           <div className="mb-4 flex items-center gap-2 rounded-lg bg-emerald-50 px-4 py-2 text-sm text-emerald-700">
@@ -1231,9 +1219,9 @@ export function PrestataireProfil() {
             {codeSuccess}
           </div>
         )}
-        <div className="space-y-3">
+        <div className="grid gap-3 sm:grid-cols-3">
           <div>
-            <label className="mb-1 block text-sm font-medium text-gray-700">Code actuel</label>
+            <label className={labelClass}>Code actuel</label>
             <input
               type="password"
               inputMode="numeric"
@@ -1241,11 +1229,11 @@ export function PrestataireProfil() {
               value={codeForm.currentCode}
               onChange={(e) => setCodeForm((f) => ({ ...f, currentCode: e.target.value.replace(/\D/g, '') }))}
               placeholder="••••••"
-              className="w-full max-w-xs rounded-lg border border-gray-300 px-3 py-2 font-mono text-lg tracking-widest focus:border-purple-500 focus:ring-1 focus:ring-purple-500"
+              className={`${inputClass} font-mono tracking-widest`}
             />
           </div>
           <div>
-            <label className="mb-1 block text-sm font-medium text-gray-700">Nouveau code</label>
+            <label className={labelClass}>Nouveau code</label>
             <input
               type="password"
               inputMode="numeric"
@@ -1253,11 +1241,11 @@ export function PrestataireProfil() {
               value={codeForm.newCode}
               onChange={(e) => setCodeForm((f) => ({ ...f, newCode: e.target.value.replace(/\D/g, '') }))}
               placeholder="••••••"
-              className="w-full max-w-xs rounded-lg border border-gray-300 px-3 py-2 font-mono text-lg tracking-widest focus:border-purple-500 focus:ring-1 focus:ring-purple-500"
+              className={`${inputClass} font-mono tracking-widest`}
             />
           </div>
           <div>
-            <label className="mb-1 block text-sm font-medium text-gray-700">Confirmer le nouveau code</label>
+            <label className={labelClass}>Confirmer le nouveau code</label>
             <input
               type="password"
               inputMode="numeric"
@@ -1265,34 +1253,41 @@ export function PrestataireProfil() {
               value={codeForm.confirmCode}
               onChange={(e) => setCodeForm((f) => ({ ...f, confirmCode: e.target.value.replace(/\D/g, '') }))}
               placeholder="••••••"
-              className="w-full max-w-xs rounded-lg border border-gray-300 px-3 py-2 font-mono text-lg tracking-widest focus:border-purple-500 focus:ring-1 focus:ring-purple-500"
+              className={`${inputClass} font-mono tracking-widest`}
             />
           </div>
+        </div>
+        <div className="mt-4 flex justify-end">
           <button
             onClick={handleChangeCode}
             disabled={isChangingCode || !codeForm.currentCode || !codeForm.newCode || !codeForm.confirmCode}
-            className="rounded-lg bg-purple-600 px-4 py-2 text-sm font-medium text-white hover:bg-purple-700 disabled:opacity-50"
+            className="rounded-lg bg-gray-900 px-3.5 py-2 text-sm font-medium text-white hover:bg-gray-800 disabled:opacity-40"
           >
             {isChangingCode ? 'Changement…' : 'Changer le code'}
           </button>
         </div>
-      </div>
+        </div>
+      </section>
 
       {/* Supprimer mon compte */}
-      <div className="mt-6 rounded-xl border border-red-200 bg-red-50/50 p-5 shadow-sm">
-        <div className="flex items-center gap-2 mb-2">
-          <Trash2 className="h-5 w-5 text-red-600" />
-          <h3 className="text-sm font-semibold text-red-900">Supprimer mon compte</h3>
+      <section className="flex flex-col gap-3 rounded-xl border border-red-100 bg-white p-5 sm:flex-row sm:items-center sm:justify-between">
+        <div>
+          <div className="flex items-center gap-2">
+            <Trash2 className="h-4 w-4 text-red-500" />
+            <h3 className="text-sm font-semibold text-gray-900">Supprimer mon compte</h3>
+          </div>
+          <p className="mt-1 text-sm text-gray-500">
+            Action irréversible : vos données seront supprimées ou désactivées.
+          </p>
         </div>
-        <p className="text-sm text-red-800/90 mb-4">
-          Cette action est irréversible. Toutes les données associées à votre compte seront supprimées ou désactivées.
-        </p>
         <button
           onClick={() => setDeleteDialogOpen(true)}
-          className="rounded-lg border border-red-300 bg-white px-4 py-2 text-sm font-medium text-red-700 hover:bg-red-100"
+          className="shrink-0 rounded-lg border border-red-200 px-3.5 py-2 text-sm font-medium text-red-600 hover:bg-red-50"
         >
-          Supprimer mon compte
+          Supprimer
         </button>
+      </section>
+      </div>
       </div>
 
       <Dialog open={deleteDialogOpen} onOpenChange={setDeleteDialogOpen}>
