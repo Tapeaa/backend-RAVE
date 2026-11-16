@@ -227,19 +227,20 @@ export async function recoverPaidLoueurCheckout(
 }
 
 /** Si un abo « payé » vient d’un checkout Stripe d’un autre loueur, on le retire. */
-export async function restoreTrialIfPaidCheckoutNotOwned(driver: {
-  id: string;
-  prestataireId?: string | null;
-  subscriptionStatus?: string | null;
-  subscriptionStripeSessionId?: string | null;
-  subscriptionStripeSubscriptionId?: string | null;
-}): Promise<boolean> {
+export async function restoreTrialIfPaidCheckoutNotOwned(input: { id: string }): Promise<boolean> {
+  const [driver] = await db.select().from(drivers).where(eq(drivers.id, input.id)).limit(1);
+  if (!driver) return false;
   if ((driver.subscriptionStatus || "") !== "active") return false;
   const stripe = getStripe();
   if (!stripe) return false;
 
   const sessionId = String(driver.subscriptionStripeSessionId || "").trim();
   const subId = String(driver.subscriptionStripeSubscriptionId || "").trim();
+  const createdMs = driver.createdAt ? new Date(driver.createdAt).getTime() : NaN;
+  const paidBeforeAccount = (stripeCreatedUnix: number | null | undefined) =>
+    Number.isFinite(createdMs) &&
+    !!stripeCreatedUnix &&
+    stripeCreatedUnix * 1000 < createdMs - 60 * 1000;
   let owned: boolean | null = null;
 
   if (sessionId.startsWith("cs_")) {
@@ -247,6 +248,7 @@ export async function restoreTrialIfPaidCheckoutNotOwned(driver: {
       const session = await stripe.checkout.sessions.retrieve(sessionId);
       const owner = checkoutOwnerDriverId(session);
       if (owner) owned = owner === driver.id;
+      if (paidBeforeAccount(session.created)) owned = false;
     } catch (error: any) {
       console.warn("[STRIPE-LOUEUR] verify session:", error?.message || error);
     }
@@ -256,10 +258,14 @@ export async function restoreTrialIfPaidCheckoutNotOwned(driver: {
       const sub = await stripe.subscriptions.retrieve(subId);
       const metaId = String(sub.metadata?.driverId || "").trim();
       if (metaId) owned = metaId === driver.id;
+      if (paidBeforeAccount(sub.created)) owned = false;
     } catch (error: any) {
       console.warn("[STRIPE-LOUEUR] verify subscription:", error?.message || error);
     }
   }
+  console.log(
+    `[STRIPE-LOUEUR] verify paid driver=${driver.id} session=${sessionId || "-"} sub=${subId || "-"} owned=${owned}`
+  );
 
   if (owned !== false) return false;
 
