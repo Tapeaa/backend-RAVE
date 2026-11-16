@@ -8183,7 +8183,7 @@ const sessionId = headerSessionId || cookieSessionId;
     try {
       const orderId = String(req.query.orderId || "").trim();
       const formToken = String(req.query.formToken || "").trim();
-      if (!orderId || !/^[A-Za-z0-9+/=._-]{20,4000}$/.test(formToken)) {
+      if (!orderId || !/^[A-Za-z0-9+/=._-]{20,20000}$/.test(formToken)) {
         return res.status(400).send("Paramètres invalides");
       }
       const [order] = await db.select().from(orders).where(eq(orders.id, orderId));
