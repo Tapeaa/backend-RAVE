@@ -7145,7 +7145,19 @@ const sessionId = headerSessionId || cookieSessionId;
 
       let resolved = resolveSubscriptionStatus(driver);
       if (resolved.status !== "active") {
-        const recovered = await recoverPaidLoueurCheckout(driver.id);
+        let email: string | null = null;
+        if (driver.prestataireId) {
+          const [p] = await db
+            .select({ email: prestataires.email })
+            .from(prestataires)
+            .where(eq(prestataires.id, driver.prestataireId))
+            .limit(1);
+          email = p?.email || null;
+        }
+        const recovered = await recoverPaidLoueurCheckout(driver.id, { email });
+        console.log(
+          `[STRIPE-LOUEUR] GET driver recover driver=${driver.id} ok=${recovered.ok} err=${recovered.error || ""}`
+        );
         if (recovered.ok) {
           driver = (await dbStorage.getDriver(driver.id)) || driver;
           resolved = resolveSubscriptionStatus(driver);

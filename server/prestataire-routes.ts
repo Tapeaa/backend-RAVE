@@ -362,7 +362,13 @@ export function registerPrestataireRoutes(app: Express) {
       let liveDriver = driver;
       let resolved = resolveSubscriptionStatus(liveDriver);
       if (resolved.status !== "active") {
-        const recovered = await recoverPaidLoueurCheckout(liveDriver.id);
+        const recovered = await recoverPaidLoueurCheckout(liveDriver.id, {
+          email: prestataire.email,
+          driverIds: linked.map((d) => d.id),
+        });
+        console.log(
+          `[STRIPE-LOUEUR] GET prestataire recover driver=${liveDriver.id} ok=${recovered.ok} err=${recovered.error || ""}`
+        );
         if (recovered.ok) {
           liveDriver = (await dbStorage.getDriver(liveDriver.id)) || liveDriver;
           resolved = resolveSubscriptionStatus(liveDriver);

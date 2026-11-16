@@ -91,7 +91,7 @@ export async function activatePaidLoueurSubscription(opts: {
     opts.stripeInvoiceId &&
     (driver as any).subscriptionStripeInvoiceId &&
     (driver as any).subscriptionStripeInvoiceId === opts.stripeInvoiceId;
-  if (alreadySession || alreadyInvoice) {
+  if ((alreadySession || alreadyInvoice) && resolveSubscriptionStatus(driver as any).status === "active") {
     const current = resolveSubscriptionStatus(driver as any);
     return {
       ok: true,
@@ -109,28 +109,31 @@ export async function activatePaidLoueurSubscription(opts: {
     currentEnd && currentEnd.getTime() > now.getTime() ? currentEnd : now;
   const ends = new Date(startFrom.getTime() + plan.days * 24 * 60 * 60 * 1000);
 
-  await db
-    .update(drivers)
-    .set({
-      subscriptionPlan: plan.id,
-      subscriptionStatus: "active",
-      subscriptionStartsAt: now,
-      subscriptionEndsAt: ends,
-      subscriptionAmount: opts.amountXpf != null ? opts.amountXpf : plan.amountXpf,
-      ...(opts.stripeSessionId
-        ? { subscriptionStripeSessionId: opts.stripeSessionId }
-        : {}),
-      ...(opts.stripeInvoiceId
-        ? { subscriptionStripeInvoiceId: opts.stripeInvoiceId }
-        : {}),
-      ...(opts.stripeSubscriptionId
-        ? { subscriptionStripeSubscriptionId: opts.stripeSubscriptionId }
-        : {}),
-      ...(opts.stripeCustomerId
-        ? { subscriptionStripeCustomerId: opts.stripeCustomerId }
-        : {}),
-    } as any)
-    .where(eq(drivers.id, opts.driverId));
+  const core = {
+    subscriptionPlan: plan.id,
+    subscriptionStatus: "active" as const,
+    subscriptionStartsAt: now,
+    subscriptionEndsAt: ends,
+    subscriptionAmount: opts.amountXpf != null ? opts.amountXpf : plan.amountXpf,
+  };
+  const extras = {
+    ...(opts.stripeSessionId ? { subscriptionStripeSessionId: opts.stripeSessionId } : {}),
+    ...(opts.stripeInvoiceId ? { subscriptionStripeInvoiceId: opts.stripeInvoiceId } : {}),
+    ...(opts.stripeSubscriptionId
+      ? { subscriptionStripeSubscriptionId: opts.stripeSubscriptionId }
+      : {}),
+    ...(opts.stripeCustomerId ? { subscriptionStripeCustomerId: opts.stripeCustomerId } : {}),
+  };
+
+  try {
+    await db
+      .update(drivers)
+      .set({ ...core, ...extras } as any)
+      .where(eq(drivers.id, opts.driverId));
+  } catch (error) {
+    console.warn("[STRIPE-LOUEUR] update complet impossible, fallback statut seul:", error);
+    await db.update(drivers).set(core as any).where(eq(drivers.id, opts.driverId));
+  }
 
   return { ok: true, endsAt: ends.toISOString() };
 }

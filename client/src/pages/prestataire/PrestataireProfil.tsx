@@ -691,14 +691,27 @@ export function PrestataireProfil() {
           </div>
         </div>
         {subscription?.status !== 'active' && subscription?.plans?.monthly ? (
-          <button
-            type="button"
-            disabled={!!subscribing}
-            onClick={() => handleSubscribe('monthly')}
-            className="mb-4 inline-flex items-center rounded-lg bg-[#635BFF] px-4 py-2 text-sm font-semibold text-white hover:opacity-90 disabled:opacity-60"
-          >
-            Payer maintenant avec Stripe
-          </button>
+          <div className="mb-4 flex flex-wrap gap-2">
+            <button
+              type="button"
+              disabled={!!subscribing}
+              onClick={() => handleSubscribe('monthly')}
+              className="inline-flex items-center rounded-lg bg-[#635BFF] px-4 py-2 text-sm font-semibold text-white hover:opacity-90 disabled:opacity-60"
+            >
+              Payer maintenant avec Stripe
+            </button>
+            <button
+              type="button"
+              onClick={async () => {
+                const sub = await fetchSubscription();
+                if (sub?.status === 'active') setThanksOpen(true);
+                else alert('Aucun paiement Stripe validé trouvé pour ce compte. Vérifie les logs Render [STRIPE-LOUEUR] recover.');
+              }}
+              className="inline-flex items-center rounded-lg border border-gray-300 bg-white px-4 py-2 text-sm font-semibold text-gray-800 hover:bg-gray-50"
+            >
+              Vérifier le paiement
+            </button>
+          </div>
         ) : null}
         <div className="grid gap-3 sm:grid-cols-2">
           {(['monthly', 'semiannual'] as const).map((key) => {

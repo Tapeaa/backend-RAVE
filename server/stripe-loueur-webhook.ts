@@ -128,31 +128,109 @@ export async function confirmLoueurCheckoutSession(
   }
 }
 
+function sessionMatchesLoueur(
+  session: Stripe.Checkout.Session,
+  driverIds: string[],
+  emails: string[]
+): boolean {
+  const paid =
+    session.payment_status === "paid" ||
+    session.payment_status === "no_payment_required" ||
+    session.status === "complete";
+  if (!paid) return false;
+  const metaId = String(session.metadata?.driverId || "").trim();
+  const ref = String(session.client_reference_id || "").trim();
+  if (metaId && driverIds.includes(metaId)) return true;
+  if (driverIds.some((id) => ref === id || ref === `drv_${id}`)) return true;
+  const sessionEmail = (
+    session.customer_details?.email ||
+    session.customer_email ||
+    ""
+  )
+    .trim()
+    .toLowerCase();
+  return !!sessionEmail && emails.includes(sessionEmail);
+}
+
 export async function recoverPaidLoueurCheckout(
-  driverId: string
-): Promise<{ ok: boolean; error?: string }> {
+  driverId: string,
+  opts?: { email?: string | null; driverIds?: string[] }
+): Promise<{ ok: boolean; error?: string; driverId?: string }> {
   const stripe = getStripe();
   if (!stripe || !driverId) return { ok: false, error: "Stripe non configuré" };
+  const driverIds = Array.from(new Set([driverId, ...(opts?.driverIds || [])].filter(Boolean)));
+  const emails = [opts?.email]
+    .map((e) => String(e || "").trim().toLowerCase())
+    .filter((e) => e.includes("@"));
+
   try {
-    const listed = await stripe.checkout.sessions.list({
-      limit: 40,
-      created: { gte: Math.floor(Date.now() / 1000) - 21 * 24 * 3600 },
-    });
-    const match = listed.data.find((session) => {
-      const paid =
-        session.payment_status === "paid" ||
-        session.status === "complete";
-      if (!paid) return false;
-      return (
-        session.metadata?.driverId === driverId ||
-        session.client_reference_id === `drv_${driverId}` ||
-        session.client_reference_id === driverId
+    let listed: Stripe.Checkout.Session[] = [];
+    try {
+      const page = await stripe.checkout.sessions.list({ limit: 100, status: "complete" });
+      listed = page.data;
+    } catch {
+      const page = await stripe.checkout.sessions.list({ limit: 100 });
+      listed = page.data;
+    }
+
+    const match = listed.find((session) => sessionMatchesLoueur(session, driverIds, emails));
+    if (match) {
+      const targets = driverIds.length ? driverIds : [driverId];
+      let last: { ok: boolean; driverId?: string; error?: string } = { ok: false };
+      for (const id of targets) {
+        const forced: Stripe.Checkout.Session = {
+          ...match,
+          metadata: { ...(match.metadata || {}), driverId: id },
+          client_reference_id: match.client_reference_id || `drv_${id}`,
+        };
+        last = await handleLoueurStripeCheckoutPaid(forced);
+      }
+      console.log(
+        `[STRIPE-LOUEUR] recover checkout ${match.id} drivers=${targets.join(",")} ok=${last.ok} err=${last.error || ""}`
       );
+      return last.ok ? { ok: true, driverId: last.driverId } : { ok: false, error: last.error };
+    }
+
+    const subs = await stripe.subscriptions.list({
+      status: "all",
+      limit: 40,
+      expand: ["data.customer"],
     });
-    if (!match) return { ok: false, error: "Aucun paiement Stripe trouvé" };
-    const result = await handleLoueurStripeCheckoutPaid(match);
-    return result.ok ? { ok: true } : { ok: false, error: result.error };
+    const liveSub = subs.data.find((sub) => {
+      if (sub.status !== "active" && sub.status !== "trialing") return false;
+      const metaId = String(sub.metadata?.driverId || "").trim();
+      if (metaId && driverIds.includes(metaId)) return true;
+      const customer = sub.customer;
+      const customerEmail =
+        customer && typeof customer !== "string" && "email" in customer
+          ? String((customer as Stripe.Customer).email || "").trim().toLowerCase()
+          : "";
+      return !!customerEmail && emails.includes(customerEmail);
+    });
+
+    if (!liveSub) {
+      console.warn(
+        `[STRIPE-LOUEUR] recover: aucun paiement pour driver=${driverId} email=${emails.join(",") || "-"} sessions=${listed.length} subs=${subs.data.length}`
+      );
+      return { ok: false, error: "Aucun paiement Stripe trouvé" };
+    }
+
+    const price = liveSub.items.data[0]?.price;
+    const amount = price?.unit_amount ?? null;
+    const targets = driverIds.length ? driverIds : [driverId];
+    for (const id of targets) {
+      await activatePaidLoueurSubscription({
+        driverId: id,
+        plan: "monthly",
+        amountXpf: amount,
+        stripeSubscriptionId: liveSub.id,
+        stripeCustomerId: stripeRefId(liveSub.customer),
+      });
+    }
+    console.log(`[STRIPE-LOUEUR] recover subscription ${liveSub.id} drivers=${targets.join(",")}`);
+    return { ok: true, driverId };
   } catch (error: any) {
+    console.warn("[STRIPE-LOUEUR] recover error:", error?.message || error);
     return { ok: false, error: error?.message || "Recherche Stripe impossible" };
   }
 }
