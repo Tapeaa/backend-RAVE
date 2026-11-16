@@ -70,15 +70,22 @@ export async function activatePaidLoueurSubscription(opts: {
   plan?: LoueurPlanId;
   amountXpf?: number | null;
   stripeSessionId?: string | null;
+  stripeInvoiceId?: string | null;
+  stripeSubscriptionId?: string | null;
+  stripeCustomerId?: string | null;
 }): Promise<{ ok: true; endsAt: string; alreadyProcessed?: boolean } | { ok: false; error: string }> {
   const [driver] = await db.select().from(drivers).where(eq(drivers.id, opts.driverId)).limit(1);
   if (!driver) return { ok: false, error: "Loueur introuvable" };
 
-  if (
+  const alreadySession =
     opts.stripeSessionId &&
     (driver as any).subscriptionStripeSessionId &&
-    (driver as any).subscriptionStripeSessionId === opts.stripeSessionId
-  ) {
+    (driver as any).subscriptionStripeSessionId === opts.stripeSessionId;
+  const alreadyInvoice =
+    opts.stripeInvoiceId &&
+    (driver as any).subscriptionStripeInvoiceId &&
+    (driver as any).subscriptionStripeInvoiceId === opts.stripeInvoiceId;
+  if (alreadySession || alreadyInvoice) {
     const current = resolveSubscriptionStatus(driver as any);
     return {
       ok: true,
@@ -88,7 +95,8 @@ export async function activatePaidLoueurSubscription(opts: {
   }
 
   const plans = await getLoueurSubscriptionPlans();
-  const plan = plans[opts.plan === "semiannual" ? "semiannual" : "monthly"];
+  const plan =
+    opts.plan === "semiannual" && plans.semiannual ? plans.semiannual : plans.monthly;
   const now = new Date();
   const currentEnd = parseEndsAt((driver as any).subscriptionEndsAt);
   const startFrom =
@@ -105,6 +113,15 @@ export async function activatePaidLoueurSubscription(opts: {
       subscriptionAmount: opts.amountXpf != null ? opts.amountXpf : plan.amountXpf,
       ...(opts.stripeSessionId
         ? { subscriptionStripeSessionId: opts.stripeSessionId }
+        : {}),
+      ...(opts.stripeInvoiceId
+        ? { subscriptionStripeInvoiceId: opts.stripeInvoiceId }
+        : {}),
+      ...(opts.stripeSubscriptionId
+        ? { subscriptionStripeSubscriptionId: opts.stripeSubscriptionId }
+        : {}),
+      ...(opts.stripeCustomerId
+        ? { subscriptionStripeCustomerId: opts.stripeCustomerId }
         : {}),
     } as any)
     .where(eq(drivers.id, opts.driverId));
@@ -229,13 +246,12 @@ export type LoueurPlanDef = {
 
 export type LoueurSubscriptionPlans = {
   monthly: LoueurPlanDef;
-  semiannual: LoueurPlanDef;
+  semiannual?: LoueurPlanDef;
 };
 
-/** Valeurs par défaut si la table config est absente / vide */
+/** Fallback uniquement si Stripe est injoignable */
 export const DEFAULT_LOUEUR_SUBSCRIPTION_PLANS: LoueurSubscriptionPlans = {
-  monthly: { id: "monthly", label: "Mensuel", amountXpf: 5000, days: 30 },
-  semiannual: { id: "semiannual", label: "6 mois", amountXpf: 30000, days: 180 },
+  monthly: { id: "monthly", label: "Mensuel", amountXpf: 8990, days: 30 },
 };
 
 /** @deprecated préférer getLoueurSubscriptionPlans() pour les prix live */
@@ -270,6 +286,18 @@ export async function ensureLoueurSubscriptionColumns(): Promise<void> {
     await db.execute(sql`
       ALTER TABLE drivers
       ADD COLUMN IF NOT EXISTS subscription_stripe_session_id TEXT
+    `);
+    await db.execute(sql`
+      ALTER TABLE drivers
+      ADD COLUMN IF NOT EXISTS subscription_stripe_subscription_id TEXT
+    `);
+    await db.execute(sql`
+      ALTER TABLE drivers
+      ADD COLUMN IF NOT EXISTS subscription_stripe_customer_id TEXT
+    `);
+    await db.execute(sql`
+      ALTER TABLE drivers
+      ADD COLUMN IF NOT EXISTS subscription_stripe_invoice_id TEXT
     `);
     await db.execute(sql`
       ALTER TABLE loueur_vehicles
@@ -334,7 +362,13 @@ function clampAmount(n: unknown, fallback: number): number {
   return Math.round(v);
 }
 
-export async function getLoueurSubscriptionPlans(): Promise<LoueurSubscriptionPlans> {
+export async function getLoueurSubscriptionPlans(opts?: {
+  refresh?: boolean;
+}): Promise<LoueurSubscriptionPlans> {
+  const { fetchStripeLoueurPlans } = await import("./stripe-loueur-plans");
+  const stripePlans = await fetchStripeLoueurPlans({ refresh: opts?.refresh });
+  if (stripePlans?.monthly) return stripePlans;
+
   try {
     await ensureLoueurSubscriptionConfigTable();
     const result = await db.execute(sql`
@@ -361,12 +395,6 @@ export async function getLoueurSubscriptionPlans(): Promise<LoueurSubscriptionPl
         amountXpf: clampAmount(row.monthly_amount_xpf, d.monthly.amountXpf),
         days: clampPositiveInt(row.monthly_days, d.monthly.days),
       },
-      semiannual: {
-        id: "semiannual",
-        label: String(row.semiannual_label || d.semiannual.label),
-        amountXpf: clampAmount(row.semiannual_amount_xpf, d.semiannual.amountXpf),
-        days: clampPositiveInt(row.semiannual_days, d.semiannual.days),
-      },
     };
   } catch (e) {
     console.warn("[getLoueurSubscriptionPlans]", e);
@@ -374,55 +402,9 @@ export async function getLoueurSubscriptionPlans(): Promise<LoueurSubscriptionPl
   }
 }
 
-export async function updateLoueurSubscriptionPlans(input: {
-  monthlyAmountXpf?: number;
-  monthlyLabel?: string;
-  monthlyDays?: number;
-  semiannualAmountXpf?: number;
-  semiannualLabel?: string;
-  semiannualDays?: number;
-}): Promise<LoueurSubscriptionPlans> {
-  await ensureLoueurSubscriptionConfigTable();
-  const current = await getLoueurSubscriptionPlans();
-
-  const monthlyAmount =
-    input.monthlyAmountXpf !== undefined
-      ? clampAmount(input.monthlyAmountXpf, current.monthly.amountXpf)
-      : current.monthly.amountXpf;
-  const monthlyLabel =
-    typeof input.monthlyLabel === "string" && input.monthlyLabel.trim()
-      ? input.monthlyLabel.trim().slice(0, 80)
-      : current.monthly.label;
-  const monthlyDays =
-    input.monthlyDays !== undefined
-      ? clampPositiveInt(input.monthlyDays, current.monthly.days)
-      : current.monthly.days;
-
-  const semiannualAmount =
-    input.semiannualAmountXpf !== undefined
-      ? clampAmount(input.semiannualAmountXpf, current.semiannual.amountXpf)
-      : current.semiannual.amountXpf;
-  const semiannualLabel =
-    typeof input.semiannualLabel === "string" && input.semiannualLabel.trim()
-      ? input.semiannualLabel.trim().slice(0, 80)
-      : current.semiannual.label;
-  const semiannualDays =
-    input.semiannualDays !== undefined
-      ? clampPositiveInt(input.semiannualDays, current.semiannual.days)
-      : current.semiannual.days;
-
-  await db.execute(sql`
-    UPDATE loueur_subscription_config
-    SET
-      monthly_amount_xpf = ${monthlyAmount},
-      monthly_label = ${monthlyLabel},
-      monthly_days = ${monthlyDays},
-      semiannual_amount_xpf = ${semiannualAmount},
-      semiannual_label = ${semiannualLabel},
-      semiannual_days = ${semiannualDays},
-      updated_at = NOW()
-    WHERE id = 'default'
-  `);
-
-  return getLoueurSubscriptionPlans();
+/** Les prix se changent dans Stripe. Cette fonction force un rechargement. */
+export async function updateLoueurSubscriptionPlans(_input?: unknown): Promise<LoueurSubscriptionPlans> {
+  const { invalidateLoueurStripePlansCache } = await import("./stripe-loueur-plans");
+  invalidateLoueurStripePlansCache();
+  return getLoueurSubscriptionPlans({ refresh: true });
 }

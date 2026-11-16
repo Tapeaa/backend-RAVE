@@ -5962,7 +5962,7 @@ app.post("/api/live-activities/end", async (req, res) => {
   app.get("/api/loueur-subscription-plans", async (_req, res) => {
     try {
       const plans = await getLoueurSubscriptionPlans();
-      return res.json({ success: true, plans });
+      return res.json({ success: true, plans, source: "stripe" });
     } catch (error) {
       console.error("Get loueur subscription plans error:", error);
       return res.status(500).json({ success: false, error: "Erreur serveur" });
@@ -7175,7 +7175,7 @@ const sessionId = headerSessionId || cookieSessionId;
     }
   });
 
-  /** Active / renouvelle l'abonnement loueur (prix depuis config admin) */
+  /** Active / renouvelle l'abonnement loueur (prix Stripe) */
   app.post("/api/driver/subscription/subscribe", async (req, res) => {
     try {
       const sessionId = req.headers["x-driver-session"] as string;
@@ -7188,7 +7188,10 @@ const sessionId = headerSessionId || cookieSessionId;
         return res.status(400).json({ success: false, error: "Plan invalide (monthly | semiannual)" });
       }
       const plans = await getLoueurSubscriptionPlans();
-      const plan = plans[planKey];
+      const plan = planKey === "semiannual" ? plans.semiannual : plans.monthly;
+      if (!plan) {
+        return res.status(400).json({ success: false, error: "Cette formule n’existe pas sur Stripe" });
+      }
 
       const driver = await dbStorage.getDriver(session.driverId);
       if (!driver) return res.status(404).json({ success: false, error: "Loueur introuvable" });

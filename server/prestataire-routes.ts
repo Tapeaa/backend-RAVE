@@ -394,7 +394,10 @@ export function registerPrestataireRoutes(app: Express) {
       if (!prestataire) return res.status(404).json({ error: "Prestataire non trouvé" });
 
       const plans = await getLoueurSubscriptionPlans();
-      const plan = plans[planKey];
+      const plan = planKey === "semiannual" ? plans.semiannual : plans.monthly;
+      if (!plan) {
+        return res.status(400).json({ error: "Cette formule n’existe pas sur Stripe" });
+      }
 
       let linked = await getLinkedAppDrivers(req.prestataire.id, {
         matchCode: prestataire.code,

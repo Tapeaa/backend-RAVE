@@ -243,11 +243,18 @@ export function registerAdminBoExtensions(app: Express) {
     }
   });
 
-  app.get("/api/admin/loueur-subscription-config", requireAdminAuth, async (_req, res) => {
+  app.get("/api/admin/loueur-subscription-config", requireAdminAuth, async (req, res) => {
     try {
       const { getLoueurSubscriptionPlans } = await import("./ensure-loueur-subscription");
-      const plans = await getLoueurSubscriptionPlans();
-      return res.json({ success: true, plans });
+      const { getLoueurStripeProductId } = await import("./stripe-loueur-plans");
+      const refresh = String(req.query.refresh || "") === "1";
+      const plans = await getLoueurSubscriptionPlans({ refresh });
+      return res.json({
+        success: true,
+        plans,
+        source: "stripe",
+        stripeProductId: getLoueurStripeProductId(),
+      });
     } catch (error) {
       console.error("Admin loueur subscription GET:", error);
       return res.status(500).json({ error: "Erreur serveur" });
@@ -257,17 +264,15 @@ export function registerAdminBoExtensions(app: Express) {
   app.post("/api/admin/loueur-subscription-config", requireAdminAuth, async (req: AuthenticatedRequest, res) => {
     try {
       const { updateLoueurSubscriptionPlans } = await import("./ensure-loueur-subscription");
-      const body = req.body || {};
-      const plans = await updateLoueurSubscriptionPlans({
-        monthlyAmountXpf: body.monthlyAmountXpf ?? body.monthly?.amountXpf,
-        monthlyLabel: body.monthlyLabel ?? body.monthly?.label,
-        monthlyDays: body.monthlyDays ?? body.monthly?.days,
-        semiannualAmountXpf: body.semiannualAmountXpf ?? body.semiannual?.amountXpf,
-        semiannualLabel: body.semiannualLabel ?? body.semiannual?.label,
-        semiannualDays: body.semiannualDays ?? body.semiannual?.days,
+      const { getLoueurStripeProductId } = await import("./stripe-loueur-plans");
+      const plans = await updateLoueurSubscriptionPlans();
+      await audit(req, "settings.loueur_subscription_refresh", "stripe_product", getLoueurStripeProductId(), {});
+      return res.json({
+        success: true,
+        plans,
+        source: "stripe",
+        stripeProductId: getLoueurStripeProductId(),
       });
-      await audit(req, "settings.loueur_subscription", "loueur_subscription_config", "default", body);
-      return res.json({ success: true, plans });
     } catch (error) {
       console.error("Admin loueur subscription POST:", error);
       return res.status(500).json({ error: "Erreur serveur" });

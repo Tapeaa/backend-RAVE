@@ -53,9 +53,14 @@ async function resolveDriverIdFromCheckout(
   return null;
 }
 
+function stripeRefId(ref: string | { id: string } | null | undefined): string | null {
+  if (!ref) return null;
+  return typeof ref === "string" ? ref : ref.id || null;
+}
+
 async function planFromCheckoutAmount(amountTotal: number | null): Promise<LoueurPlanId> {
   const plans = await getLoueurSubscriptionPlans();
-  if (amountTotal == null) return "monthly";
+  if (amountTotal == null || !plans.semiannual) return "monthly";
   const semi = plans.semiannual.amountXpf;
   const monthly = plans.monthly.amountXpf;
   if (Math.abs(amountTotal - semi) <= Math.abs(amountTotal - monthly)) {
@@ -80,12 +85,64 @@ export async function handleLoueurStripeCheckoutPaid(
     plan,
     amountXpf: session.amount_total,
     stripeSessionId: session.id,
+    stripeSubscriptionId: stripeRefId(session.subscription),
+    stripeCustomerId: stripeRefId(session.customer),
   });
   if (!result.ok) return { ok: false, driverId, error: result.error };
   console.log(
     `[STRIPE-LOUEUR] Abonnement activé driver=${driverId} session=${session.id} already=${!!result.alreadyProcessed}`
   );
   return { ok: true, driverId };
+}
+
+async function findDriverByStripeSubscription(subscriptionId: string): Promise<string | null> {
+  const [row] = await db
+    .select({ id: drivers.id })
+    .from(drivers)
+    .where(eq(drivers.subscriptionStripeSubscriptionId, subscriptionId))
+    .limit(1);
+  return row?.id || null;
+}
+
+export async function handleLoueurStripeInvoicePaid(
+  invoice: Stripe.Invoice
+): Promise<{ ok: boolean; driverId?: string; error?: string }> {
+  if (invoice.billing_reason && invoice.billing_reason !== "subscription_cycle") {
+    return { ok: true };
+  }
+  const subscriptionId = stripeRefId(
+    (invoice as any).subscription || (invoice as any).parent?.subscription_details?.subscription
+  );
+  if (!subscriptionId) return { ok: false, error: "invoice sans subscription" };
+
+  const driverId = await findDriverByStripeSubscription(subscriptionId);
+  if (!driverId) {
+    return { ok: false, error: `Aucun loueur lié à ${subscriptionId}` };
+  }
+
+  const result = await activatePaidLoueurSubscription({
+    driverId,
+    plan: "monthly",
+    amountXpf: invoice.amount_paid,
+    stripeInvoiceId: invoice.id,
+    stripeSubscriptionId: subscriptionId,
+    stripeCustomerId: stripeRefId(invoice.customer),
+  });
+  if (!result.ok) return { ok: false, driverId, error: result.error };
+  console.log(`[STRIPE-LOUEUR] Renouvellement driver=${driverId} invoice=${invoice.id}`);
+  return { ok: true, driverId };
+}
+
+export async function handleLoueurStripeSubscriptionDeleted(
+  subscription: Stripe.Subscription
+): Promise<void> {
+  const driverId = await findDriverByStripeSubscription(subscription.id);
+  if (!driverId) return;
+  await db
+    .update(drivers)
+    .set({ subscriptionStatus: "expired" } as any)
+    .where(eq(drivers.id, driverId));
+  console.log(`[STRIPE-LOUEUR] Abonnement Stripe annulé driver=${driverId}`);
 }
 
 export function registerStripeLoueurWebhook(app: Express): void {
@@ -126,6 +183,14 @@ export function registerStripeLoueurWebhook(app: Express): void {
         if (!result.ok) {
           console.warn("[STRIPE-LOUEUR] Activation ignorée:", result.error);
         }
+      } else if (event.type === "invoice.paid") {
+        const invoice = event.data.object as Stripe.Invoice;
+        const result = await handleLoueurStripeInvoicePaid(invoice);
+        if (!result.ok) {
+          console.warn("[STRIPE-LOUEUR] Renouvellement ignoré:", result.error);
+        }
+      } else if (event.type === "customer.subscription.deleted") {
+        await handleLoueurStripeSubscriptionDeleted(event.data.object as Stripe.Subscription);
       }
       return res.json({ received: true });
     } catch (error) {

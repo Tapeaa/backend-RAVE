@@ -74,7 +74,7 @@ type SubscriptionInfo = {
   amount: number | null;
   daysRemaining: number | null;
   paymentUrl?: string | null;
-  plans?: { monthly: SubPlan; semiannual: SubPlan };
+  plans?: { monthly?: SubPlan; semiannual?: SubPlan };
 };
 
 const DOC_FIELDS = [
@@ -644,9 +644,10 @@ export function PrestataireProfil() {
         <div className="grid gap-3 sm:grid-cols-2">
           {(['monthly', 'semiannual'] as const).map((key) => {
             const plan = subscription?.plans?.[key];
-            const label = plan?.label || (key === 'monthly' ? 'Mensuel' : '6 mois');
-            const amount = plan?.amountXpf ?? (key === 'monthly' ? 5000 : 30000);
-            const days = plan?.days ?? (key === 'monthly' ? 30 : 180);
+            if (!plan) return null;
+            const label = plan.label;
+            const amount = plan.amountXpf;
+            const days = plan.days;
             return (
               <button
                 key={key}

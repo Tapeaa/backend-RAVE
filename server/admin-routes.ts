@@ -1059,7 +1059,7 @@ export function registerAdminRoutes(app: Express) {
           req.body?.plan === "semiannual" || (driver as any).subscriptionPlan === "semiannual"
             ? "semiannual"
             : "monthly";
-        const plan = plans[planKey];
+        const plan = planKey === "semiannual" && plans.semiannual ? plans.semiannual : plans.monthly;
         const ends = new Date(now.getTime() + plan.days * 24 * 60 * 60 * 1000);
         await db
           .update(drivers)

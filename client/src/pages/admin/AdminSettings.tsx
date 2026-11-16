@@ -3,27 +3,15 @@
  */
 
 import { useEffect, useState } from "react";
-import { Settings, Save } from "lucide-react";
+import { Settings, Save, RefreshCw } from "lucide-react";
 import { adminAuthHeaders } from "@/lib/adminApi";
 
-type LoueurPlanForm = {
-  monthlyAmountXpf: number;
-  monthlyLabel: string;
-  monthlyDays: number;
-  semiannualAmountXpf: number;
-  semiannualLabel: string;
-  semiannualDays: number;
-};
+type StripePlan = { id: string; label: string; amountXpf: number; days: number };
+type StripePlans = { monthly?: StripePlan; semiannual?: StripePlan };
 
 export function AdminSettings() {
-  const [subPlans, setSubPlans] = useState<LoueurPlanForm>({
-    monthlyAmountXpf: 5000,
-    monthlyLabel: "Mensuel",
-    monthlyDays: 30,
-    semiannualAmountXpf: 30000,
-    semiannualLabel: "6 mois",
-    semiannualDays: 180,
-  });
+  const [subPlans, setSubPlans] = useState<StripePlans>({});
+  const [stripeProductId, setStripeProductId] = useState("prod_V6LPtnFYwO9E");
   const [clientVersion, setClientVersion] = useState({ minVersion: "1.0.0", forceUpdate: false, message: "" });
   const [chauffeurVersion, setChauffeurVersion] = useState({ minVersion: "1.0.0", forceUpdate: false, message: "" });
   const [saving, setSaving] = useState(false);
@@ -46,48 +34,30 @@ export function AdminSettings() {
       }
       if (s.ok) {
         const data = await s.json();
-        const p = data.plans;
-        if (p?.monthly && p?.semiannual) {
-          setSubPlans({
-            monthlyAmountXpf: p.monthly.amountXpf,
-            monthlyLabel: p.monthly.label,
-            monthlyDays: p.monthly.days,
-            semiannualAmountXpf: p.semiannual.amountXpf,
-            semiannualLabel: p.semiannual.label,
-            semiannualDays: p.semiannual.days,
-          });
-        }
+        setSubPlans(data.plans || {});
+        if (data.stripeProductId) setStripeProductId(data.stripeProductId);
       }
     } catch (e) {
       console.error(e);
     }
   }
 
-  async function saveSubscriptionPlans() {
+  async function refreshSubscriptionPlans() {
     setSaving(true);
     setMsg("");
     try {
       const res = await fetch("/api/admin/loueur-subscription-config", {
         method: "POST",
         headers: adminAuthHeaders(),
-        body: JSON.stringify(subPlans),
+        body: JSON.stringify({}),
       });
       if (res.ok) {
         const data = await res.json();
-        const p = data.plans;
-        if (p?.monthly && p?.semiannual) {
-          setSubPlans({
-            monthlyAmountXpf: p.monthly.amountXpf,
-            monthlyLabel: p.monthly.label,
-            monthlyDays: p.monthly.days,
-            semiannualAmountXpf: p.semiannual.amountXpf,
-            semiannualLabel: p.semiannual.label,
-            semiannualDays: p.semiannual.days,
-          });
-        }
-        setMsg("Abonnement loueur enregistré — visible immédiatement sur app et dashboard");
+        setSubPlans(data.plans || {});
+        if (data.stripeProductId) setStripeProductId(data.stripeProductId);
+        setMsg("Prix rechargés depuis Stripe — visibles sur l’app et le dashboard");
       } else {
-        setMsg("Erreur abonnement");
+        setMsg("Impossible de lire les tarifs Stripe");
       }
     } finally {
       setSaving(false);
@@ -125,82 +95,37 @@ export function AdminSettings() {
         <div>
           <h2 className="font-semibold text-slate-900">Abonnement plateforme loueur</h2>
           <p className="text-sm text-slate-500 mt-1">
-            Les prix et durées s’appliquent tout de suite sur l’app Loueur et le dashboard prestataire.
+            Prix lus automatiquement depuis Stripe (produit {stripeProductId}). Pour changer le tarif, modifie le produit dans Stripe — RAVE suit.
           </p>
         </div>
 
         <div className="grid gap-4 sm:grid-cols-2">
-          <div className="rounded-lg border border-slate-100 bg-slate-50 p-4 space-y-3">
-            <h3 className="text-sm font-semibold text-slate-800">Formule mensuelle</h3>
-            <label className="block text-sm">
-              <span className="text-slate-600">Libellé</span>
-              <input
-                className="mt-1 w-full rounded-lg border border-slate-200 px-3 py-2 bg-white"
-                value={subPlans.monthlyLabel}
-                onChange={(e) => setSubPlans({ ...subPlans, monthlyLabel: e.target.value })}
-              />
-            </label>
-            <label className="block text-sm">
-              <span className="text-slate-600">Prix (XPF)</span>
-              <input
-                type="number"
-                min={0}
-                className="mt-1 w-full rounded-lg border border-slate-200 px-3 py-2 bg-white"
-                value={subPlans.monthlyAmountXpf}
-                onChange={(e) => setSubPlans({ ...subPlans, monthlyAmountXpf: Number(e.target.value) })}
-              />
-            </label>
-            <label className="block text-sm">
-              <span className="text-slate-600">Durée (jours)</span>
-              <input
-                type="number"
-                min={1}
-                className="mt-1 w-full rounded-lg border border-slate-200 px-3 py-2 bg-white"
-                value={subPlans.monthlyDays}
-                onChange={(e) => setSubPlans({ ...subPlans, monthlyDays: Number(e.target.value) })}
-              />
-            </label>
-          </div>
-
-          <div className="rounded-lg border border-slate-100 bg-slate-50 p-4 space-y-3">
-            <h3 className="text-sm font-semibold text-slate-800">Formule 6 mois / longue</h3>
-            <label className="block text-sm">
-              <span className="text-slate-600">Libellé</span>
-              <input
-                className="mt-1 w-full rounded-lg border border-slate-200 px-3 py-2 bg-white"
-                value={subPlans.semiannualLabel}
-                onChange={(e) => setSubPlans({ ...subPlans, semiannualLabel: e.target.value })}
-              />
-            </label>
-            <label className="block text-sm">
-              <span className="text-slate-600">Prix (XPF)</span>
-              <input
-                type="number"
-                min={0}
-                className="mt-1 w-full rounded-lg border border-slate-200 px-3 py-2 bg-white"
-                value={subPlans.semiannualAmountXpf}
-                onChange={(e) => setSubPlans({ ...subPlans, semiannualAmountXpf: Number(e.target.value) })}
-              />
-            </label>
-            <label className="block text-sm">
-              <span className="text-slate-600">Durée (jours)</span>
-              <input
-                type="number"
-                min={1}
-                className="mt-1 w-full rounded-lg border border-slate-200 px-3 py-2 bg-white"
-                value={subPlans.semiannualDays}
-                onChange={(e) => setSubPlans({ ...subPlans, semiannualDays: Number(e.target.value) })}
-              />
-            </label>
-          </div>
+          {(["monthly", "semiannual"] as const).map((key) => {
+            const plan = subPlans[key];
+            if (!plan) return null;
+            return (
+              <div key={key} className="rounded-lg border border-slate-100 bg-slate-50 p-4 space-y-1">
+                <h3 className="text-sm font-semibold text-slate-800">{plan.label}</h3>
+                <p className="text-2xl font-bold text-slate-900">
+                  {plan.amountXpf.toLocaleString("fr-FR")} XPF
+                </p>
+                <p className="text-sm text-slate-500">{plan.days} jours · renouvelable Stripe</p>
+              </div>
+            );
+          })}
         </div>
+        {!subPlans.monthly ? (
+          <p className="text-sm text-amber-700">
+            Aucun tarif Stripe lu. Vérifie STRIPE_SECRET_KEY puis actualise.
+          </p>
+        ) : null}
 
         <button
-          onClick={saveSubscriptionPlans}
+          onClick={refreshSubscriptionPlans}
           disabled={saving}
           className="inline-flex items-center gap-2 rounded-lg bg-amber-500 px-4 py-2 text-sm font-medium text-slate-900 hover:bg-amber-400"
         >
-          <Save className="h-4 w-4" /> Enregistrer abonnement
+          <RefreshCw className="h-4 w-4" /> Actualiser depuis Stripe
         </button>
       </section>
 
