@@ -31,6 +31,7 @@ import {
   resolveSubscriptionStatus,
   trialSubscriptionValues,
   toPgTimestamp,
+  normalizePaidSubscriptionPeriod,
 } from "./ensure-loueur-subscription";
 import {
   createLoueurStripeCheckout,
@@ -7159,6 +7160,13 @@ const sessionId = headerSessionId || cookieSessionId;
           `[STRIPE-LOUEUR] GET driver recover driver=${driver.id} ok=${recovered.ok} err=${recovered.error || ""}`
         );
         if (recovered.ok) {
+          driver = (await dbStorage.getDriver(driver.id)) || driver;
+          resolved = resolveSubscriptionStatus(driver);
+        }
+      }
+      if (resolved.status === "active") {
+        const clamped = await normalizePaidSubscriptionPeriod(driver as any);
+        if (clamped) {
           driver = (await dbStorage.getDriver(driver.id)) || driver;
           resolved = resolveSubscriptionStatus(driver);
         }

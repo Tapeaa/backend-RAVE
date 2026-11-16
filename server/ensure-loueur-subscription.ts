@@ -79,6 +79,9 @@ export async function activatePaidLoueurSubscription(opts: {
   stripeInvoiceId?: string | null;
   stripeSubscriptionId?: string | null;
   stripeCustomerId?: string | null;
+  /** replace = 1 période à partir de maintenant (premier paiement). extend = renouvellement. */
+  mode?: "replace" | "extend";
+  periodEndsAt?: Date | string | number | null;
 }): Promise<{ ok: true; endsAt: string; alreadyProcessed?: boolean } | { ok: false; error: string }> {
   const [driver] = await db.select().from(drivers).where(eq(drivers.id, opts.driverId)).limit(1);
   if (!driver) return { ok: false, error: "Loueur introuvable" };
@@ -105,14 +108,26 @@ export async function activatePaidLoueurSubscription(opts: {
     opts.plan === "semiannual" && plans.semiannual ? plans.semiannual : plans.monthly;
   const now = new Date();
   const currentEnd = parseEndsAt((driver as any).subscriptionEndsAt);
-  const startFrom =
-    currentEnd && currentEnd.getTime() > now.getTime() ? currentEnd : now;
-  const ends = new Date(startFrom.getTime() + plan.days * 24 * 60 * 60 * 1000);
+  const explicitEnd = parseEndsAt(
+    typeof opts.periodEndsAt === "number"
+      ? new Date(opts.periodEndsAt * 1000)
+      : (opts.periodEndsAt as string | Date | null | undefined)
+  );
+  let ends: Date;
+  if (explicitEnd && explicitEnd.getTime() > now.getTime()) {
+    ends = explicitEnd;
+  } else if (opts.mode === "extend") {
+    const startFrom =
+      currentEnd && currentEnd.getTime() > now.getTime() ? currentEnd : now;
+    ends = new Date(startFrom.getTime() + plan.days * 24 * 60 * 60 * 1000);
+  } else {
+    ends = new Date(now.getTime() + plan.days * 24 * 60 * 60 * 1000);
+  }
 
   const core = {
     subscriptionPlan: plan.id,
     subscriptionStatus: "active" as const,
-    subscriptionStartsAt: now,
+    subscriptionStartsAt: opts.mode === "extend" ? ((driver as any).subscriptionStartsAt || now) : now,
     subscriptionEndsAt: ends,
     subscriptionAmount: opts.amountXpf != null ? opts.amountXpf : plan.amountXpf,
   };
@@ -136,6 +151,34 @@ export async function activatePaidLoueurSubscription(opts: {
   }
 
   return { ok: true, endsAt: ends.toISOString() };
+}
+
+/** Corrige un abo mensuel/6 mois dont la date de fin a été empilée (essai + paiement = 60 j). */
+export async function normalizePaidSubscriptionPeriod(driver: {
+  id: string;
+  subscriptionStatus?: string | null;
+  subscriptionPlan?: string | null;
+  subscriptionStartsAt?: string | Date | null;
+  subscriptionEndsAt?: string | Date | null;
+}): Promise<boolean> {
+  if ((driver.subscriptionStatus || "") !== "active") return false;
+  const planId = driver.subscriptionPlan === "semiannual" ? "semiannual" : "monthly";
+  const plans = await getLoueurSubscriptionPlans();
+  const plan = planId === "semiannual" && plans.semiannual ? plans.semiannual : plans.monthly;
+  const start = parseEndsAt(driver.subscriptionStartsAt) || new Date();
+  const end = parseEndsAt(driver.subscriptionEndsAt);
+  if (!end) return false;
+  const maxMs = plan.days * 24 * 60 * 60 * 1000 + 2 * 24 * 60 * 60 * 1000;
+  if (end.getTime() - start.getTime() <= maxMs) return false;
+  const corrected = new Date(start.getTime() + plan.days * 24 * 60 * 60 * 1000);
+  await db
+    .update(drivers)
+    .set({ subscriptionEndsAt: corrected } as any)
+    .where(eq(drivers.id, driver.id));
+  console.log(
+    `[STRIPE-LOUEUR] période corrigée driver=${driver.id} ${end.toISOString()} -> ${corrected.toISOString()} (${plan.days} j)`
+  );
+  return true;
 }
 
 export function trialSubscriptionValues(now = new Date()) {

@@ -28,6 +28,7 @@ import {
   getLoueurSubscriptionPlans,
   resolveSubscriptionStatus,
   toPgTimestamp,
+  normalizePaidSubscriptionPeriod,
 } from "./ensure-loueur-subscription";
 import {
   createLoueurStripeCheckout,
@@ -370,6 +371,13 @@ export function registerPrestataireRoutes(app: Express) {
           `[STRIPE-LOUEUR] GET prestataire recover driver=${liveDriver.id} ok=${recovered.ok} err=${recovered.error || ""}`
         );
         if (recovered.ok) {
+          liveDriver = (await dbStorage.getDriver(liveDriver.id)) || liveDriver;
+          resolved = resolveSubscriptionStatus(liveDriver);
+        }
+      }
+      if (resolved.status === "active") {
+        const clamped = await normalizePaidSubscriptionPeriod(liveDriver as any);
+        if (clamped) {
           liveDriver = (await dbStorage.getDriver(liveDriver.id)) || liveDriver;
           resolved = resolveSubscriptionStatus(liveDriver);
         }

@@ -89,6 +89,11 @@ export async function handleLoueurStripeCheckoutPaid(
     return { ok: false, error: "Impossible d’identifier le loueur (client_reference_id manquant)" };
   }
   const plan = await planFromCheckoutAmount(session.amount_total);
+  const subObj = session.subscription;
+  const periodUnix =
+    subObj && typeof subObj !== "string"
+      ? Number((subObj as any).current_period_end || (subObj as any).items?.data?.[0]?.current_period_end || 0)
+      : 0;
   const result = await activatePaidLoueurSubscription({
     driverId,
     plan,
@@ -96,6 +101,8 @@ export async function handleLoueurStripeCheckoutPaid(
     stripeSessionId: session.id,
     stripeSubscriptionId: stripeRefId(session.subscription),
     stripeCustomerId: stripeRefId(session.customer),
+    mode: "replace",
+    periodEndsAt: periodUnix > 0 ? periodUnix : null,
   });
   if (!result.ok) return { ok: false, driverId, error: result.error };
   console.log(
@@ -121,7 +128,9 @@ export async function confirmLoueurCheckoutSession(
   const id = String(sessionId || "").trim();
   if (!id.startsWith("cs_")) return { ok: false, error: "Session Stripe invalide" };
   try {
-    const session = await stripe.checkout.sessions.retrieve(id);
+    const session = await stripe.checkout.sessions.retrieve(id, {
+      expand: ["subscription"],
+    });
     return handleLoueurStripeCheckoutPaid(session);
   } catch (error: any) {
     return { ok: false, error: error?.message || "Session Stripe introuvable" };
@@ -218,6 +227,9 @@ export async function recoverPaidLoueurCheckout(
     const price = liveSub.items.data[0]?.price;
     const amount = price?.unit_amount ?? null;
     const targets = driverIds.length ? driverIds : [driverId];
+    const periodUnix = Number(
+      (liveSub as any).current_period_end || liveSub.items?.data?.[0]?.current_period_end || 0
+    );
     for (const id of targets) {
       await activatePaidLoueurSubscription({
         driverId: id,
@@ -225,6 +237,8 @@ export async function recoverPaidLoueurCheckout(
         amountXpf: amount,
         stripeSubscriptionId: liveSub.id,
         stripeCustomerId: stripeRefId(liveSub.customer),
+        mode: "replace",
+        periodEndsAt: periodUnix > 0 ? periodUnix : null,
       });
     }
     console.log(`[STRIPE-LOUEUR] recover subscription ${liveSub.id} drivers=${targets.join(",")}`);
@@ -262,6 +276,7 @@ export async function handleLoueurStripeInvoicePaid(
     return { ok: false, error: `Aucun loueur lié à ${subscriptionId}` };
   }
 
+  const isRenewal = reason === "subscription_cycle";
   const result = await activatePaidLoueurSubscription({
     driverId,
     plan: "monthly",
@@ -269,6 +284,7 @@ export async function handleLoueurStripeInvoicePaid(
     stripeInvoiceId: invoice.id,
     stripeSubscriptionId: subscriptionId,
     stripeCustomerId: stripeRefId(invoice.customer),
+    mode: isRenewal ? "extend" : "replace",
   });
   if (!result.ok) return { ok: false, driverId, error: result.error };
   console.log(`[STRIPE-LOUEUR] Renouvellement driver=${driverId} invoice=${invoice.id}`);
