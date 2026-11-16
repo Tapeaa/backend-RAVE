@@ -8178,6 +8178,78 @@ const sessionId = headerSessionId || cookieSessionId;
     }
   });
 
+  /** Page du formulaire carte PayZen (servie sur une vraie URL : Krypton ne s'initialise pas en srcdoc/about:blank) */
+  app.get("/api/payzen/form", async (req, res) => {
+    try {
+      const orderId = String(req.query.orderId || "").trim();
+      const formToken = String(req.query.formToken || "").trim();
+      if (!orderId || !/^[A-Za-z0-9+/=._-]{20,4000}$/.test(formToken)) {
+        return res.status(400).send("Paramètres invalides");
+      }
+      const [order] = await db.select().from(orders).where(eq(orders.id, orderId));
+      if (!order) return res.status(404).send("Commande introuvable");
+      const ro = (order.rideOption || {}) as any;
+      const [vehicle] = await db
+        .select({ prestataireId: loueurVehicles.prestataireId })
+        .from(loueurVehicles)
+        .where(eq(loueurVehicles.id, String(ro.loueurVehicleId || "")))
+        .limit(1);
+      const [prestataire] = vehicle?.prestataireId
+        ? await db.select().from(prestataires).where(eq(prestataires.id, vehicle.prestataireId)).limit(1)
+        : [null];
+      const publicKey = String((prestataire as any)?.osbPublicKey || "").replace(/["<>]/g, "");
+      if (!publicKey) return res.status(400).send("Paiement en ligne non configuré");
+      const amount = Number(order.totalPrice || 0).toLocaleString("fr-FR");
+
+      res.setHeader("Content-Type", "text/html; charset=utf-8");
+      res.setHeader("Cache-Control", "no-store");
+      return res.send(`<!DOCTYPE html><html lang="fr"><head>
+<meta charset="utf-8"/>
+<meta name="viewport" content="width=device-width, initial-scale=1"/>
+<title>Paiement sécurisé</title>
+<script src="https://static.payzen.eu/static/js/krypton-client/V4.0/stable/kr-payment-form.min.js"
+  kr-public-key="${publicKey}"
+  kr-language="fr-FR"></script>
+<link rel="stylesheet" href="https://static.payzen.eu/static/js/krypton-client/V4.0/ext/neon-reset.min.css"/>
+<script src="https://static.payzen.eu/static/js/krypton-client/V4.0/ext/neon.js"></script>
+<style>
+body{font-family:system-ui,-apple-system,sans-serif;padding:16px;background:#fff;margin:0;color:#111827}
+h1{font-size:18px;margin:0 0 4px}
+.hint{color:#6b7280;font-size:13px;margin:0 0 16px}
+.err{color:#b91c1c;font-size:13px;margin-top:10px}
+</style>
+</head><body>
+<h1>Paiement sécurisé</h1>
+<p class="hint">Montant : ${amount} XPF</p>
+<div class="kr-embedded" kr-form-token="${formToken}"></div>
+<p class="err" id="err"></p>
+<script>
+function post(type){
+  var msg = JSON.stringify({ type: type });
+  try { if (window.ReactNativeWebView) { window.ReactNativeWebView.postMessage(msg); return; } } catch(e){}
+  try { window.parent && window.parent !== window && window.parent.postMessage(msg, "*"); } catch(e){}
+}
+function init(){
+  if (typeof KR === "undefined") { setTimeout(init, 200); return; }
+  KR.onSubmit(function(event){
+    var st = event && event.clientAnswer && event.clientAnswer.orderStatus;
+    post(st === "PAID" || st === "AUTHORISED" ? "payzen_success" : "payzen_error");
+    return false;
+  });
+  KR.onError(function(e){
+    var el = document.getElementById("err");
+    if (el) el.textContent = (e && (e.errorMessage || e.detailedErrorMessage)) || "";
+  });
+}
+init();
+</script>
+</body></html>`);
+    } catch (error) {
+      console.error("[PayZen] form page:", error);
+      return res.status(500).send("Erreur serveur");
+    }
+  });
+
   /** IPN PayZen — body form: kr-answer, kr-hash, kr-hash-algorithm */
   app.post("/api/payzen/ipn", async (req, res) => {
     try {
