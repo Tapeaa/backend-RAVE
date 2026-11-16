@@ -329,6 +329,8 @@ export async function maybeStartLoueurTrialAfterVehicleWrite(vehicle: {
  */
 export function resolveSubscriptionStatus(driver: {
   subscriptionStatus?: string | null;
+  subscriptionPlan?: string | null;
+  subscriptionAmount?: number | null;
   subscriptionEndsAt?: string | Date | null;
 } | null | undefined): SubscriptionAccess {
   if (!driver) {
@@ -344,6 +346,9 @@ export function resolveSubscriptionStatus(driver: {
   }
 
   const raw = (driver.subscriptionStatus || "none") as string;
+  const trialPlan =
+    (driver.subscriptionPlan || "") === "trial" || Number(driver.subscriptionAmount || 0) === 0;
+  const isTrial = raw === "trial" || (trialPlan && raw !== "active" && raw !== "pending" && raw !== "expired");
   const pending = raw === "pending";
   const end = parseEndsAt(driver.subscriptionEndsAt);
   const endsAt = end ? end.toISOString() : null;
@@ -364,7 +369,7 @@ export function resolveSubscriptionStatus(driver: {
     if (end.getTime() > now) {
       const status: SubscriptionStatus = pending
         ? "pending"
-        : raw === "trial"
+        : isTrial || raw === "trial"
           ? "trial"
           : "active";
       return {
@@ -414,7 +419,7 @@ export function resolveSubscriptionStatus(driver: {
       pending: false,
     };
   }
-  return fromEndDate(raw === "trial" ? "trial" : "active");
+  return fromEndDate(isTrial || raw === "trial" ? "trial" : "active");
 }
 
 export type LoueurPlanDef = {

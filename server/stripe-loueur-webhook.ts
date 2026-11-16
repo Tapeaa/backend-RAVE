@@ -9,8 +9,11 @@ import { drivers, prestataires } from "@shared/schema";
 import { eq } from "drizzle-orm";
 import {
   activatePaidLoueurSubscription,
+  driverHasVisibleVehicle,
   getLoueurSubscriptionPlans,
+  idleSubscriptionValues,
   parseLoueurDriverRef,
+  trialSubscriptionValues,
   type LoueurPlanId,
 } from "./ensure-loueur-subscription";
 import { getLinkedAppDrivers } from "./sync-prestataire-app";
@@ -27,11 +30,13 @@ async function resolveDriverIdFromCheckout(
   if (fromMeta) {
     const [byMeta] = await db.select({ id: drivers.id }).from(drivers).where(eq(drivers.id, fromMeta)).limit(1);
     if (byMeta) return byMeta.id;
+    return null;
   }
   const fromRef = parseLoueurDriverRef(session.client_reference_id);
   if (fromRef) {
     const [d] = await db.select({ id: drivers.id }).from(drivers).where(eq(drivers.id, fromRef)).limit(1);
     if (d) return d.id;
+    return null;
   }
 
   const email = (
@@ -137,40 +142,32 @@ export async function confirmLoueurCheckoutSession(
   }
 }
 
-function sessionMatchesLoueur(
-  session: Stripe.Checkout.Session,
-  driverIds: string[],
-  emails: string[]
-): boolean {
+function checkoutOwnerDriverId(session: Stripe.Checkout.Session): string | null {
+  const metaId = String(session.metadata?.driverId || "").trim();
+  if (metaId) return metaId;
+  return parseLoueurDriverRef(session.client_reference_id);
+}
+
+function checkoutBelongsToDriver(session: Stripe.Checkout.Session, driverId: string): boolean {
+  const owner = checkoutOwnerDriverId(session);
+  return !!owner && owner === driverId;
+}
+
+function sessionMatchesLoueur(session: Stripe.Checkout.Session, driverId: string): boolean {
   const paid =
     session.payment_status === "paid" ||
     session.payment_status === "no_payment_required" ||
     session.status === "complete";
   if (!paid) return false;
-  const metaId = String(session.metadata?.driverId || "").trim();
-  const ref = String(session.client_reference_id || "").trim();
-  if (metaId && driverIds.includes(metaId)) return true;
-  if (driverIds.some((id) => ref === id || ref === `drv_${id}`)) return true;
-  const sessionEmail = (
-    session.customer_details?.email ||
-    session.customer_email ||
-    ""
-  )
-    .trim()
-    .toLowerCase();
-  return !!sessionEmail && emails.includes(sessionEmail);
+  return checkoutBelongsToDriver(session, driverId);
 }
 
 export async function recoverPaidLoueurCheckout(
   driverId: string,
-  opts?: { email?: string | null; driverIds?: string[] }
+  _opts?: { email?: string | null; driverIds?: string[] }
 ): Promise<{ ok: boolean; error?: string; driverId?: string }> {
   const stripe = getStripe();
   if (!stripe || !driverId) return { ok: false, error: "Stripe non configuré" };
-  const driverIds = Array.from(new Set([driverId, ...(opts?.driverIds || [])].filter(Boolean)));
-  const emails = [opts?.email]
-    .map((e) => String(e || "").trim().toLowerCase())
-    .filter((e) => e.includes("@"));
 
   try {
     let listed: Stripe.Checkout.Session[] = [];
@@ -182,20 +179,11 @@ export async function recoverPaidLoueurCheckout(
       listed = page.data;
     }
 
-    const match = listed.find((session) => sessionMatchesLoueur(session, driverIds, emails));
+    const match = listed.find((session) => sessionMatchesLoueur(session, driverId));
     if (match) {
-      const targets = driverIds.length ? driverIds : [driverId];
-      let last: { ok: boolean; driverId?: string; error?: string } = { ok: false };
-      for (const id of targets) {
-        const forced: Stripe.Checkout.Session = {
-          ...match,
-          metadata: { ...(match.metadata || {}), driverId: id },
-          client_reference_id: match.client_reference_id || `drv_${id}`,
-        };
-        last = await handleLoueurStripeCheckoutPaid(forced);
-      }
+      const last = await handleLoueurStripeCheckoutPaid(match);
       console.log(
-        `[STRIPE-LOUEUR] recover checkout ${match.id} drivers=${targets.join(",")} ok=${last.ok} err=${last.error || ""}`
+        `[STRIPE-LOUEUR] recover checkout ${match.id} driver=${driverId} ok=${last.ok} err=${last.error || ""}`
       );
       return last.ok ? { ok: true, driverId: last.driverId } : { ok: false, error: last.error };
     }
@@ -203,50 +191,97 @@ export async function recoverPaidLoueurCheckout(
     const subs = await stripe.subscriptions.list({
       status: "all",
       limit: 40,
-      expand: ["data.customer"],
     });
     const liveSub = subs.data.find((sub) => {
       if (sub.status !== "active" && sub.status !== "trialing") return false;
-      const metaId = String(sub.metadata?.driverId || "").trim();
-      if (metaId && driverIds.includes(metaId)) return true;
-      const customer = sub.customer;
-      const customerEmail =
-        customer && typeof customer !== "string" && "email" in customer
-          ? String((customer as Stripe.Customer).email || "").trim().toLowerCase()
-          : "";
-      return !!customerEmail && emails.includes(customerEmail);
+      return String(sub.metadata?.driverId || "").trim() === driverId;
     });
 
     if (!liveSub) {
       console.warn(
-        `[STRIPE-LOUEUR] recover: aucun paiement pour driver=${driverId} email=${emails.join(",") || "-"} sessions=${listed.length} subs=${subs.data.length}`
+        `[STRIPE-LOUEUR] recover: aucun paiement pour driver=${driverId} sessions=${listed.length} subs=${subs.data.length}`
       );
       return { ok: false, error: "Aucun paiement Stripe trouvé" };
     }
 
     const price = liveSub.items.data[0]?.price;
     const amount = price?.unit_amount ?? null;
-    const targets = driverIds.length ? driverIds : [driverId];
     const periodUnix = Number(
       (liveSub as any).current_period_end || liveSub.items?.data?.[0]?.current_period_end || 0
     );
-    for (const id of targets) {
-      await activatePaidLoueurSubscription({
-        driverId: id,
-        plan: "monthly",
-        amountXpf: amount,
-        stripeSubscriptionId: liveSub.id,
-        stripeCustomerId: stripeRefId(liveSub.customer),
-        mode: "replace",
-        periodEndsAt: periodUnix > 0 ? periodUnix : null,
-      });
-    }
-    console.log(`[STRIPE-LOUEUR] recover subscription ${liveSub.id} drivers=${targets.join(",")}`);
+    await activatePaidLoueurSubscription({
+      driverId,
+      plan: "monthly",
+      amountXpf: amount,
+      stripeSubscriptionId: liveSub.id,
+      stripeCustomerId: stripeRefId(liveSub.customer),
+      mode: "replace",
+      periodEndsAt: periodUnix > 0 ? periodUnix : null,
+    });
+    console.log(`[STRIPE-LOUEUR] recover subscription ${liveSub.id} driver=${driverId}`);
     return { ok: true, driverId };
   } catch (error: any) {
     console.warn("[STRIPE-LOUEUR] recover error:", error?.message || error);
     return { ok: false, error: error?.message || "Recherche Stripe impossible" };
   }
+}
+
+/** Si un abo « payé » vient d’un checkout Stripe d’un autre loueur, on le retire. */
+export async function restoreTrialIfPaidCheckoutNotOwned(driver: {
+  id: string;
+  prestataireId?: string | null;
+  subscriptionStatus?: string | null;
+  subscriptionStripeSessionId?: string | null;
+  subscriptionStripeSubscriptionId?: string | null;
+}): Promise<boolean> {
+  if ((driver.subscriptionStatus || "") !== "active") return false;
+  const stripe = getStripe();
+  if (!stripe) return false;
+
+  const sessionId = String(driver.subscriptionStripeSessionId || "").trim();
+  const subId = String(driver.subscriptionStripeSubscriptionId || "").trim();
+  let owned: boolean | null = null;
+
+  if (sessionId.startsWith("cs_")) {
+    try {
+      const session = await stripe.checkout.sessions.retrieve(sessionId);
+      const owner = checkoutOwnerDriverId(session);
+      if (owner) owned = owner === driver.id;
+    } catch (error: any) {
+      console.warn("[STRIPE-LOUEUR] verify session:", error?.message || error);
+    }
+  }
+  if (owned !== false && subId.startsWith("sub_")) {
+    try {
+      const sub = await stripe.subscriptions.retrieve(subId);
+      const metaId = String(sub.metadata?.driverId || "").trim();
+      if (metaId) owned = metaId === driver.id;
+    } catch (error: any) {
+      console.warn("[STRIPE-LOUEUR] verify subscription:", error?.message || error);
+    }
+  }
+
+  if (owned !== false) return false;
+
+  const hasVehicle = await driverHasVisibleVehicle({
+    driverId: driver.id,
+    prestataireId: driver.prestataireId,
+  });
+  const values = hasVehicle ? trialSubscriptionValues() : idleSubscriptionValues();
+  await db
+    .update(drivers)
+    .set({
+      ...values,
+      subscriptionStripeSessionId: null,
+      subscriptionStripeSubscriptionId: null,
+      subscriptionStripeCustomerId: null,
+      subscriptionStripeInvoiceId: null,
+    } as any)
+    .where(eq(drivers.id, driver.id));
+  console.log(
+    `[STRIPE-LOUEUR] paiement d’un autre compte retiré driver=${driver.id} → ${hasVehicle ? "trial" : "none"}`
+  );
+  return true;
 }
 
 export async function handleLoueurStripeInvoicePaid(

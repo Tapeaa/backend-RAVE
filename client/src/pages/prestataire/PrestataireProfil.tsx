@@ -683,6 +683,18 @@ export function PrestataireProfil() {
               </p>
             ) : null}
           </div>
+        ) : subscription?.status === 'trial' && !subscription?.waitingFirstVehicle ? (
+          <div className="mb-4 rounded-xl border border-gray-200 bg-white px-4 py-5 text-center">
+            <p className="text-2xl font-black tracking-tight text-gray-900 sm:text-3xl">Période d’essai lancée</p>
+            {subscription.daysRemaining != null ? (
+              <p className="mt-2 text-sm text-gray-600">
+                {subscription.daysRemaining} jour{subscription.daysRemaining > 1 ? 's' : ''} restant{subscription.daysRemaining > 1 ? 's' : ''}
+                {subscription.endsAt
+                  ? ` · jusqu’au ${new Date(subscription.endsAt).toLocaleDateString('fr-FR')}`
+                  : ''}
+              </p>
+            ) : null}
+          </div>
         ) : null}
         <div className="flex items-start gap-3 mb-4">
           <div className={`flex h-10 w-10 items-center justify-center rounded-lg ${subscription?.status === 'active' ? 'bg-emerald-200' : 'bg-amber-100'}`}>

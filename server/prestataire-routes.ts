@@ -39,6 +39,7 @@ import {
 import {
   confirmLoueurCheckoutSession,
   recoverPaidLoueurCheckout,
+  restoreTrialIfPaidCheckoutNotOwned,
 } from "./stripe-loueur-webhook";
 import { getLinkedAppDrivers } from "./sync-prestataire-app";
 import {
@@ -365,12 +366,12 @@ export function registerPrestataireRoutes(app: Express) {
       }
 
       let liveDriver = driver;
+      if (await restoreTrialIfPaidCheckoutNotOwned(liveDriver as any)) {
+        liveDriver = (await dbStorage.getDriver(liveDriver.id)) || liveDriver;
+      }
       let resolved = resolveSubscriptionStatus(liveDriver);
-      if (resolved.status !== "active") {
-        const recovered = await recoverPaidLoueurCheckout(liveDriver.id, {
-          email: prestataire.email,
-          driverIds: linked.map((d) => d.id),
-        });
+      if (resolved.status === "pending") {
+        const recovered = await recoverPaidLoueurCheckout(liveDriver.id);
         console.log(
           `[STRIPE-LOUEUR] GET prestataire recover driver=${liveDriver.id} ok=${recovered.ok} err=${recovered.error || ""}`
         );

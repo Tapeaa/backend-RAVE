@@ -41,6 +41,7 @@ import {
 import {
   confirmLoueurCheckoutSession,
   recoverPaidLoueurCheckout,
+  restoreTrialIfPaidCheckoutNotOwned,
 } from "./stripe-loueur-webhook";
 import {
   assertVehicleOwnedByDriver,
@@ -7147,18 +7148,12 @@ const sessionId = headerSessionId || cookieSessionId;
       let driver = await dbStorage.getDriver(session.driverId);
       if (!driver) return res.status(404).json({ success: false, error: "Loueur introuvable" });
 
+      if (await restoreTrialIfPaidCheckoutNotOwned(driver as any)) {
+        driver = (await dbStorage.getDriver(driver.id)) || driver;
+      }
       let resolved = resolveSubscriptionStatus(driver);
-      if (resolved.status !== "active") {
-        let email: string | null = null;
-        if (driver.prestataireId) {
-          const [p] = await db
-            .select({ email: prestataires.email })
-            .from(prestataires)
-            .where(eq(prestataires.id, driver.prestataireId))
-            .limit(1);
-          email = p?.email || null;
-        }
-        const recovered = await recoverPaidLoueurCheckout(driver.id, { email });
+      if (resolved.status === "pending") {
+        const recovered = await recoverPaidLoueurCheckout(driver.id);
         console.log(
           `[STRIPE-LOUEUR] GET driver recover driver=${driver.id} ok=${recovered.ok} err=${recovered.error || ""}`
         );
