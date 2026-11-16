@@ -131,9 +131,14 @@ app.use((req, res, next) => {
     registerStripeLoueurWebhook(app);
 
     app.get("/abonnement-ok", (_req, res) => {
-      res.type("html").send(`<!doctype html><html lang="fr"><body style="font-family:sans-serif;padding:48px;text-align:center">
-        <h1>Paiement confirmé</h1>
-        <p>Vous pouvez fermer cette page et revenir à RAVE Loueur.<br/>L’accès s’active automatiquement.</p>
+      res.type("html").send(`<!doctype html><html lang="fr"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Merci</title></head>
+      <body style="font-family:system-ui,sans-serif;margin:0;min-height:100vh;display:flex;align-items:center;justify-content:center;background:#ecfdf5">
+        <div style="max-width:420px;margin:24px;background:#fff;border-radius:20px;padding:32px;text-align:center;box-shadow:0 10px 40px rgba(5,150,105,.15)">
+          <div style="width:64px;height:64px;border-radius:999px;background:#d1fae5;margin:0 auto 16px;display:flex;align-items:center;justify-content:center;font-size:32px">✓</div>
+          <h1 style="margin:0 0 8px;font-size:26px;color:#065f46">Merci pour votre abonnement</h1>
+          <p style="margin:0 0 8px;font-size:20px;font-weight:800;color:#047857">Abonnement payé et en cours</p>
+          <p style="margin:0;color:#4b5563;line-height:1.5">Votre paiement a été validé. Vous pouvez fermer cette page et revenir à RAVE Loueur — l’accès est actif.</p>
+        </div>
       </body></html>`);
     });
     app.get("/abonnement-annule", (_req, res) => {

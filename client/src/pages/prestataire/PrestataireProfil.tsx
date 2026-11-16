@@ -3,7 +3,7 @@
  * Affiche et permet de modifier les infos du compte prestataire
  */
 
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { useLocation } from 'wouter';
 import {
   User,
@@ -118,17 +118,48 @@ export function PrestataireProfil() {
   const [uploadingDoc, setUploadingDoc] = useState<string | null>(null);
   const [subscription, setSubscription] = useState<SubscriptionInfo | null>(null);
   const [subscribing, setSubscribing] = useState<string | null>(null);
+  const [thanksOpen, setThanksOpen] = useState(false);
+  const aboPollRef = useRef<number | null>(null);
   const [osbForm, setOsbForm] = useState({ shopId: '', publicKey: '', certificate: '' });
   const [savingOsb, setSavingOsb] = useState(false);
   const [testingOsb, setTestingOsb] = useState(false);
   const [osbTestResult, setOsbTestResult] = useState<{ ok: boolean; message: string } | null>(null);
 
+  function stopAboPoll() {
+    if (aboPollRef.current) {
+      window.clearInterval(aboPollRef.current);
+      aboPollRef.current = null;
+    }
+  }
+
+  function startAboPoll() {
+    stopAboPoll();
+    let ticks = 0;
+    aboPollRef.current = window.setInterval(async () => {
+      ticks += 1;
+      const sub = await fetchSubscription();
+      if (sub?.status === 'active') {
+        stopAboPoll();
+        setThanksOpen(true);
+      }
+      if (ticks >= 40) stopAboPoll();
+    }, 2500);
+  }
+
   useEffect(() => {
     fetchProfil();
-    fetchSubscription();
+    fetchSubscription().then((sub) => {
+      const params = new URLSearchParams(window.location.search);
+      if (params.get('abonnement') === 'ok') {
+        window.history.replaceState({}, '', window.location.pathname);
+        if (sub?.status === 'active') setThanksOpen(true);
+        else startAboPoll();
+      }
+    });
+    return () => stopAboPoll();
   }, []);
 
-  async function fetchSubscription() {
+  async function fetchSubscription(): Promise<SubscriptionInfo | null> {
     try {
       const token = localStorage.getItem('admin_token');
       const response = await fetch('/api/prestataire/subscription', {
@@ -136,11 +167,14 @@ export function PrestataireProfil() {
       });
       if (response.ok) {
         const data = await response.json();
-        setSubscription(data.subscription || null);
+        const sub = data.subscription || null;
+        setSubscription(sub);
+        return sub;
       }
     } catch (e) {
       console.error(e);
     }
+    return null;
   }
 
   async function handleSubscribe(plan: 'monthly' | 'semiannual') {
@@ -166,12 +200,7 @@ export function PrestataireProfil() {
         setTimeout(() => setSuccessMessage(null), 8000);
         if (payUrl) window.open(payUrl, '_blank', 'noopener,noreferrer');
         await fetchSubscription();
-        let ticks = 0;
-        const timer = window.setInterval(async () => {
-          ticks += 1;
-          await fetchSubscription();
-          if (ticks >= 40) window.clearInterval(timer);
-        }, 3000);
+        startAboPoll();
       } else {
         alert(data.error || 'Erreur abonnement');
       }
@@ -609,10 +638,23 @@ export function PrestataireProfil() {
       )}
 
       {/* Abonnement plateforme */}
-      <div className="mb-6 rounded-xl border border-gray-200 bg-white p-5 shadow-sm">
+      <div className={`mb-6 rounded-xl border p-5 shadow-sm ${subscription?.status === 'active' ? 'border-emerald-300 bg-emerald-50' : 'border-gray-200 bg-white'}`}>
+        {subscription?.status === 'active' ? (
+          <div className="mb-4 rounded-xl bg-emerald-600 px-4 py-5 text-center text-white">
+            <p className="text-2xl font-black tracking-tight sm:text-3xl">Abonnement payé et en cours</p>
+            {subscription.daysRemaining != null ? (
+              <p className="mt-2 text-sm text-emerald-100">
+                {subscription.daysRemaining} jour{subscription.daysRemaining > 1 ? 's' : ''} restants
+                {subscription.endsAt
+                  ? ` · jusqu’au ${new Date(subscription.endsAt).toLocaleDateString('fr-FR')}`
+                  : ''}
+              </p>
+            ) : null}
+          </div>
+        ) : null}
         <div className="flex items-start gap-3 mb-4">
-          <div className="flex h-10 w-10 items-center justify-center rounded-lg bg-amber-100">
-            <CreditCard className="h-5 w-5 text-amber-700" />
+          <div className={`flex h-10 w-10 items-center justify-center rounded-lg ${subscription?.status === 'active' ? 'bg-emerald-200' : 'bg-amber-100'}`}>
+            <CreditCard className={`h-5 w-5 ${subscription?.status === 'active' ? 'text-emerald-800' : 'text-amber-700'}`} />
           </div>
           <div>
             <h2 className="font-semibold text-gray-900">Abonnement RAVE</h2>
@@ -620,12 +662,12 @@ export function PrestataireProfil() {
               {subscription?.status === 'trial'
                 ? `Essai gratuit${subscription.daysRemaining != null ? ` · ${subscription.daysRemaining} j restants` : ''}`
                 : subscription?.status === 'active'
-                ? `En cours${subscription.daysRemaining != null ? ` · ${subscription.daysRemaining} j restants` : ''}`
+                ? 'Paiement Stripe validé — accès complet'
                 : subscription?.status === 'pending'
                   ? 'Paiement Stripe en cours — activation automatique dès confirmation'
                 : subscription?.status === 'grace'
                   ? `Délai de grâce (${(subscription as any).graceDaysRemaining ?? 0} j) puis masquage catalogue`
-                : subscription?.status === 'expired'
+                  : subscription?.status === 'expired'
                   ? 'Expiré — vos véhicules sont masqués du catalogue'
                   : 'Aucun abonnement actif'}
             </p>
@@ -1206,6 +1248,29 @@ export function PrestataireProfil() {
       </div>
 
       {/* Dialog suppression */}
+      <Dialog open={thanksOpen} onOpenChange={setThanksOpen}>
+        <DialogContent className="sm:max-w-md text-center">
+          <DialogHeader>
+            <div className="mx-auto mb-2 flex h-14 w-14 items-center justify-center rounded-full bg-emerald-100">
+              <CheckCircle className="h-8 w-8 text-emerald-600" />
+            </div>
+            <DialogTitle className="text-xl">Merci pour votre abonnement</DialogTitle>
+            <DialogDescription className="text-base text-gray-600">
+              Votre paiement a été validé. L’abonnement est payé et en cours. Vous avez accès à toute l’application.
+            </DialogDescription>
+          </DialogHeader>
+          <DialogFooter className="sm:justify-center">
+            <button
+              type="button"
+              onClick={() => setThanksOpen(false)}
+              className="rounded-lg bg-emerald-600 px-5 py-2.5 text-sm font-semibold text-white hover:bg-emerald-700"
+            >
+              Continuer
+            </button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
       <Dialog open={deleteDialogOpen} onOpenChange={setDeleteDialogOpen}>
         <DialogContent className="sm:max-w-md">
           <DialogHeader>
