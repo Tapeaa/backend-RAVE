@@ -14,6 +14,7 @@ import {
   Building2,
   User,
 } from 'lucide-react';
+import { LoueurNoticeProvider } from '@/components/loueur/LoueurNotice';
 
 interface PrestataireInfo {
   id: string;
@@ -88,6 +89,7 @@ export function PrestataireLayout({ children }: Props) {
           : 'Indépendant';
 
   return (
+    <LoueurNoticeProvider>
     <div className="flex min-h-screen bg-gray-100">
       <aside className="hidden w-64 flex-shrink-0 bg-white shadow-lg lg:block">
         <div className="flex h-full flex-col">
@@ -193,5 +195,6 @@ export function PrestataireLayout({ children }: Props) {
         <main className="flex-1 overflow-auto p-4 lg:p-6">{children}</main>
       </div>
     </div>
+    </LoueurNoticeProvider>
   );
 }

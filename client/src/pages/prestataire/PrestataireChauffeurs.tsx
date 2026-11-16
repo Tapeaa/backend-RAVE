@@ -5,6 +5,7 @@
 
 import { useEffect, useState } from 'react';
 import { Users, Plus, X, Copy, Check, Car, Phone, Power, Edit, Percent } from 'lucide-react';
+import { useLoueurNotice } from '@/components/loueur/LoueurNotice';
 
 interface Chauffeur {
   id: string;
@@ -24,6 +25,7 @@ interface Chauffeur {
 }
 
 export function PrestataireChauffeurs() {
+  const notice = useLoueurNotice();
   const [chauffeurs, setChauffeurs] = useState<Chauffeur[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [showCreateModal, setShowCreateModal] = useState(false);
@@ -100,11 +102,11 @@ export function PrestataireChauffeurs() {
           commissionChauffeur: 95,
         });
       } else {
-        alert(data.error || 'Erreur lors de la création');
+        await notice.alert('Nouveau loueur', data.error || 'Impossible de créer ce loueur.');
       }
     } catch (error) {
       console.error('Error creating chauffeur:', error);
-      alert('Erreur de connexion');
+      await notice.alert('Nouveau loueur', 'Erreur de connexion.');
     } finally {
       setIsCreating(false);
     }
@@ -155,16 +157,21 @@ export function PrestataireChauffeurs() {
         setEditingCommission(null);
       } else {
         const data = await response.json();
-        alert(data.error || 'Erreur lors de la mise à jour');
+        await notice.alert('Commission', data.error || 'Impossible de mettre à jour la commission.');
       }
     } catch (error) {
       console.error('Error updating commission:', error);
-      alert('Erreur lors de la mise à jour');
+      await notice.alert('Commission', 'Impossible de mettre à jour la commission.');
     }
   }
 
   async function deleteChauffeur(id: string) {
-    if (!confirm('Supprimer ce loueur ?')) return;
+    const ok = await notice.confirm(
+      'Supprimer ce loueur ?',
+      'Cette action retire le loueur de votre organisation.',
+      { confirmLabel: 'Supprimer', tone: 'danger' }
+    );
+    if (!ok) return;
 
     try {
       const token = localStorage.getItem('admin_token');
@@ -176,7 +183,7 @@ export function PrestataireChauffeurs() {
       if (response.ok) {
         await fetchChauffeurs();
       } else {
-        alert('Erreur lors de la suppression');
+        await notice.alert('Suppression', 'Impossible de supprimer ce loueur.');
       }
     } catch (error) {
       console.error('Error deleting chauffeur:', error);

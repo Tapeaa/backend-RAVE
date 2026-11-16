@@ -5,6 +5,7 @@
 
 import { useEffect, useRef, useState } from 'react';
 import { CarFront, Plus, X, Check, Edit, Trash2, Eye, EyeOff, Search, CalendarOff, FileText, Bold, List, Heading2, FilePlus2 } from 'lucide-react';
+import { useLoueurNotice } from '@/components/loueur/LoueurNotice';
 import {
   buildCustomRentalContractHtml,
   buildDefaultRentalContractHtml,
@@ -162,6 +163,7 @@ type FormState = {
 };
 
 export function PrestataireMesVehicules() {
+  const notice = useLoueurNotice();
   const [vehicles, setVehicles] = useState<LoueurVehicle[]>([]);
   const [models, setModels] = useState<VehicleModel[]>([]);
   const [isLoading, setIsLoading] = useState(true);
@@ -251,7 +253,7 @@ export function PrestataireMesVehicules() {
   async function addAvailabilityBlock() {
     if (!editingVehicle) return;
     if (blockEnd < blockStart) {
-      alert('La date de fin doit être après le début');
+      await notice.alert('Indisponibilité', 'La date de fin doit être après le début.');
       return;
     }
     setBlockSaving(true);
@@ -274,14 +276,14 @@ export function PrestataireMesVehicules() {
       );
       if (!response.ok) {
         const err = await response.json().catch(() => ({}));
-        alert(err.error || 'Erreur');
+        await notice.alert('Indisponibilité', err.error || 'Impossible d’ajouter ce blocage de dates.');
         return;
       }
       setBlockReason('');
       await fetchAvailabilityBlocks(editingVehicle.id);
     } catch (e) {
       console.error(e);
-      alert('Erreur réseau');
+      await notice.alert('Indisponibilité', 'Erreur réseau. Réessayez dans un instant.');
     } finally {
       setBlockSaving(false);
     }
@@ -289,7 +291,12 @@ export function PrestataireMesVehicules() {
 
   async function removeAvailabilityBlock(blockId: string) {
     if (!editingVehicle) return;
-    if (!confirm('Supprimer ce blocage de dates ?')) return;
+    const ok = await notice.confirm(
+      'Supprimer ce blocage ?',
+      'Ces dates redeviendront disponibles à la location.',
+      { confirmLabel: 'Supprimer', tone: 'danger' }
+    );
+    if (!ok) return;
     try {
       const token = localStorage.getItem('admin_token');
       await fetch(
@@ -415,29 +422,33 @@ export function PrestataireMesVehicules() {
   }
 
   function addTier() {
+    const last = formData.pricingTiers[formData.pricingTiers.length - 1];
+    if (last.toDay <= last.fromDay && last.toDay >= formData.maxRentalDays) {
+      void notice.alert('Paliers tarifaires', 'Allongez ou réduisez la durée max avant d’ajouter un palier.');
+      return;
+    }
     setFormData((prev) => {
       const tiers = prev.pricingTiers.map((t) => ({ ...t }));
-      const last = tiers[tiers.length - 1];
-      if (last.toDay <= last.fromDay && last.toDay >= prev.maxRentalDays) {
-        alert('Allongez ou réduisez la durée max avant d’ajouter un palier');
+      const lastTier = tiers[tiers.length - 1];
+      if (lastTier.toDay >= prev.maxRentalDays) {
+        lastTier.toDay = Math.max(lastTier.fromDay, lastTier.toDay - 1);
+      }
+      if (lastTier.toDay < lastTier.fromDay) {
+        void notice.alert('Paliers tarifaires', 'Allongez le palier précédent avant d’en ajouter un.');
         return prev;
       }
-      if (last.toDay >= prev.maxRentalDays) {
-        last.toDay = Math.max(last.fromDay, last.toDay - 1);
-      }
-      if (last.toDay < last.fromDay) {
-        alert('Allongez le palier précédent avant d’en ajouter un');
-        return prev;
-      }
-      const fromDay = last.toDay + 1;
+      const fromDay = lastTier.toDay + 1;
       if (fromDay > prev.maxRentalDays) {
-        alert(`Impossible d'ajouter un palier : durée max déjà couverte (${prev.maxRentalDays} j)`);
+        void notice.alert(
+          'Paliers tarifaires',
+          `Impossible d'ajouter un palier : durée max déjà couverte (${prev.maxRentalDays} j).`
+        );
         return prev;
       }
       tiers.push({
         fromDay,
         toDay: prev.maxRentalDays,
-        pricePerDay: Math.max(1000, Math.round(last.pricePerDay * 0.9)),
+        pricePerDay: Math.max(1000, Math.round(lastTier.pricePerDay * 0.9)),
       });
       return { ...prev, pricingTiers: syncTierEdges(tiers, prev.maxRentalDays) };
     });
@@ -454,15 +465,18 @@ export function PrestataireMesVehicules() {
 
   async function handleSave() {
     if (!formData.vehicleModelId) {
-      alert('Veuillez sélectionner un modèle');
+      await notice.alert('Véhicule incomplet', 'Veuillez sélectionner un modèle.');
       return;
     }
     if (formData.pricingTiers.some((t) => t.pricePerDay < 1)) {
-      alert('Chaque palier doit avoir un prix > 0');
+      await notice.alert('Véhicule incomplet', 'Chaque palier doit avoir un prix supérieur à 0.');
       return;
     }
     if (formData.rentalContractMode === 'custom' && !formData.customContractText.trim()) {
-      alert('Rédigez votre contrat personnalisé, ou choisissez le contrat RAVE par défaut.');
+      await notice.alert(
+        'Contrat',
+        'Rédigez votre contrat personnalisé, ou choisissez le contrat RAVE par défaut.'
+      );
       return;
     }
 
@@ -507,7 +521,7 @@ export function PrestataireMesVehicules() {
         fetchVehicles();
       } else {
         const err = await response.json();
-        alert(err.error || 'Erreur');
+        await notice.alert('Véhicule', err.error || 'Impossible d’enregistrer le véhicule.');
       }
     } catch (error) {
       console.error('Error saving vehicle:', error);
@@ -531,7 +545,12 @@ export function PrestataireMesVehicules() {
   }
 
   async function handleDelete(vehicle: LoueurVehicle) {
-    if (!confirm(`Supprimer ce véhicule (${vehicle.modelName}) ?`)) return;
+    const ok = await notice.confirm(
+      'Supprimer ce véhicule ?',
+      `${vehicle.modelName} sera retiré de votre flotte.`,
+      { confirmLabel: 'Supprimer', tone: 'danger' }
+    );
+    if (!ok) return;
     try {
       const token = localStorage.getItem('admin_token');
       await fetch(`/api/prestataire/vehicles/${vehicle.id}`, {

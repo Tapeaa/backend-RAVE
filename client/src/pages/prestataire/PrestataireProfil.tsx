@@ -17,7 +17,6 @@ import {
   CheckCircle,
   KeyRound,
   Trash2,
-  ShieldAlert,
   FileText,
   ChevronDown,
   ChevronRight,
@@ -35,6 +34,7 @@ import {
   DialogTitle,
 } from '@/components/ui/dialog';
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from '@/components/ui/collapsible';
+import { useLoueurNotice } from '@/components/loueur/LoueurNotice';
 
 interface PrestataireDocuments {
   docNumeroTahiti: string | null;
@@ -117,9 +117,9 @@ export function PrestataireProfil() {
   const [isDeleting, setIsDeleting] = useState(false);
   const [docsExpanded, setDocsExpanded] = useState(false);
   const [uploadingDoc, setUploadingDoc] = useState<string | null>(null);
+  const notice = useLoueurNotice();
   const [subscription, setSubscription] = useState<SubscriptionInfo | null>(null);
   const [subscribing, setSubscribing] = useState<string | null>(null);
-  const [thanksOpen, setThanksOpen] = useState(false);
   const aboPollRef = useRef<number | null>(null);
   const [osbForm, setOsbForm] = useState({ shopId: '', publicKey: '', certificate: '' });
   const [savingOsb, setSavingOsb] = useState(false);
@@ -141,7 +141,10 @@ export function PrestataireProfil() {
       const sub = await fetchSubscription();
       if (sub?.status === 'active') {
         stopAboPoll();
-        setThanksOpen(true);
+        void notice.alert(
+          'Merci pour votre abonnement',
+          'Votre paiement a été validé. L’abonnement est payé et en cours. Vous avez accès à toute l’application.'
+        );
       }
       if (ticks >= 40) stopAboPoll();
     }, 2500);
@@ -170,8 +173,12 @@ export function PrestataireProfil() {
           }
           sub = await fetchSubscription();
         }
-        if (sub?.status === 'active') setThanksOpen(true);
-        else startAboPoll();
+        if (sub?.status === 'active') {
+          void notice.alert(
+            'Merci pour votre abonnement',
+            'Votre paiement a été validé. L’abonnement est payé et en cours. Vous avez accès à toute l’application.'
+          );
+        } else startAboPoll();
       }
     });
     return () => stopAboPoll();
@@ -199,7 +206,12 @@ export function PrestataireProfil() {
     const def = subscription?.plans?.[plan];
     const label = def?.label || (plan === 'monthly' ? 'Mensuel' : '6 mois');
     const amount = def?.amountXpf ?? (plan === 'monthly' ? 5000 : 30000);
-    if (!confirm(`Payer l’abonnement ${label} — ${amount.toLocaleString('fr-FR')} XPF via Stripe ? L’accès s’active dès confirmation du paiement.`)) return;
+    const ok = await notice.confirm(
+      'Payer l’abonnement Tape’ā',
+      `Formule ${label} — ${amount.toLocaleString('fr-FR')} XPF via Stripe.\n\nL’accès s’active dès confirmation du paiement.`,
+      { confirmLabel: 'Continuer vers Stripe' }
+    );
+    if (!ok) return;
     setSubscribing(plan);
     try {
       const token = localStorage.getItem('admin_token');
@@ -220,10 +232,10 @@ export function PrestataireProfil() {
         await fetchSubscription();
         startAboPoll();
       } else {
-        alert(data.error || 'Erreur abonnement');
+        await notice.alert('Paiement Stripe', data.error || 'Impossible de lancer le paiement pour le moment.');
       }
     } catch {
-      alert('Erreur abonnement');
+      await notice.alert('Paiement Stripe', 'Impossible de lancer le paiement pour le moment.');
     } finally {
       setSubscribing(null);
     }
@@ -231,7 +243,7 @@ export function PrestataireProfil() {
 
   async function handleSaveOsb() {
     if (!osbForm.shopId.trim()) {
-      alert('Shop ID requis');
+      await notice.alert('Paiement en ligne', 'Le Shop ID PayZen / OSB est requis.');
       return;
     }
     setSavingOsb(true);
@@ -245,7 +257,7 @@ export function PrestataireProfil() {
       if (osbForm.certificate.trim()) {
         body.certificate = osbForm.certificate.trim();
       } else if (!prestataire?.osbConfigured) {
-        alert('Certificat (clé API) requis pour la première configuration');
+        await notice.alert('Paiement en ligne', 'Le certificat (clé API) est requis pour la première configuration.');
         setSavingOsb(false);
         return;
       }
@@ -273,19 +285,22 @@ export function PrestataireProfil() {
         setSuccessMessage(data.message || 'Paiement OSB enregistré');
         setTimeout(() => setSuccessMessage(null), 4000);
       } else {
-        alert(data.error || 'Erreur enregistrement OSB');
+        await notice.alert('Paiement en ligne', data.error || 'Impossible d’enregistrer la configuration PayZen.');
       }
     } catch {
-      alert('Erreur enregistrement OSB');
+      await notice.alert('Paiement en ligne', 'Impossible d’enregistrer la configuration PayZen.');
     } finally {
       setSavingOsb(false);
     }
   }
 
   async function handleClearOsb() {
-    if (!confirm('Supprimer la configuration PayZen / OSB ? Les clients paieront alors chez le loueur.')) {
-      return;
-    }
+    const ok = await notice.confirm(
+      'Supprimer PayZen / OSB',
+      'Les clients paieront alors directement chez le loueur.',
+      { confirmLabel: 'Supprimer', tone: 'danger' }
+    );
+    if (!ok) return;
     setSavingOsb(true);
     try {
       const token = localStorage.getItem('admin_token');
@@ -308,10 +323,10 @@ export function PrestataireProfil() {
         setSuccessMessage(data.message || 'Configuration OSB supprimée');
         setTimeout(() => setSuccessMessage(null), 4000);
       } else {
-        alert(data.error || 'Erreur');
+        await notice.alert('Paiement en ligne', data.error || 'Impossible de supprimer la configuration.');
       }
     } catch {
-      alert('Erreur');
+      await notice.alert('Paiement en ligne', 'Impossible de supprimer la configuration.');
     } finally {
       setSavingOsb(false);
     }
@@ -386,23 +401,23 @@ export function PrestataireProfil() {
   async function handleSave() {
     if (!prestataire) return;
     if (!form.nom.trim()) {
-      alert('Le nom / raison sociale est obligatoire');
+      await notice.alert('Profil incomplet', 'Le nom / raison sociale est obligatoire.');
       return;
     }
     if (!form.phone.trim()) {
-      alert('Le téléphone est obligatoire');
+      await notice.alert('Profil incomplet', 'Le téléphone est obligatoire.');
       return;
     }
     if (!form.numeroTahiti.trim()) {
-      alert('Le N° Tahiti est obligatoire');
+      await notice.alert('Profil incomplet', 'Le N° Tahiti est obligatoire.');
       return;
     }
     if (!form.address.trim() || form.address.trim().length < 8) {
-      alert('L’adresse de facturation est obligatoire (min. 8 caractères)');
+      await notice.alert('Profil incomplet', 'L’adresse de facturation est obligatoire (min. 8 caractères).');
       return;
     }
     if (form.tvaRegime === 'assujetti' && (!form.tvaMode || (form.tvaMode !== 'included' && form.tvaMode !== 'extra'))) {
-      alert('Choisissez si la TVA est incluse dans le prix ou facturée en plus');
+      await notice.alert('Profil incomplet', 'Choisissez si la TVA est incluse dans le prix ou facturée en plus.');
       return;
     }
     setIsSaving(true);
@@ -428,11 +443,11 @@ export function PrestataireProfil() {
         setTimeout(() => setSuccessMessage(null), 3000);
       } else {
         const err = await response.json();
-        alert(err.error || 'Erreur lors de la mise à jour');
+        await notice.alert('Mise à jour du profil', err.error || 'Impossible d’enregistrer les modifications.');
       }
     } catch (error) {
       console.error('Error updating profile:', error);
-      alert('Erreur lors de la mise à jour');
+      await notice.alert('Mise à jour du profil', 'Impossible d’enregistrer les modifications.');
     } finally {
       setIsSaving(false);
     }
@@ -456,11 +471,11 @@ export function PrestataireProfil() {
 
   async function handleChangeCode() {
     if (!/^\d{6}$/.test(codeForm.currentCode) || !/^\d{6}$/.test(codeForm.newCode)) {
-      alert('Les codes doivent faire exactement 6 chiffres');
+      await notice.alert('Changement de code', 'Les codes doivent faire exactement 6 chiffres.');
       return;
     }
     if (codeForm.newCode !== codeForm.confirmCode) {
-      alert('Le nouveau code et la confirmation ne correspondent pas');
+      await notice.alert('Changement de code', 'Le nouveau code et la confirmation ne correspondent pas.');
       return;
     }
     setIsChangingCode(true);
@@ -484,11 +499,11 @@ export function PrestataireProfil() {
         setCodeForm({ currentCode: '', newCode: '', confirmCode: '' });
         setTimeout(() => setCodeSuccess(null), 5000);
       } else {
-        alert(data.error || 'Erreur lors du changement de code');
+        await notice.alert('Changement de code', data.error || 'Impossible de changer le code.');
       }
     } catch (error) {
       console.error(error);
-      alert('Erreur lors du changement de code');
+      await notice.alert('Changement de code', 'Impossible de changer le code.');
     } finally {
       setIsChangingCode(false);
     }
@@ -498,7 +513,7 @@ export function PrestataireProfil() {
     if (!prestataire) return;
     const allowed = ['application/pdf', 'image/jpeg', 'image/png', 'image/webp'];
     if (!allowed.includes(file.type)) {
-      alert('Format accepté : PDF, JPEG, PNG, WebP');
+      await notice.alert('Document', 'Format accepté : PDF, JPEG, PNG, WebP.');
       return;
     }
     setUploadingDoc(field);
@@ -533,7 +548,7 @@ export function PrestataireProfil() {
       setSuccessMessage('Document enregistré');
       setTimeout(() => setSuccessMessage(null), 3000);
     } catch (e) {
-      alert((e as Error).message || 'Erreur');
+      await notice.alert('Document', (e as Error).message || 'Impossible d’enregistrer le document.');
     } finally {
       setUploadingDoc(null);
     }
@@ -560,13 +575,13 @@ export function PrestataireProfil() {
       setSuccessMessage('Document supprimé');
       setTimeout(() => setSuccessMessage(null), 3000);
     } catch {
-      alert('Erreur lors de la suppression');
+      await notice.alert('Document', 'Impossible de supprimer le document.');
     }
   }
 
   async function handleDeleteAccount() {
     if (!/^\d{6}$/.test(deleteCode)) {
-      alert('Entrez votre code à 6 chiffres pour confirmer');
+      await notice.alert('Suppression du compte', 'Entrez votre code à 6 chiffres pour confirmer.');
       return;
     }
     setIsDeleting(true);
@@ -588,13 +603,12 @@ export function PrestataireProfil() {
         setDeleteDialogOpen(false);
         setDeleteCode('');
         setLocation('/admin/login');
-        alert(data.message || 'Compte supprimé');
       } else {
-        alert(data.error || 'Erreur lors de la suppression');
+        await notice.alert('Suppression du compte', data.error || 'Impossible de supprimer le compte.');
       }
     } catch (error) {
       console.error(error);
-      alert('Erreur lors de la suppression');
+      await notice.alert('Suppression du compte', 'Impossible de supprimer le compte.');
     } finally {
       setIsDeleting(false);
     }
@@ -702,17 +716,6 @@ export function PrestataireProfil() {
               className="inline-flex items-center rounded-lg bg-[#635BFF] px-4 py-2 text-sm font-semibold text-white hover:opacity-90 disabled:opacity-60"
             >
               Payer maintenant avec Stripe
-            </button>
-            <button
-              type="button"
-              onClick={async () => {
-                const sub = await fetchSubscription();
-                if (sub?.status === 'active') setThanksOpen(true);
-                else alert('Aucun paiement Stripe validé trouvé pour ce compte. Vérifie les logs Render [STRIPE-LOUEUR] recover.');
-              }}
-              className="inline-flex items-center rounded-lg border border-gray-300 bg-white px-4 py-2 text-sm font-semibold text-gray-800 hover:bg-gray-50"
-            >
-              Vérifier le paiement
             </button>
           </div>
         ) : null}
@@ -1280,39 +1283,14 @@ export function PrestataireProfil() {
         </button>
       </div>
 
-      {/* Dialog suppression */}
-      <Dialog open={thanksOpen} onOpenChange={setThanksOpen}>
-        <DialogContent className="sm:max-w-md text-center">
-          <DialogHeader>
-            <div className="mx-auto mb-2 flex h-14 w-14 items-center justify-center rounded-full bg-emerald-100">
-              <CheckCircle className="h-8 w-8 text-emerald-600" />
-            </div>
-            <DialogTitle className="text-xl">Merci pour votre abonnement</DialogTitle>
-            <DialogDescription className="text-base text-gray-600">
-              Votre paiement a été validé. L’abonnement est payé et en cours. Vous avez accès à toute l’application.
-            </DialogDescription>
-          </DialogHeader>
-          <DialogFooter className="sm:justify-center">
-            <button
-              type="button"
-              onClick={() => setThanksOpen(false)}
-              className="rounded-lg bg-emerald-600 px-5 py-2.5 text-sm font-semibold text-white hover:bg-emerald-700"
-            >
-              Continuer
-            </button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
-
       <Dialog open={deleteDialogOpen} onOpenChange={setDeleteDialogOpen}>
-        <DialogContent className="sm:max-w-md">
+        <DialogContent className="sm:max-w-md border-gray-100 bg-white shadow-[0_18px_50px_rgba(15,23,42,0.12)]">
           <DialogHeader>
-            <DialogTitle className="flex items-center gap-2 text-red-600">
-              <ShieldAlert className="h-5 w-5" />
-              Confirmer la suppression
+            <DialogTitle className="text-[17px] font-semibold text-gray-900">
+              Supprimer le compte
             </DialogTitle>
-            <DialogDescription>
-              Entrez votre code à 6 chiffres pour confirmer la suppression définitive de votre compte. Cette action est irréversible.
+            <DialogDescription className="text-[15px] leading-relaxed text-gray-600">
+              Entrez votre code à 6 chiffres pour confirmer. Cette action est irréversible.
             </DialogDescription>
           </DialogHeader>
           <div className="py-4">

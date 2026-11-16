@@ -4,6 +4,7 @@
 
 import { useState } from "react";
 import html2pdf from "html2pdf.js";
+import { useLoueurNotice } from "@/components/loueur/LoueurNotice";
 
 function hasClientSigned(ro: Record<string, unknown> | null | undefined): boolean {
   if (!ro) return false;
@@ -100,6 +101,7 @@ export function RentalContractSignatures({
   orderId?: string;
   auth?: "admin" | "prestataire";
 }) {
+  const notice = useLoueurNotice();
   const [downloading, setDownloading] = useState(false);
   const [previewPdfUrl, setPreviewPdfUrl] = useState<string | null>(null);
   const [msg, setMsg] = useState<string | null>(null);
@@ -214,8 +216,9 @@ export function RentalContractSignatures({
 
       throw new Error(data.error || "Contrat indisponible");
     } catch (e: any) {
-      setMsg(e?.message || "Erreur téléchargement");
-      alert(e?.message || "Erreur téléchargement contrat");
+      const text = e?.message || "Impossible de télécharger le contrat.";
+      setMsg(text);
+      await notice.alert("Contrat", text);
     } finally {
       setDownloading(false);
     }
@@ -245,9 +248,9 @@ export function RentalContractSignatures({
         setPreviewPdfUrl(data.signedPdfUrl);
         return;
       }
-      alert(data.error || "PDF signé Yousign indisponible pour le moment");
+      await notice.alert("Contrat", data.error || "Le PDF signé n’est pas encore disponible.");
     } catch (e: any) {
-      alert(e?.message || "Erreur");
+      await notice.alert("Contrat", e?.message || "Impossible d’ouvrir le PDF signé.");
     } finally {
       setDownloading(false);
     }

@@ -10,6 +10,7 @@ import { Elements, PaymentElement, useStripe, useElements } from '@stripe/react-
 import { Wallet, Clock, Check, AlertTriangle, Eye, Info, CreditCard, Building2 } from 'lucide-react';
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { Button } from '@/components/ui/button';
+import { useLoueurNotice } from '@/components/loueur/LoueurNotice';
 
 interface Collecte {
   id: string;
@@ -106,6 +107,7 @@ function StripePaymentForm({
 }
 
 export function PrestataireCollecte() {
+  const notice = useLoueurNotice();
   const [collectes, setCollectes] = useState<Collecte[]>([]);
   const [fraisConfig, setFraisConfig] = useState<FraisConfig | null>(null);
   const [isLoading, setIsLoading] = useState(true);
@@ -208,7 +210,7 @@ export function PrestataireCollecte() {
       setStripeAmount(data.amount);
       setStripeStep('form');
     } catch (err) {
-      alert(err instanceof Error ? err.message : 'Erreur');
+      await notice.alert('Paiement Stripe', err instanceof Error ? err.message : 'Impossible de lancer le paiement.');
     } finally {
       setStripeLoading(false);
     }
