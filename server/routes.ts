@@ -2497,7 +2497,7 @@ app.post("/api/rental-orders", async (req, res) => {
       rental: { ...body.rental, days },
       pricing: {
         pricePerDay,
-        subtotal,
+        subtotal: listedToClientPayable(subtotalListed, tvaOpts),
         supplementsTotal,
         discountAmount,
         grandTotal,
