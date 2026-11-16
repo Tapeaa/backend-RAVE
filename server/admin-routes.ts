@@ -16,7 +16,9 @@ import { eq, desc, asc, count, sql, and, gte, inArray, isNotNull, or } from "dri
 import { syncTahitiVehicleCatalog } from "./sync-vehicle-catalog";
 import {
   getLoueurSubscriptionPlans,
+  idleSubscriptionValues,
   resolveSubscriptionStatus,
+  syncLoueurTrialFromVehicles,
   trialSubscriptionValues,
   TRIAL_DAYS,
 } from "./ensure-loueur-subscription";
@@ -842,7 +844,7 @@ export function registerAdminRoutes(app: Express) {
           isActive: true,
           cguAccepted: false,
           privacyPolicyRead: false,
-          ...trialSubscriptionValues(),
+          ...idleSubscriptionValues(),
         })
         .returning();
 
@@ -987,6 +989,8 @@ export function registerAdminRoutes(app: Express) {
         .where(eq(loueurVehicles.driverId, driver!.id))
         .orderBy(desc(loueurVehicles.createdAt));
 
+      const trialSync = await syncLoueurTrialFromVehicles(driver as any);
+      driver = trialSync.driver as typeof driver;
       const sub = resolveSubscriptionStatus(driver as any);
       return res.json({
         chauffeur: driver,
@@ -996,6 +1000,7 @@ export function registerAdminRoutes(app: Express) {
         subscription: {
           status: sub.status,
           pending: sub.pending,
+          waitingFirstVehicle: trialSync.waitingFirstVehicle,
           plan: (driver as any).subscriptionPlan || null,
           amount: (driver as any).subscriptionAmount ?? null,
           startsAt: (driver as any).subscriptionStartsAt || null,

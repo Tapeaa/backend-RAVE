@@ -127,6 +127,8 @@ export function registerAdminBoExtensions(app: Express) {
         .where(eq(loueurVehicles.id, id))
         .returning();
       if (!updated) return res.status(404).json({ error: "Véhicule introuvable" });
+      const { maybeStartLoueurTrialAfterVehicleWrite } = await import("./ensure-loueur-subscription");
+      await maybeStartLoueurTrialAfterVehicleWrite(updated);
       await audit(req, "fleet.update", "loueur_vehicle", id, updates);
       return res.json(updated);
     } catch (error) {

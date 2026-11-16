@@ -60,6 +60,7 @@ interface ChauffeurDetails {
   subscription?: {
     status: string;
     pending: boolean;
+    waitingFirstVehicle?: boolean;
     plan: string | null;
     amount: number | null;
     endsAt: string | null;
@@ -731,8 +732,10 @@ export function AdminChauffeurDetails() {
           <div className="mt-6 rounded-xl border border-amber-200 bg-white p-6 shadow-sm">
             <h2 className="text-lg font-semibold text-gray-900">Abonnement RAVE</h2>
             <p className="mt-1 text-sm text-gray-500">
-              {details.subscription?.status === 'trial'
-                ? `Essai gratuit${details.subscription.daysRemaining != null ? ` · ${details.subscription.daysRemaining} j restants` : ''}`
+              {details.subscription?.waitingFirstVehicle
+                ? "Veuillez créer votre premier véhicule pour activer votre période d'essai, ou payer l'abonnement Tape'ā"
+                : details.subscription?.status === 'trial'
+                ? `Période d'essai lancée${details.subscription.daysRemaining != null ? ` · ${details.subscription.daysRemaining} jour${details.subscription.daysRemaining > 1 ? 's' : ''} restant${details.subscription.daysRemaining > 1 ? 's' : ''}` : ''}`
                 : details.subscription?.status === 'active'
                   ? `Actif${details.subscription.daysRemaining != null ? ` · ${details.subscription.daysRemaining} j restants` : ''}`
                   : details.subscription?.status === 'pending'
@@ -743,7 +746,7 @@ export function AdminChauffeurDetails() {
                       ? `Délai de grâce (${details.subscription.graceDaysRemaining ?? 0} j) — ensuite masqué du catalogue`
                       : details.subscription?.status === 'expired'
                         ? 'Expiré — véhicules masqués du catalogue'
-                        : 'Aucun abonnement (compte héritage)'}
+                        : 'Aucun abonnement'}
             </p>
             {details.subscription?.plan ? (
               <p className="mt-1 text-sm text-gray-600">

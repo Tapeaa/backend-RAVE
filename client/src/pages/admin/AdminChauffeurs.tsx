@@ -285,10 +285,12 @@ export function AdminChauffeurs() {
                   </span>
                   {chauffeur.subscription?.status ? (
                     <span className="inline-flex items-center rounded-full bg-amber-50 px-2.5 py-1 text-xs font-medium text-amber-800 border border-amber-200">
-                      {chauffeur.subscription.pending
+                      {chauffeur.subscription.status === 'none'
+                        ? 'En attente véhicule'
+                        : chauffeur.subscription.pending
                         ? 'Abo. en attente'
                         : chauffeur.subscription.status === 'trial'
-                          ? 'Essai'
+                          ? 'Essai lancé'
                           : chauffeur.subscription.status === 'active'
                             ? 'Abo. actif'
                             : chauffeur.subscription.status === 'grace'
@@ -399,12 +401,14 @@ export function AdminChauffeurs() {
                         <Power className={`h-3 w-3 ${chauffeur.isActive ? 'text-green-600' : 'text-slate-500'}`} />
                         {chauffeur.isActive ? 'Actif' : 'Inactif'}
                       </button>
-                      {chauffeur.subscription?.pending ? (
+                      {chauffeur.subscription?.status === 'none' ? (
+                        <span className="ml-2 text-xs font-medium text-slate-600">En attente véhicule</span>
+                      ) : chauffeur.subscription?.pending ? (
                         <span className="ml-2 text-xs font-medium text-amber-700">Abo. attente</span>
                       ) : chauffeur.subscription?.status === 'expired' ? (
                         <span className="ml-2 text-xs font-medium text-red-600">Abo. expiré</span>
                       ) : chauffeur.subscription?.status === 'trial' ? (
-                        <span className="ml-2 text-xs font-medium text-amber-700">Essai</span>
+                        <span className="ml-2 text-xs font-medium text-amber-700">Essai lancé</span>
                       ) : null}
                     </td>
                     <td className="px-6 py-4 text-sm text-slate-500">

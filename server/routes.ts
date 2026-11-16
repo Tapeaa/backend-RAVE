@@ -29,7 +29,8 @@ import {
 import {
   getLoueurSubscriptionPlans,
   resolveSubscriptionStatus,
-  trialSubscriptionValues,
+  maybeStartLoueurTrialAfterVehicleWrite,
+  syncLoueurTrialFromVehicles,
   toPgTimestamp,
   normalizePaidSubscriptionPeriod,
 } from "./ensure-loueur-subscription";
@@ -5618,6 +5619,7 @@ app.post("/api/live-activities/end", async (req, res) => {
       };
 
       console.log(`[Driver] Vehicle added: ${model.name} by driver ${driver.firstName} ${driver.lastName}`);
+      await maybeStartLoueurTrialAfterVehicleWrite(newVehicle);
       return res.status(201).json(response);
     } catch (error) {
       console.error("Error adding driver vehicle:", error);
@@ -5709,6 +5711,7 @@ app.post("/api/live-activities/end", async (req, res) => {
 
       const urls = normalizeVehicleImageUrls(updated.customImageUrls, updated.customImageUrl);
 
+      await maybeStartLoueurTrialAfterVehicleWrite(updated);
       return res.json({
         ...updated,
         customImageUrls: urls,
@@ -7171,6 +7174,9 @@ const sessionId = headerSessionId || cookieSessionId;
           resolved = resolveSubscriptionStatus(driver);
         }
       }
+      const trialSync = await syncLoueurTrialFromVehicles(driver as any);
+      driver = trialSync.driver as typeof driver;
+      resolved = resolveSubscriptionStatus(driver);
       if (
         driver.subscriptionStatus !== "pending" &&
         resolved.status === "expired" &&
@@ -7197,6 +7203,7 @@ const sessionId = headerSessionId || cookieSessionId;
           access: resolved.access,
           catalogVisible: resolved.catalogVisible,
           pending: resolved.pending,
+          waitingFirstVehicle: trialSync.waitingFirstVehicle,
           plans,
           paymentUrl: null,
         },

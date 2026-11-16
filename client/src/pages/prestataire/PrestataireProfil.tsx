@@ -73,6 +73,7 @@ type SubscriptionInfo = {
   endsAt: string | null;
   amount: number | null;
   daysRemaining: number | null;
+  waitingFirstVehicle?: boolean;
   paymentUrl?: string | null;
   plans?: { monthly?: SubPlan; semiannual?: SubPlan };
 };
@@ -676,8 +677,10 @@ export function PrestataireProfil() {
           <div>
             <h2 className="font-semibold text-gray-900">Abonnement RAVE</h2>
             <p className="text-sm text-gray-500">
-              {subscription?.status === 'trial'
-                ? `Essai gratuit${subscription.daysRemaining != null ? ` · ${subscription.daysRemaining} j restants` : ''}`
+              {subscription?.waitingFirstVehicle
+                ? "Veuillez créer votre premier véhicule pour activer votre période d'essai, ou payer l'abonnement Tape'ā"
+                : subscription?.status === 'trial'
+                ? `Période d'essai lancée${subscription.daysRemaining != null ? ` · ${subscription.daysRemaining} jour${subscription.daysRemaining > 1 ? 's' : ''} restant${subscription.daysRemaining > 1 ? 's' : ''}` : ''}`
                 : subscription?.status === 'active'
                 ? 'Paiement Stripe validé — accès complet'
                 : subscription?.status === 'pending'

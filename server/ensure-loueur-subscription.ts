@@ -2,8 +2,8 @@
  * Abonnement plateforme loueur : colonnes drivers + config prix (admin-editable).
  */
 import { db } from "./db";
-import { eq, sql } from "drizzle-orm";
-import { drivers } from "@shared/schema";
+import { and, eq, or, sql } from "drizzle-orm";
+import { drivers, loueurVehicles } from "@shared/schema";
 
 export type LoueurPlanId = "monthly" | "semiannual";
 
@@ -192,11 +192,139 @@ export function trialSubscriptionValues(now = new Date()) {
   };
 }
 
+/** Compte créé (code) sans essai : peut ajouter un véhicule, pas encore au catalogue. */
+export function idleSubscriptionValues() {
+  return {
+    subscriptionPlan: null as string | null,
+    subscriptionStatus: "none" as const,
+    subscriptionStartsAt: null as Date | null,
+    subscriptionEndsAt: null as Date | null,
+    subscriptionAmount: 0,
+  };
+}
+
+function vehicleOwnerFilter(opts: { driverId?: string | null; prestataireId?: string | null }) {
+  const ownerFilters = [];
+  if (opts.driverId) ownerFilters.push(eq(loueurVehicles.driverId, opts.driverId));
+  if (opts.prestataireId) ownerFilters.push(eq(loueurVehicles.prestataireId, opts.prestataireId));
+  if (ownerFilters.length === 0) return null;
+  return ownerFilters.length === 1 ? ownerFilters[0] : or(...ownerFilters);
+}
+
+/** Véhicule visible côté app client : actif + ouvert à la location. */
+export async function driverHasVisibleVehicle(opts: {
+  driverId?: string | null;
+  prestataireId?: string | null;
+}): Promise<boolean> {
+  const owner = vehicleOwnerFilter(opts);
+  if (!owner) return false;
+
+  const [row] = await db
+    .select({ id: loueurVehicles.id })
+    .from(loueurVehicles)
+    .where(and(eq(loueurVehicles.isActive, true), eq(loueurVehicles.availableForRental, true), owner))
+    .limit(1);
+  return !!row;
+}
+
+async function driverHasAnyVehicle(opts: {
+  driverId?: string | null;
+  prestataireId?: string | null;
+}): Promise<boolean> {
+  const owner = vehicleOwnerFilter(opts);
+  if (!owner) return false;
+  const [row] = await db.select({ id: loueurVehicles.id }).from(loueurVehicles).where(owner).limit(1);
+  return !!row;
+}
+
+export type LoueurTrialSyncResult<T> = {
+  driver: T;
+  waitingFirstVehicle: boolean;
+  startedTrial: boolean;
+};
+
+/**
+ * L'essai 30 j démarre au 1er véhicule visible sur l'app client.
+ * Sans véhicule : statut none (pas de « paiement en attente »).
+ * Un essai déjà lancé sans véhicule (création admin ancienne) est remis à zéro.
+ */
+export async function syncLoueurTrialFromVehicles<T extends {
+  id: string;
+  prestataireId?: string | null;
+  subscriptionStatus?: string | null;
+  subscriptionPlan?: string | null;
+  subscriptionStartsAt?: string | Date | null;
+  subscriptionEndsAt?: string | Date | null;
+}>(driver: T): Promise<LoueurTrialSyncResult<T>> {
+  const raw = (driver.subscriptionStatus || "none").toLowerCase();
+  const resolved = resolveSubscriptionStatus(driver);
+  if (resolved.status === "active" || resolved.status === "grace" || resolved.status === "expired") {
+    return { driver, waitingFirstVehicle: false, startedTrial: false };
+  }
+
+  const hasVehicle = await driverHasVisibleVehicle({
+    driverId: driver.id,
+    prestataireId: driver.prestataireId,
+  });
+
+  if (!hasVehicle) {
+    const neverConfigured = !(await driverHasAnyVehicle({
+      driverId: driver.id,
+      prestataireId: driver.prestataireId,
+    }));
+    if (raw === "trial" && neverConfigured) {
+      await db.update(drivers).set(idleSubscriptionValues() as any).where(eq(drivers.id, driver.id));
+      return {
+        driver: { ...driver, ...idleSubscriptionValues() },
+        waitingFirstVehicle: true,
+        startedTrial: false,
+      };
+    }
+    return { driver, waitingFirstVehicle: raw !== "trial", startedTrial: false };
+  }
+
+  const trialAlreadyRunning = raw === "trial" && !!parseEndsAt(driver.subscriptionEndsAt);
+  if (trialAlreadyRunning) {
+    return { driver, waitingFirstVehicle: false, startedTrial: false };
+  }
+
+  const trial = trialSubscriptionValues();
+  await db.update(drivers).set(trial as any).where(eq(drivers.id, driver.id));
+  console.log(`[ABO-LOUEUR] essai 30 j lancé driver=${driver.id} (1er véhicule visible)`);
+  return {
+    driver: { ...driver, ...trial },
+    waitingFirstVehicle: false,
+    startedTrial: true,
+  };
+}
+
+export async function maybeStartLoueurTrialAfterVehicleWrite(vehicle: {
+  driverId?: string | null;
+  prestataireId?: string | null;
+}): Promise<void> {
+  let driverRow: typeof drivers.$inferSelect | undefined;
+  if (vehicle.driverId) {
+    const [row] = await db.select().from(drivers).where(eq(drivers.id, vehicle.driverId)).limit(1);
+    driverRow = row;
+  }
+  if (!driverRow && vehicle.prestataireId) {
+    const [row] = await db
+      .select()
+      .from(drivers)
+      .where(eq(drivers.prestataireId, vehicle.prestataireId))
+      .limit(1);
+    driverRow = row;
+  }
+  if (driverRow) {
+    await syncLoueurTrialFromVehicles(driverRow as any);
+  }
+}
+
 /**
  * Statut opérationnel d'un loueur.
  * - trial / active / grace : accès + catalogue
  * - pending avec endsAt encore valide (essai en cours) : accès conservé
- * - none sans date : comptes hérités, accès conservé
+ * - none sans date : peut configurer un véhicule, hors catalogue jusqu'à l'essai
  * - expired après grâce 5 j : hors catalogue
  */
 export function resolveSubscriptionStatus(driver: {
@@ -226,7 +354,7 @@ export function resolveSubscriptionStatus(driver: {
       return {
         status: pending ? "pending" : (raw as SubscriptionStatus) || "none",
         access: !pending && (raw === "none" || raw === "trial" || raw === "active"),
-        catalogVisible: !pending && (raw === "none" || raw === "trial" || raw === "active"),
+        catalogVisible: !pending && (raw === "trial" || raw === "active"),
         daysRemaining: null,
         graceDaysRemaining: null,
         endsAt,
@@ -279,7 +407,7 @@ export function resolveSubscriptionStatus(driver: {
     return {
       status: "none",
       access: true,
-      catalogVisible: true,
+      catalogVisible: false,
       daysRemaining: null,
       graceDaysRemaining: null,
       endsAt: null,

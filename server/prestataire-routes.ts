@@ -27,6 +27,8 @@ import {
 import {
   getLoueurSubscriptionPlans,
   resolveSubscriptionStatus,
+  maybeStartLoueurTrialAfterVehicleWrite,
+  syncLoueurTrialFromVehicles,
   toPgTimestamp,
   normalizePaidSubscriptionPeriod,
 } from "./ensure-loueur-subscription";
@@ -337,6 +339,7 @@ export function registerPrestataireRoutes(app: Express) {
             endsAt: null,
             amount: null,
             daysRemaining: null,
+            waitingFirstVehicle: true,
             plans,
             driverId: null,
           },
@@ -354,6 +357,7 @@ export function registerPrestataireRoutes(app: Express) {
             endsAt: null,
             amount: null,
             daysRemaining: null,
+            waitingFirstVehicle: true,
             plans,
             driverId: primary.id,
           },
@@ -382,6 +386,9 @@ export function registerPrestataireRoutes(app: Express) {
           resolved = resolveSubscriptionStatus(liveDriver);
         }
       }
+      const trialSync = await syncLoueurTrialFromVehicles(liveDriver as any);
+      liveDriver = trialSync.driver as typeof liveDriver;
+      resolved = resolveSubscriptionStatus(liveDriver);
 
       return res.json({
         success: true,
@@ -396,6 +403,7 @@ export function registerPrestataireRoutes(app: Express) {
           access: resolved.access,
           catalogVisible: resolved.catalogVisible,
           pending: resolved.pending,
+          waitingFirstVehicle: trialSync.waitingFirstVehicle,
           plans,
           driverId: liveDriver.id,
           paymentUrl: null,
@@ -2080,6 +2088,7 @@ export function registerPrestataireRoutes(app: Express) {
         .returning();
 
       console.log(`[Prestataire] Vehicle added: ${model.name} by ${req.prestataire.nom}`);
+      await maybeStartLoueurTrialAfterVehicleWrite(newVehicle);
       return res.status(201).json(newVehicle);
     } catch (error) {
       console.error("Error adding loueur vehicle:", error);
@@ -2190,6 +2199,7 @@ export function registerPrestataireRoutes(app: Express) {
         .where(eq(loueurVehicles.id, id))
         .returning();
 
+      await maybeStartLoueurTrialAfterVehicleWrite(updated);
       return res.json(updated);
     } catch (error) {
       console.error("Error updating loueur vehicle:", error);
