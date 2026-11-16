@@ -246,14 +246,16 @@ export function registerAdminBoExtensions(app: Express) {
   app.get("/api/admin/loueur-subscription-config", requireAdminAuth, async (req, res) => {
     try {
       const { getLoueurSubscriptionPlans } = await import("./ensure-loueur-subscription");
-      const { getLoueurStripeProductId } = await import("./stripe-loueur-plans");
+      const { getLoueurStripeProductId, getStripePlansStatus } = await import("./stripe-loueur-plans");
       const refresh = String(req.query.refresh || "") === "1";
       const plans = await getLoueurSubscriptionPlans({ refresh });
+      const status = getStripePlansStatus();
       return res.json({
         success: true,
         plans,
-        source: "stripe",
+        source: status.fromStripe ? "stripe" : "fallback",
         stripeProductId: getLoueurStripeProductId(),
+        stripeError: status.error,
       });
     } catch (error) {
       console.error("Admin loueur subscription GET:", error);
@@ -264,14 +266,16 @@ export function registerAdminBoExtensions(app: Express) {
   app.post("/api/admin/loueur-subscription-config", requireAdminAuth, async (req: AuthenticatedRequest, res) => {
     try {
       const { updateLoueurSubscriptionPlans } = await import("./ensure-loueur-subscription");
-      const { getLoueurStripeProductId } = await import("./stripe-loueur-plans");
+      const { getLoueurStripeProductId, getStripePlansStatus } = await import("./stripe-loueur-plans");
       const plans = await updateLoueurSubscriptionPlans();
+      const status = getStripePlansStatus();
       await audit(req, "settings.loueur_subscription_refresh", "stripe_product", getLoueurStripeProductId(), {});
       return res.json({
         success: true,
         plans,
-        source: "stripe",
+        source: status.fromStripe ? "stripe" : "fallback",
         stripeProductId: getLoueurStripeProductId(),
+        stripeError: status.error,
       });
     } catch (error) {
       console.error("Admin loueur subscription POST:", error);

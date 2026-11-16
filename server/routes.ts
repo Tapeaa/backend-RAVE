@@ -30,8 +30,11 @@ import {
   getLoueurSubscriptionPlans,
   resolveSubscriptionStatus,
   trialSubscriptionValues,
-  buildLoueurStripeCheckoutUrl,
 } from "./ensure-loueur-subscription";
+import {
+  createLoueurStripeCheckout,
+  publicOriginFromReq,
+} from "./stripe-loueur-plans";
 import {
   assertVehicleOwnedByDriver,
   createAvailabilityBlock,
@@ -5962,7 +5965,13 @@ app.post("/api/live-activities/end", async (req, res) => {
   app.get("/api/loueur-subscription-plans", async (_req, res) => {
     try {
       const plans = await getLoueurSubscriptionPlans();
-      return res.json({ success: true, plans, source: "stripe" });
+      const { getStripePlansStatus } = await import("./stripe-loueur-plans");
+      const status = getStripePlansStatus();
+      return res.json({
+        success: true,
+        plans,
+        source: status.fromStripe ? "stripe" : "fallback",
+      });
     } catch (error) {
       console.error("Get loueur subscription plans error:", error);
       return res.status(500).json({ success: false, error: "Erreur serveur" });
@@ -7142,15 +7151,6 @@ const sessionId = headerSessionId || cookieSessionId;
       }
 
       const plans = await getLoueurSubscriptionPlans();
-      let paymentEmail: string | null = null;
-      if (driver.prestataireId) {
-        const [p] = await db
-          .select({ email: prestataires.email })
-          .from(prestataires)
-          .where(eq(prestataires.id, driver.prestataireId))
-          .limit(1);
-        paymentEmail = p?.email || null;
-      }
 
       return res.json({
         success: true,
@@ -7166,7 +7166,7 @@ const sessionId = headerSessionId || cookieSessionId;
           catalogVisible: resolved.catalogVisible,
           pending: resolved.pending,
           plans,
-          paymentUrl: buildLoueurStripeCheckoutUrl(driver.id, paymentEmail),
+          paymentUrl: null,
         },
       });
     } catch (error) {
@@ -7187,7 +7187,7 @@ const sessionId = headerSessionId || cookieSessionId;
       if (!planKey) {
         return res.status(400).json({ success: false, error: "Plan invalide (monthly | semiannual)" });
       }
-      const plans = await getLoueurSubscriptionPlans();
+      const plans = await getLoueurSubscriptionPlans({ refresh: true });
       const plan = planKey === "semiannual" ? plans.semiannual : plans.monthly;
       if (!plan) {
         return res.status(400).json({ success: false, error: "Cette formule n’existe pas sur Stripe" });
@@ -7224,7 +7224,17 @@ const sessionId = headerSessionId || cookieSessionId;
           .limit(1);
         paymentEmail = p?.email || null;
       }
-      const paymentUrl = buildLoueurStripeCheckoutUrl(driver.id, paymentEmail);
+      const origin = publicOriginFromReq(req);
+      const checkout = await createLoueurStripeCheckout({
+        driverId: driver.id,
+        email: paymentEmail,
+        priceId: plan.stripePriceId,
+        successUrl: `${origin}/abonnement-ok`,
+        cancelUrl: `${origin}/abonnement-annule`,
+      });
+      if ("error" in checkout) {
+        return res.status(502).json({ success: false, error: checkout.error });
+      }
 
       return res.json({
         success: true,
@@ -7241,7 +7251,7 @@ const sessionId = headerSessionId || cookieSessionId;
           pending: true,
           label: plan.label,
           plans,
-          paymentUrl,
+          paymentUrl: checkout.url,
           message: resolved.access
             ? `Paiement ${plan.label} (${plan.amountXpf.toLocaleString("fr-FR")} XPF). Votre essai reste actif ; l’abonnement s’active dès que Stripe confirme le paiement.`
             : `Paiement ${plan.label} (${plan.amountXpf.toLocaleString("fr-FR")} XPF). L’accès s’active automatiquement dès confirmation Stripe.`,

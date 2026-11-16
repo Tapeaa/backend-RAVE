@@ -130,6 +130,19 @@ app.use((req, res, next) => {
     
     registerStripeLoueurWebhook(app);
 
+    app.get("/abonnement-ok", (_req, res) => {
+      res.type("html").send(`<!doctype html><html lang="fr"><body style="font-family:sans-serif;padding:48px;text-align:center">
+        <h1>Paiement confirmé</h1>
+        <p>Vous pouvez fermer cette page et revenir à RAVE Loueur.<br/>L’accès s’active automatiquement.</p>
+      </body></html>`);
+    });
+    app.get("/abonnement-annule", (_req, res) => {
+      res.type("html").send(`<!doctype html><html lang="fr"><body style="font-family:sans-serif;padding:48px;text-align:center">
+        <h1>Paiement annulé</h1>
+        <p>Aucun prélèvement. Vous pouvez fermer cette page et réessayer plus tard.</p>
+      </body></html>`);
+    });
+
     const server = await registerRoutes(app);
 
     // ═══════════════════════════════════════════════════════════════════════════

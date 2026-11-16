@@ -12,6 +12,8 @@ type StripePlans = { monthly?: StripePlan; semiannual?: StripePlan };
 export function AdminSettings() {
   const [subPlans, setSubPlans] = useState<StripePlans>({});
   const [stripeProductId, setStripeProductId] = useState("prod_V6LPtnFYwO9E");
+  const [stripeError, setStripeError] = useState<string | null>(null);
+  const [stripeSource, setStripeSource] = useState<string>("");
   const [clientVersion, setClientVersion] = useState({ minVersion: "1.0.0", forceUpdate: false, message: "" });
   const [chauffeurVersion, setChauffeurVersion] = useState({ minVersion: "1.0.0", forceUpdate: false, message: "" });
   const [saving, setSaving] = useState(false);
@@ -36,6 +38,8 @@ export function AdminSettings() {
         const data = await s.json();
         setSubPlans(data.plans || {});
         if (data.stripeProductId) setStripeProductId(data.stripeProductId);
+        setStripeError(data.stripeError || null);
+        setStripeSource(data.source || "");
       }
     } catch (e) {
       console.error(e);
@@ -55,7 +59,13 @@ export function AdminSettings() {
         const data = await res.json();
         setSubPlans(data.plans || {});
         if (data.stripeProductId) setStripeProductId(data.stripeProductId);
-        setMsg("Prix rechargés depuis Stripe — visibles sur l’app et le dashboard");
+        setStripeError(data.stripeError || null);
+        setStripeSource(data.source || "");
+        setMsg(
+          data.stripeError
+            ? `Stripe : ${data.stripeError}`
+            : "Prix rechargés depuis Stripe — visibles sur l’app et le dashboard"
+        );
       } else {
         setMsg("Impossible de lire les tarifs Stripe");
       }
@@ -95,8 +105,12 @@ export function AdminSettings() {
         <div>
           <h2 className="font-semibold text-slate-900">Abonnement plateforme loueur</h2>
           <p className="text-sm text-slate-500 mt-1">
-            Prix lus automatiquement depuis Stripe (produit {stripeProductId}). Pour changer le tarif, modifie le produit dans Stripe — RAVE suit.
+            Prix lus automatiquement depuis Stripe (produit {stripeProductId}
+            {stripeSource ? ` · source ${stripeSource}` : ""}). Pour changer le tarif, modifie le produit dans Stripe — RAVE suit.
           </p>
+          {stripeError ? (
+            <p className="text-sm text-red-600 mt-2">Stripe : {stripeError}</p>
+          ) : null}
         </div>
 
         <div className="grid gap-4 sm:grid-cols-2">

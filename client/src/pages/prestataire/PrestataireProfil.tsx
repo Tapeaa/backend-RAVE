@@ -631,15 +631,15 @@ export function PrestataireProfil() {
             </p>
           </div>
         </div>
-        {subscription?.paymentUrl && subscription.status !== 'active' ? (
-          <a
-            href={subscription.paymentUrl}
-            target="_blank"
-            rel="noreferrer"
-            className="mb-4 inline-flex items-center rounded-lg bg-[#635BFF] px-4 py-2 text-sm font-semibold text-white hover:opacity-90"
+        {subscription?.status !== 'active' && subscription?.plans?.monthly ? (
+          <button
+            type="button"
+            disabled={!!subscribing}
+            onClick={() => handleSubscribe('monthly')}
+            className="mb-4 inline-flex items-center rounded-lg bg-[#635BFF] px-4 py-2 text-sm font-semibold text-white hover:opacity-90 disabled:opacity-60"
           >
             Payer maintenant avec Stripe
-          </a>
+          </button>
         ) : null}
         <div className="grid gap-3 sm:grid-cols-2">
           {(['monthly', 'semiannual'] as const).map((key) => {

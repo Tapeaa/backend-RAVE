@@ -23,6 +23,11 @@ function getStripe(): Stripe | null {
 async function resolveDriverIdFromCheckout(
   session: Stripe.Checkout.Session
 ): Promise<string | null> {
+  const fromMeta = String(session.metadata?.driverId || "").trim();
+  if (fromMeta) {
+    const [byMeta] = await db.select({ id: drivers.id }).from(drivers).where(eq(drivers.id, fromMeta)).limit(1);
+    if (byMeta) return byMeta.id;
+  }
   const fromRef = parseLoueurDriverRef(session.client_reference_id);
   if (fromRef) {
     const [d] = await db.select({ id: drivers.id }).from(drivers).where(eq(drivers.id, fromRef)).limit(1);
@@ -115,7 +120,17 @@ export async function handleLoueurStripeInvoicePaid(
   );
   if (!subscriptionId) return { ok: false, error: "invoice sans subscription" };
 
-  const driverId = await findDriverByStripeSubscription(subscriptionId);
+  let driverId = await findDriverByStripeSubscription(subscriptionId);
+  if (!driverId) {
+    const stripe = getStripe();
+    const metaId = stripe
+      ? (await stripe.subscriptions.retrieve(subscriptionId)).metadata?.driverId
+      : null;
+    if (metaId) {
+      const [row] = await db.select({ id: drivers.id }).from(drivers).where(eq(drivers.id, metaId)).limit(1);
+      driverId = row?.id || null;
+    }
+  }
   if (!driverId) {
     return { ok: false, error: `Aucun loueur lié à ${subscriptionId}` };
   }

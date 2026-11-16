@@ -27,8 +27,11 @@ import {
 import {
   getLoueurSubscriptionPlans,
   resolveSubscriptionStatus,
-  buildLoueurStripeCheckoutUrl,
 } from "./ensure-loueur-subscription";
+import {
+  createLoueurStripeCheckout,
+  publicOriginFromReq,
+} from "./stripe-loueur-plans";
 import { getLinkedAppDrivers } from "./sync-prestataire-app";
 import {
   encryptOsbCertificate,
@@ -368,7 +371,7 @@ export function registerPrestataireRoutes(app: Express) {
           pending: resolved.pending,
           plans,
           driverId: driver.id,
-          paymentUrl: buildLoueurStripeCheckoutUrl(driver.id, prestataire.email),
+          paymentUrl: null,
         },
       });
     } catch (error) {
@@ -393,7 +396,7 @@ export function registerPrestataireRoutes(app: Express) {
         .where(eq(prestataires.id, req.prestataire.id));
       if (!prestataire) return res.status(404).json({ error: "Prestataire non trouvé" });
 
-      const plans = await getLoueurSubscriptionPlans();
+      const plans = await getLoueurSubscriptionPlans({ refresh: true });
       const plan = planKey === "semiannual" ? plans.semiannual : plans.monthly;
       if (!plan) {
         return res.status(400).json({ error: "Cette formule n’existe pas sur Stripe" });
@@ -433,7 +436,17 @@ export function registerPrestataireRoutes(app: Express) {
         subscriptionStatus: "pending",
         subscriptionEndsAt: keepEndsAt,
       });
-      const paymentUrl = buildLoueurStripeCheckoutUrl(driver.id, prestataire.email);
+      const origin = publicOriginFromReq(req);
+      const checkout = await createLoueurStripeCheckout({
+        driverId: driver.id,
+        email: prestataire.email,
+        priceId: plan.stripePriceId,
+        successUrl: `${origin}/prestataire/profil?abonnement=ok`,
+        cancelUrl: `${origin}/prestataire/profil?abonnement=annule`,
+      });
+      if ("error" in checkout) {
+        return res.status(502).json({ error: checkout.error });
+      }
 
       return res.json({
         success: true,
@@ -450,7 +463,7 @@ export function registerPrestataireRoutes(app: Express) {
           pending: true,
           plans,
           driverId: driver.id,
-          paymentUrl,
+          paymentUrl: checkout.url,
           message: resolved.access
             ? `Paiement ${plan.label} (${plan.amountXpf.toLocaleString("fr-FR")} XPF). Votre essai reste actif ; l’abonnement s’active dès confirmation Stripe.`
             : `Paiement ${plan.label} (${plan.amountXpf.toLocaleString("fr-FR")} XPF). L’accès s’active automatiquement dès confirmation Stripe.`,

@@ -242,6 +242,7 @@ export type LoueurPlanDef = {
   label: string;
   amountXpf: number;
   days: number;
+  stripePriceId?: string;
 };
 
 export type LoueurSubscriptionPlans = {
