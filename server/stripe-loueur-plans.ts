@@ -89,6 +89,13 @@ function mapRecurringPrice(price: Stripe.Price): (LoueurPlanDef & { stripePriceI
   };
 }
 
+function stripeKeyMode(): "test" | "live" | "unknown" {
+  const key = process.env.STRIPE_SECRET_KEY || "";
+  if (key.startsWith("sk_test")) return "test";
+  if (key.startsWith("sk_live")) return "live";
+  return "unknown";
+}
+
 async function resolveDefaultPrice(
   stripe: Stripe,
   product: Stripe.Product
@@ -101,6 +108,33 @@ async function resolveDefaultPrice(
   } catch {
     return null;
   }
+}
+
+async function resolveLoueurProduct(stripe: Stripe): Promise<Stripe.Product> {
+  const wantedId = getLoueurStripeProductId();
+  const mode = stripeKeyMode();
+  try {
+    return await stripe.products.retrieve(wantedId, { expand: ["default_price"] });
+  } catch (error: any) {
+    if (error?.code !== "resource_missing") throw error;
+  }
+
+  const listed = await stripe.products.list({ active: true, limit: 100 });
+  const match =
+    listed.data.find((p) => /abonnement\s*rave/i.test(p.name || "")) ||
+    listed.data.find((p) => /abonnement/i.test(p.name || ""));
+  if (match) {
+    console.warn(
+      `[STRIPE-LOUEUR] ${wantedId} introuvable en mode ${mode}, fallback produit ${match.id} (${match.name})`
+    );
+    return stripe.products.retrieve(match.id, { expand: ["default_price"] });
+  }
+
+  throw new Error(
+    `Produit ${wantedId} introuvable en mode Stripe ${mode}. ` +
+      `La clé Render (STRIPE_SECRET_KEY) n’est pas le même environnement (test/live) que le dashboard où tu as créé Abonnement RAVE. ` +
+      `Mets la Secret key ${mode === "test" ? "live (sk_live_…)" : "test (sk_test_…)"} correspondant au dashboard.`
+  );
 }
 
 export async function fetchStripeLoueurPlans(
@@ -120,13 +154,10 @@ export async function fetchStripeLoueurPlans(
   }
 
   try {
-    const productId = getLoueurStripeProductId();
-    const product = await stripe.products.retrieve(productId, {
-      expand: ["default_price"],
-    });
+    const product = await resolveLoueurProduct(stripe);
     const defaultPrice = await resolveDefaultPrice(stripe, product);
     const listed = await stripe.prices.list({
-      product: productId,
+      product: product.id,
       active: true,
       limit: 20,
     });
@@ -143,7 +174,7 @@ export async function fetchStripeLoueurPlans(
       mapped[0];
 
     if (!monthly) {
-      lastError = `Aucun tarif récurrent actif sur ${productId}`;
+      lastError = `Aucun tarif récurrent actif sur ${product.id}`;
       lastFromStripe = false;
       console.warn("[STRIPE-LOUEUR]", lastError);
       return cache?.plans || null;
@@ -161,7 +192,7 @@ export async function fetchStripeLoueurPlans(
     lastError = null;
     lastFromStripe = true;
     console.log(
-      `[STRIPE-LOUEUR] Tarif live ${monthly.amountXpf} XPF (${monthly.stripePriceId})`
+      `[STRIPE-LOUEUR] mode=${stripeKeyMode()} produit=${product.id} tarif=${monthly.amountXpf} XPF (${monthly.stripePriceId})`
     );
     return plans;
   } catch (error: any) {
@@ -190,35 +221,37 @@ export async function createLoueurStripeCheckout(opts: {
   const stripe = getStripe();
   if (!stripe) return { error: "STRIPE_SECRET_KEY manquant sur le serveur" };
 
-  let priceId = opts.priceId || null;
-  if (!priceId) {
-    const plans = await fetchStripeLoueurPlans({ refresh: true });
-    priceId = plans?.monthly?.stripePriceId || null;
-  }
-  if (!priceId) {
-    const product = await stripe.products.retrieve(getLoueurStripeProductId(), {
-      expand: ["default_price"],
-    });
-    const def = await resolveDefaultPrice(stripe, product);
-    priceId = def?.id || null;
-  }
-  if (!priceId) return { error: "Aucun tarif Stripe par défaut" };
+  try {
+    let priceId = opts.priceId || null;
+    if (!priceId) {
+      const plans = await fetchStripeLoueurPlans({ refresh: true });
+      priceId = plans?.monthly?.stripePriceId || null;
+    }
+    if (!priceId) {
+      const product = await resolveLoueurProduct(stripe);
+      const def = await resolveDefaultPrice(stripe, product);
+      priceId = def?.id || null;
+    }
+    if (!priceId) return { error: "Aucun tarif Stripe par défaut" };
 
-  const mail = String(opts.email || "").trim();
-  const session = await stripe.checkout.sessions.create({
-    mode: "subscription",
-    line_items: [{ price: priceId, quantity: 1 }],
-    client_reference_id: `drv_${opts.driverId}`,
-    customer_email: mail.includes("@") ? mail : undefined,
-    success_url: opts.successUrl,
-    cancel_url: opts.cancelUrl,
-    metadata: { driverId: opts.driverId },
-    subscription_data: {
+    const mail = String(opts.email || "").trim();
+    const session = await stripe.checkout.sessions.create({
+      mode: "subscription",
+      line_items: [{ price: priceId, quantity: 1 }],
+      client_reference_id: `drv_${opts.driverId}`,
+      customer_email: mail.includes("@") ? mail : undefined,
+      success_url: opts.successUrl,
+      cancel_url: opts.cancelUrl,
       metadata: { driverId: opts.driverId },
-    },
-    allow_promotion_codes: true,
-  });
+      subscription_data: {
+        metadata: { driverId: opts.driverId },
+      },
+      allow_promotion_codes: true,
+    });
 
-  if (!session.url) return { error: "Stripe n’a pas renvoyé d’URL de paiement" };
-  return { url: session.url, sessionId: session.id };
+    if (!session.url) return { error: "Stripe n’a pas renvoyé d’URL de paiement" };
+    return { url: session.url, sessionId: session.id };
+  } catch (error: any) {
+    return { error: error?.message || "Checkout Stripe impossible" };
+  }
 }

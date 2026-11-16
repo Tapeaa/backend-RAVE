@@ -30,6 +30,7 @@ import {
   getLoueurSubscriptionPlans,
   resolveSubscriptionStatus,
   trialSubscriptionValues,
+  toPgTimestamp,
 } from "./ensure-loueur-subscription";
 import {
   createLoueurStripeCheckout,
@@ -7198,23 +7199,7 @@ const sessionId = headerSessionId || cookieSessionId;
 
       // Demande pending sans couper l'essai en cours (on conserve endsAt)
       const now = new Date();
-      const keepEndsAt = driver.subscriptionEndsAt || null;
-      await db
-        .update(drivers)
-        .set({
-          subscriptionPlan: plan.id,
-          subscriptionStatus: "pending",
-          subscriptionStartsAt: driver.subscriptionStartsAt || now,
-          subscriptionEndsAt: keepEndsAt,
-          subscriptionAmount: plan.amountXpf,
-        } as any)
-        .where(eq(drivers.id, driver.id));
-
-      const resolved = resolveSubscriptionStatus({
-        subscriptionStatus: "pending",
-        subscriptionEndsAt: keepEndsAt,
-      });
-
+      const keepEndsAt = toPgTimestamp(driver.subscriptionEndsAt);
       let paymentEmail: string | null = null;
       if (driver.prestataireId) {
         const [p] = await db
@@ -7235,6 +7220,22 @@ const sessionId = headerSessionId || cookieSessionId;
       if ("error" in checkout) {
         return res.status(502).json({ success: false, error: checkout.error });
       }
+
+      await db
+        .update(drivers)
+        .set({
+          subscriptionPlan: plan.id,
+          subscriptionStatus: "pending",
+          subscriptionStartsAt: toPgTimestamp(driver.subscriptionStartsAt, now),
+          subscriptionEndsAt: keepEndsAt,
+          subscriptionAmount: plan.amountXpf,
+        } as any)
+        .where(eq(drivers.id, driver.id));
+
+      const resolved = resolveSubscriptionStatus({
+        subscriptionStatus: "pending",
+        subscriptionEndsAt: keepEndsAt,
+      });
 
       return res.json({
         success: true,
@@ -7257,9 +7258,9 @@ const sessionId = headerSessionId || cookieSessionId;
             : `Paiement ${plan.label} (${plan.amountXpf.toLocaleString("fr-FR")} XPF). L’accès s’active automatiquement dès confirmation Stripe.`,
         },
       });
-    } catch (error) {
+    } catch (error: any) {
       console.error("[API] driver subscription subscribe:", error);
-      return res.status(500).json({ success: false, error: "Erreur serveur" });
+      return res.status(500).json({ success: false, error: error?.message || "Erreur serveur" });
     }
   });
   

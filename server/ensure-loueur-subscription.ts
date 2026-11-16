@@ -36,6 +36,12 @@ function parseEndsAt(raw: string | Date | null | undefined): Date | null {
   return Number.isNaN(d.getTime()) ? null : d;
 }
 
+export function toPgTimestamp(value: unknown, fallback?: Date | null): Date | null {
+  const parsed = parseEndsAt(value as string | Date | null | undefined);
+  if (parsed) return parsed;
+  return fallback === undefined ? null : fallback;
+}
+
 function daysBetween(fromMs: number, toMs: number): number {
   return Math.max(0, Math.ceil((toMs - fromMs) / (24 * 60 * 60 * 1000)));
 }
