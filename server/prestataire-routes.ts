@@ -33,6 +33,10 @@ import {
   createLoueurStripeCheckout,
   publicOriginFromReq,
 } from "./stripe-loueur-plans";
+import {
+  confirmLoueurCheckoutSession,
+  recoverPaidLoueurCheckout,
+} from "./stripe-loueur-webhook";
 import { getLinkedAppDrivers } from "./sync-prestataire-app";
 import {
   encryptOsbCertificate,
@@ -355,29 +359,50 @@ export function registerPrestataireRoutes(app: Express) {
         });
       }
 
-      const resolved = resolveSubscriptionStatus(driver);
+      let liveDriver = driver;
+      let resolved = resolveSubscriptionStatus(liveDriver);
+      if (resolved.status !== "active") {
+        const recovered = await recoverPaidLoueurCheckout(liveDriver.id);
+        if (recovered.ok) {
+          liveDriver = (await dbStorage.getDriver(liveDriver.id)) || liveDriver;
+          resolved = resolveSubscriptionStatus(liveDriver);
+        }
+      }
 
       return res.json({
         success: true,
         subscription: {
-          plan: driver.subscriptionPlan || null,
+          plan: liveDriver.subscriptionPlan || null,
           status: resolved.status,
-          startsAt: driver.subscriptionStartsAt || null,
+          startsAt: liveDriver.subscriptionStartsAt || null,
           endsAt: resolved.endsAt,
-          amount: driver.subscriptionAmount ?? null,
+          amount: liveDriver.subscriptionAmount ?? null,
           daysRemaining: resolved.daysRemaining,
           graceDaysRemaining: resolved.graceDaysRemaining,
           access: resolved.access,
           catalogVisible: resolved.catalogVisible,
           pending: resolved.pending,
           plans,
-          driverId: driver.id,
+          driverId: liveDriver.id,
           paymentUrl: null,
         },
       });
     } catch (error) {
       console.error("prestataire subscription GET:", error);
       return res.status(500).json({ error: "Erreur serveur" });
+    }
+  });
+
+  app.post("/api/prestataire/subscription/confirm", requirePrestataireAuth, async (req: AuthenticatedRequest, res) => {
+    try {
+      const sessionId = String(req.body?.sessionId || "").trim();
+      if (!sessionId) return res.status(400).json({ error: "sessionId requis" });
+      const result = await confirmLoueurCheckoutSession(sessionId);
+      if (!result.ok) return res.status(400).json({ error: result.error || "Paiement non confirmé" });
+      return res.json({ success: true, driverId: result.driverId });
+    } catch (error: any) {
+      console.error("prestataire subscription confirm:", error);
+      return res.status(500).json({ error: error?.message || "Erreur serveur" });
     }
   });
 
@@ -427,7 +452,7 @@ export function registerPrestataireRoutes(app: Express) {
         driverId: driver.id,
         email: prestataire.email,
         priceId: plan.stripePriceId,
-        successUrl: `${origin}/prestataire/profil?abonnement=ok`,
+        successUrl: `${origin}/prestataire/profil?abonnement=ok&session_id={CHECKOUT_SESSION_ID}`,
         cancelUrl: `${origin}/prestataire/profil?abonnement=annule`,
       });
       if ("error" in checkout) {

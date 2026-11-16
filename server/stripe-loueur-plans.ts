@@ -240,7 +240,9 @@ export async function createLoueurStripeCheckout(opts: {
       line_items: [{ price: priceId, quantity: 1 }],
       client_reference_id: `drv_${opts.driverId}`,
       customer_email: mail.includes("@") ? mail : undefined,
-      success_url: opts.successUrl,
+      success_url: opts.successUrl.includes("{CHECKOUT_SESSION_ID}")
+        ? opts.successUrl
+        : `${opts.successUrl}${opts.successUrl.includes("?") ? "&" : "?"}session_id={CHECKOUT_SESSION_ID}`,
       cancel_url: opts.cancelUrl,
       metadata: { driverId: opts.driverId },
       subscription_data: {

@@ -77,8 +77,12 @@ async function planFromCheckoutAmount(amountTotal: number | null): Promise<Loueu
 export async function handleLoueurStripeCheckoutPaid(
   session: Stripe.Checkout.Session
 ): Promise<{ ok: boolean; driverId?: string; error?: string }> {
-  if (session.payment_status && session.payment_status !== "paid") {
-    return { ok: false, error: `payment_status=${session.payment_status}` };
+  const paid =
+    session.payment_status === "paid" ||
+    session.payment_status === "no_payment_required" ||
+    session.status === "complete";
+  if (!paid) {
+    return { ok: false, error: `payment_status=${session.payment_status} status=${session.status}` };
   }
   const driverId = await resolveDriverIdFromCheckout(session);
   if (!driverId) {
@@ -109,10 +113,55 @@ async function findDriverByStripeSubscription(subscriptionId: string): Promise<s
   return row?.id || null;
 }
 
+export async function confirmLoueurCheckoutSession(
+  sessionId: string
+): Promise<{ ok: boolean; driverId?: string; error?: string }> {
+  const stripe = getStripe();
+  if (!stripe) return { ok: false, error: "Stripe non configuré" };
+  const id = String(sessionId || "").trim();
+  if (!id.startsWith("cs_")) return { ok: false, error: "Session Stripe invalide" };
+  try {
+    const session = await stripe.checkout.sessions.retrieve(id);
+    return handleLoueurStripeCheckoutPaid(session);
+  } catch (error: any) {
+    return { ok: false, error: error?.message || "Session Stripe introuvable" };
+  }
+}
+
+export async function recoverPaidLoueurCheckout(
+  driverId: string
+): Promise<{ ok: boolean; error?: string }> {
+  const stripe = getStripe();
+  if (!stripe || !driverId) return { ok: false, error: "Stripe non configuré" };
+  try {
+    const listed = await stripe.checkout.sessions.list({
+      limit: 40,
+      created: { gte: Math.floor(Date.now() / 1000) - 21 * 24 * 3600 },
+    });
+    const match = listed.data.find((session) => {
+      const paid =
+        session.payment_status === "paid" ||
+        session.status === "complete";
+      if (!paid) return false;
+      return (
+        session.metadata?.driverId === driverId ||
+        session.client_reference_id === `drv_${driverId}` ||
+        session.client_reference_id === driverId
+      );
+    });
+    if (!match) return { ok: false, error: "Aucun paiement Stripe trouvé" };
+    const result = await handleLoueurStripeCheckoutPaid(match);
+    return result.ok ? { ok: true } : { ok: false, error: result.error };
+  } catch (error: any) {
+    return { ok: false, error: error?.message || "Recherche Stripe impossible" };
+  }
+}
+
 export async function handleLoueurStripeInvoicePaid(
   invoice: Stripe.Invoice
 ): Promise<{ ok: boolean; driverId?: string; error?: string }> {
-  if (invoice.billing_reason && invoice.billing_reason !== "subscription_cycle") {
+  const reason = invoice.billing_reason;
+  if (reason && reason !== "subscription_cycle" && reason !== "subscription_create") {
     return { ok: true };
   }
   const subscriptionId = stripeRefId(
@@ -161,6 +210,15 @@ export async function handleLoueurStripeSubscriptionDeleted(
 }
 
 export function registerStripeLoueurWebhook(app: Express): void {
+  app.post("/api/public/loueur-subscription/confirm", async (req: Request, res: Response) => {
+    const sessionId = String(req.body?.sessionId || req.query.session_id || "").trim();
+    const result = await confirmLoueurCheckoutSession(sessionId);
+    if (!result.ok) {
+      return res.status(400).json({ success: false, error: result.error || "Paiement non confirmé" });
+    }
+    return res.json({ success: true, driverId: result.driverId });
+  });
+
   app.post("/api/webhooks/stripe-loueur", async (req: Request, res: Response) => {
     const stripe = getStripe();
     const webhookSecret = process.env.STRIPE_WEBHOOK_SECRET || "";
@@ -189,6 +247,7 @@ export function registerStripeLoueurWebhook(app: Express): void {
     }
 
     try {
+      console.log(`[STRIPE-LOUEUR] event ${event.type}`);
       if (
         event.type === "checkout.session.completed" ||
         event.type === "checkout.session.async_payment_succeeded"

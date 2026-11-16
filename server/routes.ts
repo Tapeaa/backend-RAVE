@@ -37,6 +37,10 @@ import {
   publicOriginFromReq,
 } from "./stripe-loueur-plans";
 import {
+  confirmLoueurCheckoutSession,
+  recoverPaidLoueurCheckout,
+} from "./stripe-loueur-webhook";
+import {
   assertVehicleOwnedByDriver,
   createAvailabilityBlock,
   deleteAvailabilityBlock,
@@ -7136,10 +7140,17 @@ const sessionId = headerSessionId || cookieSessionId;
       const session = await getDriverSessionWithFallback(sessionId);
       if (!session) return res.status(401).json({ success: false, error: "Session invalide" });
 
-      const driver = await dbStorage.getDriver(session.driverId);
+      let driver = await dbStorage.getDriver(session.driverId);
       if (!driver) return res.status(404).json({ success: false, error: "Loueur introuvable" });
 
-      const resolved = resolveSubscriptionStatus(driver);
+      let resolved = resolveSubscriptionStatus(driver);
+      if (resolved.status !== "active") {
+        const recovered = await recoverPaidLoueurCheckout(driver.id);
+        if (recovered.ok) {
+          driver = (await dbStorage.getDriver(driver.id)) || driver;
+          resolved = resolveSubscriptionStatus(driver);
+        }
+      }
       if (
         driver.subscriptionStatus !== "pending" &&
         resolved.status === "expired" &&
@@ -7173,6 +7184,25 @@ const sessionId = headerSessionId || cookieSessionId;
     } catch (error) {
       console.error("[API] driver subscription GET:", error);
       return res.status(500).json({ success: false, error: "Erreur serveur" });
+    }
+  });
+
+  app.post("/api/driver/subscription/confirm", async (req, res) => {
+    try {
+      const sessionIdHeader = req.headers["x-driver-session"] as string;
+      if (!sessionIdHeader) return res.status(401).json({ success: false, error: "Session requise" });
+      const session = await getDriverSessionWithFallback(sessionIdHeader);
+      if (!session) return res.status(401).json({ success: false, error: "Session invalide" });
+      const stripeSessionId = String(req.body?.sessionId || "").trim();
+      if (!stripeSessionId) return res.status(400).json({ success: false, error: "sessionId requis" });
+      const result = await confirmLoueurCheckoutSession(stripeSessionId);
+      if (!result.ok) {
+        return res.status(400).json({ success: false, error: result.error || "Paiement non confirmé" });
+      }
+      return res.json({ success: true, driverId: result.driverId });
+    } catch (error: any) {
+      console.error("[API] driver subscription confirm:", error);
+      return res.status(500).json({ success: false, error: error?.message || "Erreur serveur" });
     }
   });
 
@@ -7214,7 +7244,7 @@ const sessionId = headerSessionId || cookieSessionId;
         driverId: driver.id,
         email: paymentEmail,
         priceId: plan.stripePriceId,
-        successUrl: `${origin}/abonnement-ok`,
+        successUrl: `${origin}/abonnement-ok?session_id={CHECKOUT_SESSION_ID}`,
         cancelUrl: `${origin}/abonnement-annule`,
       });
       if ("error" in checkout) {

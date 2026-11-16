@@ -148,10 +148,27 @@ export function PrestataireProfil() {
 
   useEffect(() => {
     fetchProfil();
-    fetchSubscription().then((sub) => {
+    fetchSubscription().then(async (sub) => {
       const params = new URLSearchParams(window.location.search);
-      if (params.get('abonnement') === 'ok') {
+      const stripeSession = params.get('session_id');
+      if (params.get('abonnement') === 'ok' || stripeSession) {
         window.history.replaceState({}, '', window.location.pathname);
+        if (stripeSession) {
+          try {
+            const token = localStorage.getItem('admin_token');
+            await fetch('/api/prestataire/subscription/confirm', {
+              method: 'POST',
+              headers: {
+                'Content-Type': 'application/json',
+                Authorization: `Bearer ${token}`,
+              },
+              body: JSON.stringify({ sessionId: stripeSession }),
+            });
+          } catch (e) {
+            console.error(e);
+          }
+          sub = await fetchSubscription();
+        }
         if (sub?.status === 'active') setThanksOpen(true);
         else startAboPoll();
       }

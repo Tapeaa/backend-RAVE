@@ -137,8 +137,27 @@ app.use((req, res, next) => {
           <div style="width:64px;height:64px;border-radius:999px;background:#d1fae5;margin:0 auto 16px;display:flex;align-items:center;justify-content:center;font-size:32px">✓</div>
           <h1 style="margin:0 0 8px;font-size:26px;color:#065f46">Merci pour votre abonnement</h1>
           <p style="margin:0 0 8px;font-size:20px;font-weight:800;color:#047857">Abonnement payé et en cours</p>
-          <p style="margin:0;color:#4b5563;line-height:1.5">Votre paiement a été validé. Vous pouvez fermer cette page et revenir à RAVE Loueur — l’accès est actif.</p>
+          <p id="msg" style="margin:0;color:#4b5563;line-height:1.5">Activation de votre accès…</p>
         </div>
+        <script>
+          (async function () {
+            var msg = document.getElementById('msg');
+            var id = new URLSearchParams(location.search).get('session_id');
+            if (!id) { msg.textContent = 'Paiement validé. Revenez à RAVE Loueur — l’accès s’active automatiquement.'; return; }
+            try {
+              var res = await fetch('/api/public/loueur-subscription/confirm', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ sessionId: id })
+              });
+              msg.textContent = res.ok
+                ? 'Votre paiement a été validé. Vous pouvez fermer cette page et revenir à RAVE Loueur — l’accès est actif.'
+                : 'Paiement reçu. Si l’app n’est pas encore à jour, revenez dans une minute.';
+            } catch (e) {
+              msg.textContent = 'Paiement reçu. Revenez à l’application RAVE Loueur.';
+            }
+          })();
+        </script>
       </body></html>`);
     });
     app.get("/abonnement-annule", (_req, res) => {
