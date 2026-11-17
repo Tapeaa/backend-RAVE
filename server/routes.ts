@@ -7741,6 +7741,19 @@ const sessionId = headerSessionId || cookieSessionId;
       const driver = await dbStorage.getDriver(session.driverId);
       if (!driver) return res.status(404).json({ success: false, error: "Loueur introuvable" });
 
+      // Abonnement Stripe récurrent : un second checkout créerait une seconde souscription facturée en double.
+      const current = resolveSubscriptionStatus(driver);
+      if (current.status === "active") {
+        const until = current.endsAt ? new Date(current.endsAt).toLocaleDateString("fr-FR") : null;
+        return res.status(409).json({
+          success: false,
+          code: "SUBSCRIPTION_ALREADY_ACTIVE",
+          error: until
+            ? `Votre abonnement est déjà payé. Il se renouvelle automatiquement le ${until}.`
+            : "Votre abonnement est déjà payé et se renouvelle automatiquement.",
+        });
+      }
+
       // Demande pending sans couper l'essai en cours (on conserve endsAt)
       const now = new Date();
       const keepEndsAt = toPgTimestamp(driver.subscriptionEndsAt);
