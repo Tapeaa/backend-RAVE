@@ -5681,6 +5681,7 @@ app.post("/api/live-activities/end", async (req, res) => {
         prestataireActive: prestataires.isActive,
         osbShopId: prestataires.osbShopId,
         osbCertificateEncrypted: prestataires.osbCertificateEncrypted,
+        osbProvider: prestataires.osbProvider,
         driverId: loueurVehicles.driverId,
         transmission: vehicleModels.transmission,
         fuel: vehicleModels.fuel,
@@ -5821,6 +5822,7 @@ app.post("/api/live-activities/end", async (req, res) => {
               osbShopId: row.osbShopId,
               osbCertificateEncrypted: row.osbCertificateEncrypted,
             }),
+          paymentProvider: row.osbProvider === "systempay" ? "systempay" : "payzen",
         });
       }
 
@@ -8734,6 +8736,7 @@ const sessionId = headerSessionId || cookieSessionId;
       return res.json({
         success: true,
         paymentOnlineAvailable: info.paymentOnlineAvailable,
+        paymentProvider: info.paymentOnlineAvailable ? info.paymentProvider : null,
         methods: info.paymentOnlineAvailable ? ["card", "cash"] : ["cash"],
       });
     } catch (error) {

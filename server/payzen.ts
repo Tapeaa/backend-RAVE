@@ -445,11 +445,13 @@ export async function reconcilePayzenOrderIfNeeded<T extends { id: string; statu
 export async function getPrestataireOsbForVehicle(loueurVehicleId: string): Promise<{
   paymentOnlineAvailable: boolean;
   prestataireId: string | null;
+  paymentProvider: PaymentProvider;
 }> {
   const [row] = await db
     .select({
       prestataireId: loueurVehicles.prestataireId,
       listingExtras: loueurVehicles.listingExtras,
+      osbProvider: prestataires.osbProvider,
       osbShopId: prestataires.osbShopId,
       osbCertificateEncrypted: prestataires.osbCertificateEncrypted,
     })
@@ -458,9 +460,10 @@ export async function getPrestataireOsbForVehicle(loueurVehicleId: string): Prom
     .where(eq(loueurVehicles.id, loueurVehicleId))
     .limit(1);
 
-  if (!row) return { paymentOnlineAvailable: false, prestataireId: null };
+  if (!row) return { paymentOnlineAvailable: false, prestataireId: null, paymentProvider: "payzen" };
   return {
     prestataireId: row.prestataireId,
+    paymentProvider: normalizePaymentProvider(row.osbProvider),
     paymentOnlineAvailable:
       normalizeListingExtras(row.listingExtras).cardPaymentEnabled &&
       prestataireHasOsbCredentials({
