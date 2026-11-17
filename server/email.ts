@@ -8,7 +8,7 @@ import { Resend } from "resend";
 const RESEND_API_KEY = process.env.RESEND_API_KEY || process.env.MESSAGERIE_SUPPORT || process.env.Messagerie_Support;
 const rawFrom = process.env.RESEND_FROM_EMAIL || "RAVE Support <contact@rave-location.com>";
 const RESEND_FROM = rawFrom.includes("<") ? rawFrom : `RAVE Support <${rawFrom}>`;
-const ADMIN_EMAIL = process.env.ADMIN_SUPPORT_EMAIL || process.env.ADMIN_EMAIL || "contact@rave-location.com";
+const ADMIN_EMAIL = process.env.ADMIN_SUPPORT_EMAIL || process.env.ADMIN_EMAIL || "tapea.app@gmail.com";
 
 let resend: Resend | null = null;
 if (RESEND_API_KEY) {
