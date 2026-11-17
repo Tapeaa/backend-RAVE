@@ -3240,7 +3240,7 @@ app.post("/api/rental-orders/:id/cancel", async (req, res) => {
     // Pas encore validée par le loueur : annulation immédiate, le loueur est simplement prévenu
     if (order.status === "pending" || (order.status as string) === "awaiting_payment") {
       await dbStorage.updateOrderStatus(id, "cancelled");
-      await patchRentalRideOption(id, { cancellation: { by: "client", reason, at: now } });
+      await patchRentalRideOption(id, { cancellation: { by: "client", reason, at: now, beforeAcceptance: true } });
       const payload = rentalCancelPayload(order, { cancelledBy: "client", reason, beforeAcceptance: true });
       emitRentalOrderEvent(order, "rental-order:cancelled", payload);
       if (ownerId) {
