@@ -6,7 +6,7 @@ import path from "path";
 import { registerRoutes } from "./routes";
 import { registerStripeLoueurWebhook } from "./stripe-loueur-webhook";
 import { setupVite, serveStatic, log } from "./vite";
-import { apiLimiter, validateHeaders, validateUrlParams } from "./security";
+import { apiLimiter, loginLimiter, validateHeaders, validateUrlParams } from "./security";
 import { logger } from "./logger";
 import { healthCheck, metricsEndpoint, performanceMonitor } from "./monitoring";
 import { ensureVerificationCodesTable } from "./ensure-verification-codes-table";
@@ -64,6 +64,17 @@ app.use(validateUrlParams);
 
 // Rate limiting général (sauf /health et /metrics)
 app.use("/api", apiLimiter);
+app.post(
+  [
+    "/api/driver/login",
+    "/api/auth/login",
+    "/api/auth/verify",
+    "/api/auth/verify-reset-code",
+    "/api/auth/admin/login",
+    "/api/auth/admin/login-user",
+  ],
+  loginLimiter,
+);
 
 // Health check amélioré - enregistré en premier pour les probes de déploiement
 app.get("/health", healthCheck);

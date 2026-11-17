@@ -54,6 +54,21 @@ export const authLimiter = rateLimit({
 });
 
 /**
+ * Codes de connexion (loueur 6 chiffres, OTP, admin) : seuls les échecs comptent.
+ */
+export const loginLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000,
+  max: 10,
+  skipSuccessfulRequests: true,
+  message: {
+    error: 'Trop de tentatives de connexion. Veuillez réessayer dans 15 minutes.',
+    retryAfter: '15 minutes'
+  },
+  standardHeaders: true,
+  legacyHeaders: false,
+});
+
+/**
  * Rate limiter pour les routes de création de commandes
  * 10 commandes par heure par IP (protection contre spam)
  */

@@ -103,6 +103,7 @@ export async function getBusyRangesMapForVehicles(
       status: orders.status,
       rideOption: orders.rideOption,
       createdAt: orders.createdAt,
+      expiresAt: orders.expiresAt,
     })
     .from(orders)
     .orderBy(sql`${orders.createdAt} DESC`)
@@ -114,6 +115,13 @@ export async function getBusyRangesMapForVehicles(
     if (
       order.status === "awaiting_payment" &&
       now - new Date(order.createdAt as any).getTime() > AWAITING_PAYMENT_HOLD_MS
+    ) {
+      continue;
+    }
+    if (
+      order.status === "pending" &&
+      order.expiresAt &&
+      new Date(order.expiresAt as any).getTime() < now
     ) {
       continue;
     }

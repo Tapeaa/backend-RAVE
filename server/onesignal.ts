@@ -289,6 +289,12 @@ export const clientNotifications = {
       type: 'rental_cancelled_by_loueur',
       orderId,
     }),
+
+  rentalExpired: (clientId: string, orderId: string) =>
+    notifyClient(clientId, 'Demande expirée', 'Le loueur n\'a pas répondu à temps. Votre demande de location a expiré.', {
+      type: 'rental_expired',
+      orderId,
+    }),
 };
 
 /**

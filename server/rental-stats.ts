@@ -19,6 +19,14 @@ export function isRentalOrderLike(
   return ro?.type === "rental" || ro?.isRentalOrder === true;
 }
 
+function isRentalDone(order: StatOrder): boolean {
+  const ro = (order.rideOption || {}) as { rentalLifecyclePhase?: string };
+  return (
+    (RENTAL_DONE_STATUSES as readonly string[]).includes(order.status) ||
+    ro.rentalLifecyclePhase === "returned"
+  );
+}
+
 export function getDayStart(now = new Date()): Date {
   return new Date(now.getFullYear(), now.getMonth(), now.getDate());
 }
@@ -49,6 +57,7 @@ export type RentalEarningsAgg = {
   week: number;
   month: number;
   total: number;
+  upcoming: number;
   countToday: number;
   countWeek: number;
   countMonth: number;
@@ -79,13 +88,20 @@ export function aggregateRentalEarnings(
   let week = 0;
   let month = 0;
   let total = 0;
+  let upcoming = 0;
   let countToday = 0;
   let countWeek = 0;
   let countMonth = 0;
 
   for (const order of pipelineOrders) {
-    const orderDate = new Date(order.createdAt);
     const amount = Number(order.totalPrice) || 0;
+    // Le CA n'est acquis qu'une fois le véhicule rendu ; avant, c'est du CA à venir
+    if (!isRentalDone(order)) {
+      upcoming += amount;
+      continue;
+    }
+    const ro = (order.rideOption || {}) as Record<string, any>;
+    const orderDate = new Date(ro.returnedAt || ro.endDate || order.createdAt);
     total += amount;
 
     if (orderDate >= todayStart) {
@@ -102,15 +118,14 @@ export function aggregateRentalEarnings(
     }
   }
 
-  const completedCount = pipelineOrders.filter((o) =>
-    (RENTAL_DONE_STATUSES as readonly string[]).includes(o.status)
-  ).length;
+  const completedCount = pipelineOrders.filter(isRentalDone).length;
 
   return {
     today: Math.round(today),
     week: Math.round(week),
     month: Math.round(month),
     total: Math.round(total),
+    upcoming: Math.round(upcoming),
     countToday,
     countWeek,
     countMonth,

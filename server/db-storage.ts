@@ -2174,6 +2174,36 @@ export class DbStorage {
 
       const prestataireId = driver.prestataireId || null;
 
+      // 0. Locations en cours ou en attente : annulées et détachées pour rester dans l'historique client
+      try {
+        const reason = "Le loueur n'est plus disponible sur RAVE";
+        const cancellation = JSON.stringify({
+          cancellation: { by: "system", reason, at: new Date().toISOString() },
+        });
+        const affected = await db
+          .update(orders)
+          .set({
+            status: "cancelled",
+            assignedDriverId: null,
+            rideOption: sql`coalesce(${orders.rideOption}, '{}'::jsonb) || ${cancellation}::jsonb`,
+          } as any)
+          .where(
+            and(
+              sql`${orders.status} IN ('pending', 'awaiting_payment', 'accepted', 'booked', 'in_progress')`,
+              sql`(${orders.assignedDriverId} = ${driverId} OR (${orders.rideOption}->>'targetDriverId') = ${driverId})`,
+            ),
+          )
+          .returning({ id: orders.id, clientId: orders.clientId });
+        if (affected.length) {
+          const { clientNotifications } = await import("./onesignal");
+          for (const o of affected) {
+            if (o.clientId) clientNotifications.rentalCancelledByLoueur(o.clientId, o.id).catch(() => {});
+          }
+        }
+      } catch (e) {
+        console.log("[deleteDriver] annulation des locations actives ignorée:", e);
+      }
+
       // 1. Sessions
       await db.delete(driverSessions).where(eq(driverSessions.driverId, driverId));
 

@@ -1558,8 +1558,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
       try {
         // Check order is in valid state for messaging (including pending for pre-acceptance chat)
-        const validStatuses = ["pending", "accepted", "driver_enroute", "driver_arrived", "in_progress"];
-        if (!validStatuses.includes(order.status)) {
+        if (!CHAT_OPEN_STATUSES.includes(order.status)) {
           socket.emit("chat:error", { message: "La messagerie n'est disponible que pendant une course active" });
           return;
         }
@@ -1574,29 +1573,19 @@ export async function registerRoutes(app: Express): Promise<Server> {
         // Emit to both client (confirmation) and driver
         socket.emit("chat:message", { orderId: data.orderId, message });
         
-        // For pending orders, emit to all online drivers via drivers:online room
-        if (order.status === "pending") {
-          io.to("drivers:online").emit("chat:message", { orderId: data.orderId, message });
-          // Also emit notification for pop-up display
-          io.to("drivers:online").emit("chat:notification", { 
+        const driverRoom = chatDriverRoomForOrder(order);
+        if (driverRoom) {
+          io.to(driverRoom).emit("chat:message", { orderId: data.orderId, message });
+          io.to(driverRoom).emit("chat:notification", { 
             orderId: data.orderId, 
             message, 
             clientName: order.clientName || 'Client',
             fromClient: true 
           });
-        } else if (order.assignedDriverId) {
-          console.log(`[CHAT] Sending message to driver room: driver:${order.assignedDriverId}`);
-          io.to(`driver:${order.assignedDriverId}`).emit("chat:message", { orderId: data.orderId, message });
-          // Also emit notification for pop-up display
-          io.to(`driver:${order.assignedDriverId}`).emit("chat:notification", { 
-            orderId: data.orderId, 
-            message, 
-            clientName: order.clientName || 'Client',
-            fromClient: true 
-          });
-          // Send OneSignal push notification to assigned driver
-          console.log(`[CHAT] Sending OneSignal push to driver: ${order.assignedDriverId}`);
-          driverNotifications.newMessageFromClient(order.assignedDriverId, order.clientName || 'Client', data.orderId);
+        }
+        const ownerDriverId = getRentalOwnerDriverId(order);
+        if (ownerDriverId) {
+          driverNotifications.newMessageFromClient(ownerDriverId, order.clientName || 'Client', data.orderId);
         }
         
         // Also emit to order room for any listeners
@@ -1639,18 +1628,12 @@ export async function registerRoutes(app: Express): Promise<Server> {
           return;
         }
         
-        // Allow messaging for pending orders (pre-acceptance) OR if driver is assigned
-        const isPending = order.status === "pending";
-        const isAssignedDriver = order.assignedDriverId === driverId;
-        
-        if (!isPending && !isAssignedDriver) {
+        if (!canDriverAccessOrderChat(order, driverId)) {
           socket.emit("chat:error", { message: "Accès non autorisé" });
           return;
         }
 
-        // Check order is in valid state for messaging
-        const validStatuses = ["pending", "accepted", "driver_enroute", "driver_arrived", "in_progress"];
-        if (!validStatuses.includes(order.status)) {
+        if (!CHAT_OPEN_STATUSES.includes(order.status)) {
           socket.emit("chat:error", { message: "La messagerie n'est disponible que pendant une course active" });
           return;
         }
@@ -2173,15 +2156,21 @@ app.post("/api/rental-orders", async (req, res) => {
     })();
     // Seules les options publiées sur l'annonce sont acceptées, au prix serveur
     type ListedSupplement = { id: string; name: string; priceListed: number; price: number; quantity: number };
-    const rentalSupplementsListed: ListedSupplement[] = Array.isArray(body.supplements)
-      ? body.supplements.flatMap((s: any): ListedSupplement[] => {
+    const requestedExtras: any[] = [
+      ...(Array.isArray(body.supplements) ? body.supplements : []),
+      ...(Array.isArray(body.insurance?.options) ? body.insurance.options : []),
+    ];
+    const seenExtraIds = new Set<string>();
+    const rentalSupplementsListed: ListedSupplement[] = requestedExtras.length
+      ? requestedExtras.flatMap((s: any): ListedSupplement[] => {
           const match = listingCatalog.find(
             (o) =>
               (s.id && o.id === s.id) ||
               (s.name && o.label === s.name) ||
               (s.label && o.label === s.label)
           );
-          if (!match) return [];
+          if (!match || seenExtraIds.has(match.id)) return [];
+          seenExtraIds.add(match.id);
           const listedUnit = Number(match.pricePerDay) || 0;
           return [{
             id: match.id,
@@ -2841,6 +2830,22 @@ app.post("/api/rental-orders/:id/accept", async (req, res) => {
       } catch (e) {
         console.warn("[RENTAL] vehicle default meeting point skipped:", e);
       }
+
+      if (currentRideOption?.startDate && currentRideOption?.endDate) {
+        const availability = await assertVehicleAvailableForRental({
+          loueurVehicleId,
+          startDate: currentRideOption.startDate,
+          endDate: currentRideOption.endDate,
+          excludeOrderId: id,
+        });
+        if (!availability.ok) {
+          return res.status(409).json({
+            success: false,
+            error: `${availability.error}. Refusez cette demande.`,
+            code: "VEHICLE_UNAVAILABLE",
+          });
+        }
+      }
     }
 
     const meetingPoint =
@@ -3150,6 +3155,20 @@ function getRentalOwnerDriverId(order: Order): string | null {
   );
 }
 
+const CHAT_OPEN_STATUSES = ["pending", "accepted", "booked", "driver_enroute", "driver_arrived", "in_progress"];
+
+function canDriverAccessOrderChat(order: Order, driverId: string): boolean {
+  const owner = getRentalOwnerDriverId(order);
+  if (owner) return owner === driverId;
+  return order.status === "pending";
+}
+
+function chatDriverRoomForOrder(order: Order): string | null {
+  const owner = getRentalOwnerDriverId(order);
+  if (owner) return `driver:${owner}`;
+  return order.status === "pending" ? "drivers:online" : null;
+}
+
 async function requireDriverSessionFromReq(req: any): Promise<{ ok: true; session: DriverSession } | { ok: false; status: number; error: string }> {
   const sessionId = (
     (req.headers["x-driver-session"] as string) ||
@@ -3212,6 +3231,42 @@ function emitRentalOrderEvent(order: Order, event: string, payload: Record<strin
   io.to(`order:${order.id}`).emit(event, payload);
   if (ownerId) io.to(`driver:${ownerId}`).emit(event, payload);
 }
+
+// Une demande sans réponse expire à son expiresAt (3 j) ou dès que la date de début est passée
+async function expireStaleRentalRequests() {
+  const rows = await db
+    .select()
+    .from(orders)
+    .where(and(
+      eq(orders.status, "pending"),
+      dsql`(${orders.rideOption}->>'type') = 'rental'`,
+      dsql`(${orders.expiresAt} < now() OR (CASE WHEN (${orders.rideOption}->>'startDate') ~ '^[0-9]{4}-[0-9]{2}-[0-9]{2}T' THEN (${orders.rideOption}->>'startDate')::timestamptz END) < now())`,
+    ));
+  for (const row of rows) {
+    const order = row as unknown as Order;
+    const [updated] = await db
+      .update(orders)
+      .set({ status: "expired" } as any)
+      .where(and(eq(orders.id, order.id), eq(orders.status, "pending")))
+      .returning({ id: orders.id });
+    if (!updated) continue;
+    await patchRentalRideOption(order.id, {
+      cancellation: { by: "system", reason: "Demande expirée sans réponse du loueur", at: new Date().toISOString(), beforeAcceptance: true },
+    });
+    emitRentalOrderEvent(order, "rental-order:cancelled", rentalCancelPayload(order, {
+      cancelledBy: "system",
+      reason: "Demande expirée sans réponse du loueur",
+      beforeAcceptance: true,
+    }));
+    if (order.clientId) clientNotifications.rentalExpired(order.clientId, order.id).catch(() => {});
+    console.log(`[RENTAL] Demande ${order.id} expirée`);
+  }
+}
+
+setInterval(() => {
+  expireStaleRentalRequests().catch((e) => console.error("[RENTAL] expire sweep failed:", e));
+}, 5 * 60 * 1000);
+expireStaleRentalRequests().catch((e) => console.error("[RENTAL] expire sweep failed:", e));
 
 // Driver cancels directly / client cancels (pending) or requests cancel (accepted)
 app.post("/api/rental-orders/:id/cancel", async (req, res) => {
@@ -3809,14 +3864,14 @@ app.post("/api/live-activities/end", async (req, res) => {
       return res.json({ hasActiveOrder: false });
     }
 
-    const activeStatuses: OrderStatus[] = ["pending", "accepted", "booked"];
+    const activeStatuses: OrderStatus[] = ["accepted", "booked", "in_progress"];
     const orders = await dbStorage.getOrdersByDriver(driverId);
     const activeOrder = orders.find((o: Order) => {
       if (!isRentalOrderLike(o)) return false;
-      if (o.status === "completed" || o.status === "cancelled" || o.status === "payment_confirmed") return false;
+      if (o.assignedDriverId !== driverId) return false;
       const phase = (o.rideOption as any)?.rentalLifecyclePhase;
       if (phase === "returned") return false;
-      return activeStatuses.includes(o.status as OrderStatus) || !!phase;
+      return activeStatuses.includes(o.status as OrderStatus);
     });
 
     if (!activeOrder) {
@@ -3868,7 +3923,14 @@ app.post("/api/live-activities/end", async (req, res) => {
       return res.status(404).json({ error: "Order not found" });
     }
 
-    if (clientId && order.clientId !== clientId && !driverSession) {
+    const orderRo = (order.rideOption || {}) as any;
+    const isRental = orderRo?.type === "rental" || !!orderRo?.isRentalOrder;
+    const clientAllowed = !!clientId && order.clientId === clientId;
+    const driverAllowed = !!driverSession && (
+      getRentalOwnerDriverId(order) === driverSession.driverId ||
+      (!isRental && order.status === "pending" && !order.assignedDriverId)
+    );
+    if (!clientAllowed && !driverAllowed) {
       return res.status(403).json({ error: "Accès non autorisé" });
     }
 
@@ -3938,6 +4000,21 @@ app.post("/api/live-activities/end", async (req, res) => {
       const order = await dbStorage.getOrder(orderId);
       if (!order) {
         return res.status(404).json({ error: "Commande non trouvée" });
+      }
+
+      let requesterClientId = await getAuthenticatedClient(req as any);
+      const querySession = typeof req.query.session === "string" ? req.query.session.trim() : "";
+      if (!requesterClientId && querySession) {
+        const qs = await dbStorage.getClientSession(querySession);
+        if (qs && new Date(qs.expiresAt) >= new Date()) requesterClientId = qs.clientId;
+      }
+      const pdfDriverSessionId = ((req.headers["x-driver-session"] as string) || "").split(",")[0].trim();
+      const pdfDriverSession = pdfDriverSessionId ? await getDriverSessionWithFallback(pdfDriverSessionId) : null;
+      const pdfAllowed =
+        (!!requesterClientId && order.clientId === requesterClientId) ||
+        (!!pdfDriverSession && getRentalOwnerDriverId(order) === pdfDriverSession.driverId);
+      if (!pdfAllowed) {
+        return res.status(401).json({ error: "Authentification requise" });
       }
 
       // Récupérer ou créer la facture si elle n'existe pas
@@ -6100,10 +6177,18 @@ app.post("/api/live-activities/end", async (req, res) => {
       updates.availableForDelivery = false;
       updates.availableForLongTerm = false;
 
-      if (req.body.pricingTiers !== undefined || req.body.maxRentalDays !== undefined) {
-        const tiersInput = req.body.pricingTiers !== undefined
+      const newBasePrice = req.body.pricePerDay !== undefined ? Number(req.body.pricePerDay) : NaN;
+      if (req.body.pricingTiers !== undefined || req.body.maxRentalDays !== undefined || newBasePrice > 0) {
+        let tiersInput = req.body.pricingTiers !== undefined
           ? req.body.pricingTiers
           : existing.pricingTiers;
+        // Le tarif catalogue est celui du palier 1 : un nouveau prix/jour seul doit le mettre à jour
+        if (req.body.pricingTiers === undefined && newBasePrice > 0) {
+          const current = Array.isArray(tiersInput) ? tiersInput : [];
+          tiersInput = current.length
+            ? current.map((t: any, i: number) => (i === 0 ? { ...t, pricePerDay: newBasePrice } : t))
+            : [{ fromDay: 1, toDay: existing.maxRentalDays ?? MAX_RENTAL_DAYS_CAP, pricePerDay: newBasePrice }];
+        }
         const maxInput = req.body.maxRentalDays !== undefined
           ? req.body.maxRentalDays
           : existing.maxRentalDays ?? MAX_RENTAL_DAYS_CAP;
@@ -7310,14 +7395,9 @@ const cookieSessionId = rawCookieSessionId?.split(",")[0].trim() || undefined;
 // IMPORTANT : on privilégie le header (mobile) puis le cookie (web)
 const sessionId = headerSessionId || cookieSessionId;
 
-    const headerClientIdRaw = (req.headers["x-client-id"] as string | undefined) || "";
-    const headerClientId = headerClientIdRaw.split(",")[0].trim() || undefined;
-
     console.log("[CLIENT_ORDERS] Incoming request", {
-      cookieSessionId,
-      headerSessionId,
-      headerClientId,
-      finalSessionId: sessionId,
+      hasCookieSession: !!cookieSessionId,
+      hasHeaderSession: !!headerSessionId,
     });
 
     let clientId: string | undefined;
@@ -7334,12 +7414,6 @@ const sessionId = headerSessionId || cookieSessionId;
       if (session) {
         clientId = session.clientId;
       }
-    }
-
-    // 2) Plan B pour React Native : utiliser le clientId envoyé par l'app
-    if (!clientId && headerClientId) {
-      clientId = headerClientId;
-      console.log("[CLIENT_ORDERS] Using header clientId fallback", { clientId });
     }
 
     if (!clientId) {
@@ -7475,14 +7549,9 @@ const sessionId = headerSessionId || cookieSessionId;
       // Privilégier le header (mobile) puis le cookie (web)
       const sessionId = headerSessionId || cookieSessionId;
       
-      const headerClientIdRaw = (req.headers["x-client-id"] as string | undefined) || "";
-      const headerClientId = headerClientIdRaw.split(",")[0].trim() || undefined;
-      
       console.log(`[DELETE ACCOUNT] Headers reçus:`, {
-        headerSessionId,
-        cookieSessionId,
-        headerClientId,
-        finalSessionId: sessionId
+        hasHeaderSession: !!headerSessionId,
+        hasCookieSession: !!cookieSessionId,
       });
       
       let clientId: string | undefined;
@@ -7494,12 +7563,6 @@ const sessionId = headerSessionId || cookieSessionId;
         if (session) {
           clientId = session.clientId;
         }
-      }
-      
-      // 2) Plan B pour React Native : utiliser le clientId envoyé par l'app
-      if (!clientId && headerClientId) {
-        clientId = headerClientId;
-        console.log(`[DELETE ACCOUNT] Utilisation du headerClientId: ${clientId}`);
       }
       
       if (!clientId) {
@@ -8406,6 +8469,7 @@ const sessionId = headerSessionId || cookieSessionId;
           week: agg.week,
           month: agg.month,
           total: agg.total,
+          upcoming: agg.upcoming,
         },
         totalEarnings: agg.total,
         totalLocations: agg.totalCount,
@@ -9618,11 +9682,7 @@ setTimeout(notify, 400);
         return res.status(404).json({ error: "Commande introuvable" });
       }
       
-      // Allow access for pending orders (pre-acceptance) OR if driver is assigned
-      const isPending = order.status === "pending";
-      const isAssignedDriver = order.assignedDriverId === driverId;
-      
-      if (!isPending && !isAssignedDriver) {
+      if (!canDriverAccessOrderChat(order, driverId)) {
         return res.status(403).json({ error: "Accès non autorisé" });
       }
 
@@ -9658,9 +9718,7 @@ setTimeout(notify, 400);
         return res.status(403).json({ error: "Accès non autorisé" });
       }
 
-      // Check order is in valid state for messaging (including pending for pre-acceptance chat)
-      const validStatuses = ["pending", "accepted", "driver_enroute", "driver_arrived", "in_progress"];
-      if (!validStatuses.includes(order.status)) {
+      if (!CHAT_OPEN_STATUSES.includes(order.status)) {
         return res.status(400).json({ error: "La messagerie n'est disponible que pendant une course active" });
       }
 
@@ -9671,28 +9729,19 @@ setTimeout(notify, 400);
         content: content.substring(0, 1000), // Limit message length
       });
 
-      // Emit to driver via Socket.IO
-      if (order.status === "pending") {
-        // For pending orders, emit to all online drivers
-        io.to("drivers:online").emit("chat:message", { orderId, message });
-        io.to("drivers:online").emit("chat:notification", { 
+      const driverRoom = chatDriverRoomForOrder(order);
+      if (driverRoom) {
+        io.to(driverRoom).emit("chat:message", { orderId, message });
+        io.to(driverRoom).emit("chat:notification", { 
           orderId, 
           message, 
           clientName: order.clientName || 'Client',
           fromClient: true 
         });
-      } else if (order.assignedDriverId) {
-        console.log(`[CHAT HTTP] Sending message to driver room: driver:${order.assignedDriverId}`);
-        io.to(`driver:${order.assignedDriverId}`).emit("chat:message", { orderId, message });
-        io.to(`driver:${order.assignedDriverId}`).emit("chat:notification", { 
-          orderId, 
-          message, 
-          clientName: order.clientName || 'Client',
-          fromClient: true 
-        });
-        // Send OneSignal push notification to assigned driver
-        console.log(`[CHAT HTTP] Sending OneSignal push to driver: ${order.assignedDriverId}`);
-        driverNotifications.newMessageFromClient(order.assignedDriverId, order.clientName || 'Client', orderId);
+      }
+      const ownerDriverId = getRentalOwnerDriverId(order);
+      if (ownerDriverId) {
+        driverNotifications.newMessageFromClient(ownerDriverId, order.clientName || 'Client', orderId);
       }
       
       // Also emit to order room
@@ -9727,13 +9776,11 @@ setTimeout(notify, 400);
     try {
       // Verify the order is assigned to this driver
       const order = await dbStorage.getOrder(orderId);
-      if (!order || order.assignedDriverId !== session.driverId) {
+      if (!order || !canDriverAccessOrderChat(order, session.driverId)) {
         return res.status(403).json({ error: "Accès non autorisé" });
       }
 
-      // Check order is in active state
-      const activeStatuses = ["accepted", "driver_enroute", "driver_arrived", "in_progress"];
-      if (!activeStatuses.includes(order.status)) {
+      if (!CHAT_OPEN_STATUSES.includes(order.status)) {
         return res.status(400).json({ error: "La messagerie n'est disponible que pendant une course active" });
       }
 
