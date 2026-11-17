@@ -8804,6 +8804,8 @@ const sessionId = headerSessionId || cookieSessionId;
         : [null];
       const publicKey = String((prestataire as any)?.osbPublicKey || "").replace(/["<>]/g, "");
       if (!publicKey) return res.status(400).send("Paiement en ligne non configuré");
+      const { getPaymentStaticBase, normalizePaymentProvider } = await import("./payzen");
+      const staticBase = getPaymentStaticBase(normalizePaymentProvider((prestataire as any)?.osbProvider));
       const amount = Number(order.totalPrice || 0).toLocaleString("fr-FR");
       const publicBase = (
         process.env.PUBLIC_API_URL ||
@@ -8818,13 +8820,13 @@ const sessionId = headerSessionId || cookieSessionId;
 <meta charset="utf-8"/>
 <meta name="viewport" content="width=device-width, initial-scale=1"/>
 <title>Paiement sécurisé</title>
-<script src="https://static.payzen.eu/static/js/krypton-client/V4.0/stable/kr-payment-form.min.js"
+<script src="${staticBase}/static/js/krypton-client/V4.0/stable/kr-payment-form.min.js"
   kr-public-key="${publicKey}"
   kr-post-url-success="${returnUrl}"
   kr-post-url-refused="${returnUrl}"
   kr-language="fr-FR"></script>
-<link rel="stylesheet" href="https://static.payzen.eu/static/js/krypton-client/V4.0/ext/neon-reset.min.css"/>
-<script src="https://static.payzen.eu/static/js/krypton-client/V4.0/ext/neon.js"></script>
+<link rel="stylesheet" href="${staticBase}/static/js/krypton-client/V4.0/ext/neon-reset.min.css"/>
+<script src="${staticBase}/static/js/krypton-client/V4.0/ext/neon.js"></script>
 <style>
 body{font-family:system-ui,-apple-system,sans-serif;padding:16px;background:#fff;margin:0;color:#111827}
 h1{font-size:18px;margin:0 0 4px}

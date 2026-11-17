@@ -171,6 +171,7 @@ export function registerPrestataireRoutes(app: Express) {
           },
           osbShopId: (prestataire as any).osbShopId ?? null,
           osbPublicKey: (prestataire as any).osbPublicKey ?? null,
+          osbProvider: (prestataire as any).osbProvider === "systempay" ? "systempay" : "payzen",
           osbConfigured: prestataireHasOsbCredentials(prestataire as any),
         },
       });
@@ -194,6 +195,8 @@ export function registerPrestataireRoutes(app: Express) {
         typeof req.body?.publicKey === "string" ? req.body.publicKey.trim() : undefined;
       const certificate =
         typeof req.body?.certificate === "string" ? req.body.certificate.trim() : undefined;
+      const provider =
+        req.body?.provider === "systempay" || req.body?.provider === "payzen" ? req.body.provider : undefined;
 
       const [current] = await db
         .select()
@@ -211,6 +214,7 @@ export function registerPrestataireRoutes(app: Express) {
             osbShopId: null,
             osbCertificateEncrypted: null,
             osbPublicKey: null,
+            osbProvider: null,
           } as any)
           .where(eq(prestataires.id, req.prestataire.id));
 
@@ -218,6 +222,7 @@ export function registerPrestataireRoutes(app: Express) {
           success: true,
           osbShopId: null,
           osbPublicKey: null,
+          osbProvider: "payzen",
           osbConfigured: false,
           message: "Configuration de paiement OSB supprimée",
         });
@@ -234,6 +239,10 @@ export function registerPrestataireRoutes(app: Express) {
 
       if (publicKey !== undefined) {
         updates.osbPublicKey = publicKey || null;
+      }
+
+      if (provider !== undefined) {
+        updates.osbProvider = provider;
       }
 
       if (certificate) {
@@ -272,8 +281,9 @@ export function registerPrestataireRoutes(app: Express) {
         success: true,
         osbShopId: (updated as any)?.osbShopId ?? null,
         osbPublicKey: (updated as any)?.osbPublicKey ?? null,
+        osbProvider: (updated as any)?.osbProvider === "systempay" ? "systempay" : "payzen",
         osbConfigured: prestataireHasOsbCredentials(updated as any),
-        message: "Configuration de paiement OSB enregistrée",
+        message: "Configuration du paiement en ligne enregistrée",
       });
     } catch (error) {
       console.error("Error updating OSB credentials:", error);
@@ -323,8 +333,9 @@ export function registerPrestataireRoutes(app: Express) {
         return res.status(400).json({ ok: false, error: "Shop ID requis" });
       }
 
-      const { testPayzenConnection } = await import("./payzen");
-      const result = await testPayzenConnection({ shopId, certificate, publicKey });
+      const { testPayzenConnection, normalizePaymentProvider } = await import("./payzen");
+      const provider = normalizePaymentProvider(req.body?.provider ?? (current as any).osbProvider);
+      const result = await testPayzenConnection({ shopId, certificate, publicKey, provider });
       return res.status(result.ok ? 200 : 400).json(result);
     } catch (error) {
       console.error("Error testing OSB credentials:", error);

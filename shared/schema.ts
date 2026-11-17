@@ -29,6 +29,8 @@ export const prestataires = pgTable("prestataires", {
   osbShopId: text("osb_shop_id"),
   osbCertificateEncrypted: text("osb_certificate_encrypted"),
   osbPublicKey: text("osb_public_key"),
+  // "payzen" (OSB : Socredo, Banque de Polynésie) ou "systempay" (Banque de Tahiti) — même API Lyra V4
+  osbProvider: text("osb_provider"),
   /** Adresse du siège / facturation (obligatoire sur factures) */
   address: text("address"),
   /** franchise = TVA non applicable | assujetti = HT + TVA */

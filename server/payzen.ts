@@ -7,10 +7,36 @@ import { loueurVehicles, orders, prestataires } from "@shared/schema";
 import { eq, sql } from "drizzle-orm";
 import { decryptOsbCertificate, prestataireHasOsbCredentials } from "./osb-crypto";
 
-const DEFAULT_API = "https://api.payzen.eu/api-payment";
+export type PaymentProvider = "payzen" | "systempay";
 
-export function getPayzenApiBase(): string {
-  return (process.env.PAYZEN_API_URL || DEFAULT_API).replace(/\/$/, "");
+/** PayZen (OSB) et Systempay (Banque de Tahiti) partagent l'API Lyra V4 : seules les URL changent. */
+const PROVIDER_URLS: Record<PaymentProvider, { api: string; static: string; label: string }> = {
+  payzen: {
+    api: process.env.PAYZEN_API_URL || "https://api.payzen.eu/api-payment",
+    static: "https://static.payzen.eu",
+    label: "PayZen",
+  },
+  systempay: {
+    api: process.env.SYSTEMPAY_API_URL || "https://api.systempay.fr/api-payment",
+    static: "https://static.systempay.fr",
+    label: "Systempay",
+  },
+};
+
+export function normalizePaymentProvider(value: unknown): PaymentProvider {
+  return value === "systempay" ? "systempay" : "payzen";
+}
+
+export function getPayzenApiBase(provider: PaymentProvider = "payzen"): string {
+  return PROVIDER_URLS[provider].api.replace(/\/$/, "");
+}
+
+export function getPaymentStaticBase(provider: PaymentProvider = "payzen"): string {
+  return PROVIDER_URLS[provider].static;
+}
+
+export function getPaymentProviderLabel(provider: PaymentProvider = "payzen"): string {
+  return PROVIDER_URLS[provider].label;
 }
 
 export type PayzenCreateResult = {
@@ -90,7 +116,8 @@ export async function createPayzenPaymentForOrder(params: {
     throw Object.assign(new Error("Montant invalide"), { status: 400, code: "INVALID_AMOUNT" });
   }
 
-  const baseUrl = getPayzenApiBase();
+  const provider = normalizePaymentProvider((prestataire as any).osbProvider);
+  const baseUrl = getPayzenApiBase(provider);
   const body: Record<string, unknown> = {
     amount,
     currency: "XPF",
@@ -129,8 +156,9 @@ export async function createPayzenPaymentForOrder(params: {
       json?.answer?.errorMessage ||
       json?.answer?.detailedErrorMessage ||
       json?.errorMessage ||
-      `PayZen error HTTP ${response.status}`;
+      `${getPaymentProviderLabel(provider)} error HTTP ${response.status}`;
     console.error("[PayZen] CreatePayment failed:", {
+      provider,
       shopIdPrefix: shopId.slice(0, 4) + "…",
       status: json?.status,
       code: json?.answer?.errorCode,
@@ -305,7 +333,7 @@ export async function fetchPayzenOrderStatus(orderId: string): Promise<PayzenLiv
   }
   const shopId = String((prestataire as any).osbShopId).trim();
   const certificate = await decryptOsbCertificate(String((prestataire as any).osbCertificateEncrypted));
-  const pzRes = await fetch(`${getPayzenApiBase()}/V4/Order/Get`, {
+  const pzRes = await fetch(`${getPayzenApiBase(normalizePaymentProvider((prestataire as any).osbProvider))}/V4/Order/Get`, {
     method: "POST",
     headers: { "Content-Type": "application/json", Authorization: basicAuthHeader(shopId, certificate) },
     body: JSON.stringify({ orderId }),
@@ -455,7 +483,10 @@ export async function testPayzenConnection(params: {
   shopId: string;
   certificate: string;
   publicKey?: string | null;
+  provider?: PaymentProvider;
 }): Promise<PayzenConnectionTestResult> {
+  const provider = normalizePaymentProvider(params.provider);
+  const label = getPaymentProviderLabel(provider);
   const shopId = String(params.shopId || "").trim();
   const certificate = String(params.certificate || "").trim();
   const publicKey = params.publicKey != null ? String(params.publicKey).trim() : "";
@@ -468,7 +499,7 @@ export async function testPayzenConnection(params: {
     };
   }
 
-  const baseUrl = getPayzenApiBase();
+  const baseUrl = getPayzenApiBase(provider);
   const testOrderId = `rave-conn-${Date.now()}`;
   const body = {
     amount: 1,
@@ -505,8 +536,8 @@ export async function testPayzenConnection(params: {
       return {
         ok: true,
         message: publicKey
-          ? "Connexion PayZen OK — Shop ID et certificat valides"
-          : "Connexion PayZen OK — pensez à renseigner aussi la clé publique pour le formulaire client",
+          ? `Connexion ${label} OK — Shop ID et certificat valides`
+          : `Connexion ${label} OK — pensez à renseigner aussi la clé publique pour le formulaire client`,
         shopIdPrefix: shopId.slice(0, 4) + "…",
         formTokenReceived: true,
         publicKeyPresent: !!publicKey,
@@ -515,7 +546,7 @@ export async function testPayzenConnection(params: {
 
     return {
       ok: false,
-      message: errorMessage || "Identifiants PayZen refusés",
+      message: errorMessage || `Identifiants ${label} refusés`,
       shopIdPrefix: shopId.slice(0, 4) + "…",
       formTokenReceived: false,
       publicKeyPresent: !!publicKey,
@@ -524,7 +555,7 @@ export async function testPayzenConnection(params: {
   } catch (e) {
     return {
       ok: false,
-      message: e instanceof Error ? e.message : "Erreur réseau vers PayZen",
+      message: e instanceof Error ? e.message : `Erreur réseau vers ${label}`,
       shopIdPrefix: shopId.slice(0, 4) + "…",
       publicKeyPresent: !!publicKey,
     };
@@ -555,5 +586,6 @@ export async function testPayzenForPrestataireId(
     shopId: String((row as any).osbShopId),
     certificate,
     publicKey: (row as any).osbPublicKey,
+    provider: normalizePaymentProvider((row as any).osbProvider),
   });
 }

@@ -63,6 +63,7 @@ interface PrestataireInfo {
   documents?: PrestataireDocuments;
   osbShopId?: string | null;
   osbPublicKey?: string | null;
+  osbProvider?: 'payzen' | 'systempay';
   osbConfigured?: boolean;
 }
 
@@ -123,7 +124,12 @@ export function PrestataireProfil() {
   const [subscription, setSubscription] = useState<SubscriptionInfo | null>(null);
   const [subscribing, setSubscribing] = useState<string | null>(null);
   const aboPollRef = useRef<number | null>(null);
-  const [osbForm, setOsbForm] = useState({ shopId: '', publicKey: '', certificate: '' });
+  const [osbForm, setOsbForm] = useState<{ shopId: string; publicKey: string; certificate: string; provider: 'payzen' | 'systempay' }>({
+    shopId: '',
+    publicKey: '',
+    certificate: '',
+    provider: 'payzen',
+  });
   const [savingOsb, setSavingOsb] = useState(false);
   const [testingOsb, setTestingOsb] = useState(false);
   const [osbTestResult, setOsbTestResult] = useState<{ ok: boolean; message: string } | null>(null);
@@ -245,7 +251,7 @@ export function PrestataireProfil() {
 
   async function handleSaveOsb() {
     if (!osbForm.shopId.trim()) {
-      await notice.alert('Paiement en ligne', 'Le Shop ID PayZen / OSB est requis.');
+      await notice.alert('Paiement en ligne', 'L’identifiant boutique (Shop ID) est requis.');
       return;
     }
     setSavingOsb(true);
@@ -255,6 +261,7 @@ export function PrestataireProfil() {
       const body: Record<string, string> = {
         shopId: osbForm.shopId.trim(),
         publicKey: osbForm.publicKey.trim(),
+        provider: osbForm.provider,
       };
       if (osbForm.certificate.trim()) {
         body.certificate = osbForm.certificate.trim();
@@ -279,18 +286,19 @@ export function PrestataireProfil() {
                 ...prev,
                 osbShopId: data.osbShopId,
                 osbPublicKey: data.osbPublicKey,
+                osbProvider: data.osbProvider,
                 osbConfigured: data.osbConfigured,
               }
             : prev
         );
         setOsbForm((f) => ({ ...f, certificate: '' }));
-        setSuccessMessage(data.message || 'Paiement OSB enregistré');
+        setSuccessMessage(data.message || 'Paiement en ligne enregistré');
         setTimeout(() => setSuccessMessage(null), 4000);
       } else {
-        await notice.alert('Paiement en ligne', data.error || 'Impossible d’enregistrer la configuration PayZen.');
+        await notice.alert('Paiement en ligne', data.error || 'Impossible d’enregistrer la configuration du paiement en ligne.');
       }
     } catch {
-      await notice.alert('Paiement en ligne', 'Impossible d’enregistrer la configuration PayZen.');
+      await notice.alert('Paiement en ligne', 'Impossible d’enregistrer la configuration du paiement en ligne.');
     } finally {
       setSavingOsb(false);
     }
@@ -298,7 +306,7 @@ export function PrestataireProfil() {
 
   async function handleClearOsb() {
     const ok = await notice.confirm(
-      'Supprimer PayZen / OSB',
+      'Supprimer le paiement en ligne',
       'Les clients paieront alors directement chez le loueur.',
       { confirmLabel: 'Supprimer', tone: 'danger' }
     );
@@ -321,8 +329,8 @@ export function PrestataireProfil() {
             ? { ...prev, osbShopId: null, osbPublicKey: null, osbConfigured: false }
             : prev
         );
-        setOsbForm({ shopId: '', publicKey: '', certificate: '' });
-        setSuccessMessage(data.message || 'Configuration OSB supprimée');
+        setOsbForm({ shopId: '', publicKey: '', certificate: '', provider: 'payzen' });
+        setSuccessMessage(data.message || 'Configuration du paiement en ligne supprimée');
         setTimeout(() => setSuccessMessage(null), 4000);
       } else {
         await notice.alert('Paiement en ligne', data.error || 'Impossible de supprimer la configuration.');
@@ -342,6 +350,7 @@ export function PrestataireProfil() {
       const body: Record<string, string> = {
         shopId: osbForm.shopId.trim(),
         publicKey: osbForm.publicKey.trim(),
+        provider: osbForm.provider,
       };
       if (osbForm.certificate.trim()) {
         body.certificate = osbForm.certificate.trim();
@@ -360,7 +369,7 @@ export function PrestataireProfil() {
         message: data.message || data.error || (data.ok ? 'Connexion OK' : 'Échec du test'),
       });
     } catch {
-      setOsbTestResult({ ok: false, message: 'Erreur réseau lors du test PayZen' });
+      setOsbTestResult({ ok: false, message: 'Erreur réseau lors du test de connexion' });
     } finally {
       setTestingOsb(false);
     }
@@ -390,6 +399,7 @@ export function PrestataireProfil() {
           shopId: data.prestataire.osbShopId || '',
           publicKey: data.prestataire.osbPublicKey || '',
           certificate: '',
+          provider: data.prestataire.osbProvider === 'systempay' ? 'systempay' : 'payzen',
         });
         localStorage.setItem('prestataire_info', JSON.stringify(data.prestataire));
       }
@@ -787,7 +797,7 @@ export function PrestataireProfil() {
         <div className="flex items-center justify-between border-b border-gray-100 px-5 py-4">
           <div className="flex items-center gap-2">
             <KeyRound className="h-4 w-4 text-gray-500" />
-            <h2 className="text-sm font-semibold text-gray-900">Paiement en ligne · PayZen / OSB</h2>
+            <h2 className="text-sm font-semibold text-gray-900">Paiement en ligne par carte</h2>
           </div>
           {prestataire.osbConfigured ? (
             <span className="rounded-full bg-emerald-50 px-2 py-0.5 text-[11px] font-medium text-emerald-700">
@@ -806,6 +816,49 @@ export function PrestataireProfil() {
               ? 'Vos clients peuvent payer par carte au moment de la réservation.'
               : 'Sans configuration, vos clients paient directement chez vous (espèces ou autre moyen convenu).'}
           </p>
+          <div>
+            <span className={labelClass}>Votre banque</span>
+            <div className="mt-1 grid gap-2 sm:grid-cols-2">
+              {([
+                { id: 'payzen', title: 'Socredo / Banque de Polynésie', sub: 'PayZen (OSB)' },
+                { id: 'systempay', title: 'Banque de Tahiti', sub: 'Systempay (SP+ Pro)' },
+              ] as const).map((opt) => {
+                const active = osbForm.provider === opt.id;
+                return (
+                  <button
+                    key={opt.id}
+                    type="button"
+                    onClick={() => {
+                      setOsbForm({ ...osbForm, provider: opt.id });
+                      setOsbTestResult(null);
+                    }}
+                    className={`rounded-xl border p-3 text-left transition ${
+                      active
+                        ? 'border-emerald-500 bg-emerald-50/60 ring-1 ring-emerald-200'
+                        : 'border-gray-200 bg-white hover:border-gray-300'
+                    }`}
+                  >
+                    <span className="flex items-center gap-2">
+                      <span
+                        className={`flex h-4 w-4 items-center justify-center rounded-full border ${
+                          active ? 'border-emerald-600 bg-emerald-600' : 'border-gray-300'
+                        }`}
+                      >
+                        {active ? <span className="h-1.5 w-1.5 rounded-full bg-white" /> : null}
+                      </span>
+                      <span className="text-sm font-semibold text-gray-900">{opt.title}</span>
+                    </span>
+                    <span className="mt-0.5 block pl-6 text-xs text-gray-500">{opt.sub}</span>
+                  </button>
+                );
+              })}
+            </div>
+            <span className="mt-1.5 block text-xs text-gray-400">
+              {osbForm.provider === 'systempay'
+                ? 'Clés dans votre back-office Systempay : Paramétrage → Boutique → Clés d’API REST.'
+                : 'Clés dans votre back-office PayZen / OSB : Paramétrage → Boutique → Clés d’API REST.'}
+            </span>
+          </div>
           <label className="block">
             <span className={labelClass}>Shop ID</span>
             <input
@@ -813,7 +866,7 @@ export function PrestataireProfil() {
               className={inputClass}
               value={osbForm.shopId}
               onChange={(e) => setOsbForm({ ...osbForm, shopId: e.target.value })}
-              placeholder="Identifiant boutique PayZen / OSB"
+              placeholder={osbForm.provider === 'systempay' ? 'Identifiant boutique Systempay' : 'Identifiant boutique PayZen / OSB'}
               autoComplete="off"
             />
           </label>
@@ -824,7 +877,7 @@ export function PrestataireProfil() {
               className={`${inputClass} font-mono`}
               value={osbForm.publicKey}
               onChange={(e) => setOsbForm({ ...osbForm, publicKey: e.target.value })}
-              placeholder="Clé publique (front)"
+              placeholder="Ex. 12345678:publickey_…"
               autoComplete="off"
             />
           </label>
@@ -838,7 +891,7 @@ export function PrestataireProfil() {
               placeholder={
                 prestataire.osbConfigured
                   ? '•••••••• (laisser vide pour conserver)'
-                  : 'Certificat API'
+                  : 'Mot de passe API (testpassword_… ou prodpassword_…)'
               }
               autoComplete="new-password"
             />

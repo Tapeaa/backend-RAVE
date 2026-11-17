@@ -18,6 +18,10 @@ export async function ensureOsbCredentialsColumns(): Promise<void> {
       ALTER TABLE prestataires
       ADD COLUMN IF NOT EXISTS osb_public_key TEXT
     `);
+    await db.execute(sql`
+      ALTER TABLE prestataires
+      ADD COLUMN IF NOT EXISTS osb_provider TEXT
+    `);
     console.log("[DB] ✅ Colonnes OSB / PayZen prestataires OK");
   } catch (e) {
     console.warn("[DB] ensureOsbCredentialsColumns:", e);
