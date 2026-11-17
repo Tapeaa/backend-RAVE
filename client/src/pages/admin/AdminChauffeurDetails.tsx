@@ -3,6 +3,7 @@
  */
 
 import { useEffect, useState, useRef } from 'react';
+import { getRentalStatusDisplay, TONE_BADGE_CLASSES } from '@/lib/rental-status';
 import { useLocation } from 'wouter';
 import { ArrowLeft, User, Phone, Car, Calendar, MapPin, Edit2, Upload, X, Loader2, Check, Save, Trash2, ChevronRight, PlugZap } from 'lucide-react';
 
@@ -147,7 +148,7 @@ export function AdminChauffeurDetails() {
     if (!file) return;
 
     if (!file.type.startsWith('image/')) {
-      alert('Veuillez s?lectionner une image');
+      alert('Veuillez sélectionner une image');
       return;
     }
 
@@ -383,25 +384,17 @@ export function AdminChauffeurDetails() {
 
   function getAddressFromOrder(commande: { addresses: any }, type: 'pickup' | 'destination'): string {
     const addrs = commande.addresses;
-    if (!addrs) return 'Non sp?cifi?';
+    if (!addrs) return 'Non spécifié';
     const arr = Array.isArray(addrs) ? addrs : [];
     const addr = arr.find((a: any) => a.type === type);
-    return (addr?.value ?? addr?.address) || 'Non sp?cifi?';
+    return (addr?.value ?? addr?.address) || 'Non spécifié';
   }
 
-  function getStatusBadge(status: string) {
-    const statusConfig: Record<string, { label: string; color: string }> = {
-      pending: { label: 'En attente', color: 'bg-yellow-100 text-yellow-700' },
-      accepted: { label: 'Accept?e', color: 'bg-blue-100 text-blue-700' },
-      in_progress: { label: 'En cours', color: 'bg-orange-100 text-orange-700' },
-      completed: { label: 'Termin?e', color: 'bg-green-100 text-green-700' },
-      payment_confirmed: { label: 'Paiement confirm?', color: 'bg-green-100 text-green-700' },
-      cancelled: { label: 'Annul?e', color: 'bg-red-100 text-red-700' },
-    };
-    const config = statusConfig[status] || { label: status, color: 'bg-gray-100 text-gray-700' };
+  function getStatusBadge(commande: { status: string; rideOption?: any }) {
+    const display = getRentalStatusDisplay(commande);
     return (
-      <span className={`rounded-full px-2 py-1 text-xs font-medium ${config.color}`}>
-        {config.label}
+      <span className={`rounded-full px-2 py-1 text-xs font-medium ${TONE_BADGE_CLASSES[display.tone]}`}>
+        {display.label}
       </span>
     );
   }
@@ -935,7 +928,7 @@ export function AdminChauffeurDetails() {
                           <span className="font-medium text-gray-900">
                             {commande.clientName || 'Client inconnu'}
                           </span>
-                          {getStatusBadge(commande.status)}
+                          {getStatusBadge(commande as any)}
                         </div>
                         <div className="text-sm text-gray-600">
                           <div className="flex items-center gap-1">

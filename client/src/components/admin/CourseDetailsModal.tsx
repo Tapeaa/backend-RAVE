@@ -4,6 +4,7 @@
  */
 
 import React, { useEffect, useState } from 'react';
+import { getRentalStatusDisplay, TONE_BADGE_CLASSES } from '@/lib/rental-status';
 import { X, MapPin, Clock, User, Car, Phone, DollarSign, Navigation, Loader } from 'lucide-react';
 
 interface CourseDetailsModalProps {
@@ -62,36 +63,6 @@ interface OrderDetails {
     lastName: string;
     phone: string;
   };
-}
-
-function formatStatus(status: string): string {
-  const statusMap: Record<string, string> = {
-    pending: 'En attente',
-    accepted: 'Acceptée',
-    driver_enroute: 'Chauffeur en route',
-    driver_arrived: 'Chauffeur arrivé',
-    in_progress: 'En cours',
-    completed: 'Terminée',
-    payment_pending: 'Paiement en attente',
-    payment_confirmed: 'Paiement confirmé',
-    cancelled: 'Annulée',
-  };
-  return statusMap[status] || status;
-}
-
-function getStatusColor(status: string): string {
-  const colorMap: Record<string, string> = {
-    pending: 'bg-yellow-100 text-yellow-800',
-    accepted: 'bg-blue-100 text-blue-800',
-    driver_enroute: 'bg-purple-100 text-purple-800',
-    driver_arrived: 'bg-indigo-100 text-indigo-800',
-    in_progress: 'bg-green-100 text-green-800',
-    completed: 'bg-gray-100 text-gray-800',
-    payment_pending: 'bg-orange-100 text-orange-800',
-    payment_confirmed: 'bg-green-100 text-green-800',
-    cancelled: 'bg-red-100 text-red-800',
-  };
-  return colorMap[status] || 'bg-gray-100 text-gray-800';
 }
 
 export function CourseDetailsModal({ orderId, isOpen, onClose }: CourseDetailsModalProps) {
@@ -207,11 +178,9 @@ export function CourseDetailsModal({ orderId, isOpen, onClose }: CourseDetailsMo
               <div className="flex items-center justify-between">
                 <span className="text-sm font-medium text-gray-500">Statut</span>
                 <span
-                  className={`rounded-full px-3 py-1 text-sm font-semibold ${getStatusColor(
-                    orderDetails.status
-                  )}`}
+                  className={`rounded-full px-3 py-1 text-sm font-semibold ${TONE_BADGE_CLASSES[getRentalStatusDisplay(orderDetails as any).tone]}`}
                 >
-                  {formatStatus(orderDetails.status)}
+                  {getRentalStatusDisplay(orderDetails as any).label}
                 </span>
               </div>
 

@@ -15,6 +15,7 @@ import {
   Sparkles,
 } from 'lucide-react';
 import { PaymentStatusBadge } from '@/components/rental/PaymentStatusBadge';
+import { getRentalStatusDisplay, TONE_BADGE_CLASSES } from '@/lib/rental-status';
 
 interface PrestataireInfo {
   id: string;
@@ -56,14 +57,6 @@ interface SubscriptionSummary {
   graceDaysRemaining?: number | null;
   waitingFirstVehicle?: boolean;
 }
-
-const STATUS_LABELS: Record<string, { label: string; className: string }> = {
-  payment_confirmed: { label: 'Payée', className: 'bg-emerald-50 text-emerald-700' },
-  completed: { label: 'Terminée', className: 'bg-emerald-50 text-emerald-700' },
-  cancelled: { label: 'Annulée', className: 'bg-red-50 text-red-700' },
-  pending: { label: 'En attente', className: 'bg-amber-50 text-amber-700' },
-  accepted: { label: 'Acceptée', className: 'bg-blue-50 text-blue-700' },
-};
 
 function formatXpf(n: number | null | undefined): string {
   return `${Math.round(Number(n) || 0).toLocaleString('fr-FR')} XPF`;
@@ -273,10 +266,8 @@ export function PrestataireDashboard() {
           ) : (
             <ul className="divide-y divide-gray-100">
               {recentCourses.map((course) => {
-                const status = STATUS_LABELS[course.status] || {
-                  label: course.status,
-                  className: 'bg-gray-100 text-gray-600',
-                };
+                const display = getRentalStatusDisplay(course);
+                const status = { label: display.label, className: TONE_BADGE_CLASSES[display.tone] };
                 return (
                   <li key={course.id}>
                     <Link href={`/prestataire/courses/${course.id}`}>

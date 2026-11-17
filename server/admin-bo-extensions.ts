@@ -27,6 +27,8 @@ import { eq, desc, and, gte, lte, or } from "drizzle-orm";
 
 const stripe = process.env.STRIPE_SECRET_KEY ? new Stripe(process.env.STRIPE_SECRET_KEY) : null;
 
+const ADMIN_CLOSED_STATUSES = ["completed", "payment_confirmed", "cancelled", "declined", "expired", "payment_failed"];
+
 async function audit(
   req: AuthenticatedRequest,
   action: string,
@@ -146,6 +148,9 @@ export function registerAdminBoExtensions(app: Express) {
       }
       const order = await dbStorage.getOrder(req.params.id);
       if (!order) return res.status(404).json({ error: "Commande introuvable" });
+      if (ADMIN_CLOSED_STATUSES.includes(order.status) || order.status === "pending") {
+        return res.status(409).json({ error: "Réservation non active : étape impossible" });
+      }
 
       const rideOption: Record<string, unknown> = {
         ...(order.rideOption || {}),
@@ -159,7 +164,7 @@ export function registerAdminBoExtensions(app: Express) {
         .update(orders)
         .set({
           rideOption,
-          status: phase === "returned" ? "completed" : order.status === "pending" ? "accepted" : order.status,
+          status: phase === "returned" ? "completed" : order.status,
         } as any)
         .where(eq(orders.id, req.params.id))
         .returning();
@@ -176,15 +181,30 @@ export function registerAdminBoExtensions(app: Express) {
     try {
       const order = await dbStorage.getOrder(req.params.id);
       if (!order) return res.status(404).json({ error: "Commande introuvable" });
-      const rideOption = {
-        ...(order.rideOption || {}),
+      if (ADMIN_CLOSED_STATUSES.includes(order.status)) {
+        return res.status(409).json({ error: "Réservation déjà clôturée" });
+      }
+      const ro = (order.rideOption || {}) as any;
+      const now = new Date().toISOString();
+      const rideOption: Record<string, unknown> = {
+        ...ro,
         cancelRequest: {
-          ...((order.rideOption as any)?.cancelRequest || {}),
+          ...(ro.cancelRequest || {}),
           status: "approved",
-          resolvedAt: new Date().toISOString(),
+          resolvedAt: now,
           resolvedBy: "admin",
         },
+        cancellation: { by: "client", approvedByDriver: true, approvedBy: "admin", at: now },
       };
+      // Même règle que l'annulation acceptée par le loueur : carte payée → remboursement à faire
+      if (ro.payzenStatus === "paid" && !ro.refund) {
+        rideOption.refund = {
+          status: "pending",
+          amount: Math.round(Number(order.totalPrice) || 0),
+          reason: "cancel_approved",
+          createdAt: now,
+        };
+      }
       const [updated] = await db
         .update(orders)
         .set({ status: "cancelled", rideOption } as any)
@@ -202,6 +222,9 @@ export function registerAdminBoExtensions(app: Express) {
     try {
       const order = await dbStorage.getOrder(req.params.id);
       if (!order) return res.status(404).json({ error: "Commande introuvable" });
+      if ((order.rideOption as any)?.cancelRequest?.status !== "pending" || ADMIN_CLOSED_STATUSES.includes(order.status)) {
+        return res.status(409).json({ error: "Aucune demande d'annulation en attente" });
+      }
       const rideOption = {
         ...(order.rideOption || {}),
         cancelRequest: {
@@ -493,13 +516,20 @@ export function registerAdminBoExtensions(app: Express) {
         });
       }
 
+      const now = new Date().toISOString();
+      const previousRefund = (order.rideOption as any)?.refund || {};
       const rideOption = {
         ...(order.rideOption || {}),
         refund: {
+          ...previousRefund,
+          status: "done",
           amount,
-          reason,
+          reason: previousRefund.reason || reason,
+          adminReason: reason,
           stripeRefundId: stripeRefund?.id || null,
-          refundedAt: new Date().toISOString(),
+          createdAt: previousRefund.createdAt || now,
+          doneAt: now,
+          doneBy: "admin",
         },
       };
       await db.update(orders).set({ rideOption } as any).where(eq(orders.id, req.params.id));

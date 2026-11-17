@@ -4,6 +4,7 @@
 
 import { useEffect, useState } from 'react';
 import { Link, useLocation } from 'wouter';
+import { getRentalStatusDisplay, TONE_BADGE_CLASSES } from '@/lib/rental-status';
 import { 
   ClipboardList, Search, Eye, Filter, 
   ChevronLeft, ChevronRight, ArrowUpDown,
@@ -70,24 +71,11 @@ export function AdminCommandes() {
     }
   }
 
-  function getStatusBadge(status: string) {
-    const statusConfig: Record<string, { label: string; color: string }> = {
-      pending: { label: 'En attente', color: 'bg-amber-100 text-amber-700 border-amber-200' },
-      accepted: { label: 'Acceptée', color: 'bg-blue-100 text-blue-700 border-blue-200' },
-      driver_enroute: { label: 'Loueur en route', color: 'bg-purple-100 text-purple-700 border-purple-200' },
-      driver_arrived: { label: 'Loueur arrivé', color: 'bg-indigo-100 text-indigo-700 border-indigo-200' },
-      in_progress: { label: 'En cours', color: 'bg-orange-100 text-orange-700 border-orange-200' },
-      completed: { label: 'Terminée', color: 'bg-green-100 text-green-700 border-green-200' },
-      payment_pending: { label: 'Paiement en attente', color: 'bg-amber-100 text-amber-700 border-amber-200' },
-      payment_confirmed: { label: 'Paiement confirmé', color: 'bg-emerald-100 text-emerald-700 border-emerald-200' },
-      awaiting_payment: { label: 'Paiement carte en cours', color: 'bg-amber-100 text-amber-700 border-amber-200' },
-      payment_failed: { label: 'Paiement refusé', color: 'bg-red-100 text-red-700 border-red-200' },
-      cancelled: { label: 'Annulée', color: 'bg-red-100 text-red-700 border-red-200' },
-    };
-    const config = statusConfig[status] || { label: status, color: 'bg-slate-100 text-slate-700 border-slate-200' };
+  function getStatusBadge(commande: { status: string; rideOption?: any }) {
+    const display = getRentalStatusDisplay(commande);
     return (
-      <span className={`rounded-full px-2.5 py-1 text-xs font-medium border ${config.color}`}>
-        {config.label}
+      <span className={`rounded-full px-2.5 py-1 text-xs font-medium ${TONE_BADGE_CLASSES[display.tone]}`}>
+        {display.label}
       </span>
     );
   }
@@ -205,6 +193,9 @@ export function AdminCommandes() {
             <option value="completed">Terminée</option>
             <option value="payment_confirmed">Paiement confirmé</option>
             <option value="cancelled">Annulée</option>
+            <option value="declined">Refusée</option>
+            <option value="expired">Expirée</option>
+            <option value="payment_failed">Paiement refusé</option>
           </select>
           <select
             value={paymentFilter}
@@ -283,7 +274,7 @@ export function AdminCommandes() {
                 {/* Statut + Date */}
                 <div className="flex items-center justify-between gap-2">
                   <div className="flex items-center gap-1.5 flex-wrap min-w-0">
-                    {getStatusBadge(commande.status)}
+                    {getStatusBadge(commande)}
                     {isRentalOrder(commande) && (
                       <span className="rounded-full bg-amber-100 border border-amber-200 px-2 py-0.5 text-xs font-medium text-amber-700">Location</span>
                     )}
@@ -427,7 +418,7 @@ export function AdminCommandes() {
                         </p>
                       </td>
                       <td className="px-6 py-4">
-                        {getStatusBadge(commande.status)}
+                        {getStatusBadge(commande)}
                       </td>
                       <td className="px-6 py-4">
                         <div className="flex items-center gap-2">

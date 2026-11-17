@@ -4,13 +4,24 @@
 
 import { useEffect, useState } from 'react';
 import { useLocation } from 'wouter';
+import { getRentalStatusDisplay, isClosedOrderStatus, TONE_BADGE_CLASSES } from '@/lib/rental-status';
 import { 
   ArrowLeft, MapPin, User, Car, DollarSign, 
-  CreditCard, Wallet, Calendar, Clock, Package, Star, FileText
+  CreditCard, Wallet, Calendar, Clock, Package, Star, FileText, Building2
 } from 'lucide-react';
 import {
   RentalContractSignatures,
 } from '@/components/rental/RentalContractSignatures';
+
+const ADMIN_STATUS_OPTIONS = [
+  { value: 'pending', label: 'À valider' },
+  { value: 'accepted', label: 'Validée' },
+  { value: 'booked', label: 'Réservée' },
+  { value: 'completed', label: 'Terminée' },
+  { value: 'cancelled', label: 'Annulée' },
+  { value: 'declined', label: 'Refusée' },
+  { value: 'expired', label: 'Expirée' },
+];
 
 interface CommandeDetails {
   commande: {
@@ -128,28 +139,6 @@ export function AdminCommandeDetails() {
     });
   }
 
-  function getStatusBadge(status: string) {
-    const statusConfig: Record<string, { label: string; color: string }> = {
-      pending: { label: 'En attente', color: 'bg-yellow-100 text-yellow-700' },
-      accepted: { label: 'Acceptée', color: 'bg-blue-100 text-blue-700' },
-      driver_enroute: { label: 'Loueur en route', color: 'bg-purple-100 text-purple-700' },
-      driver_arrived: { label: 'Loueur arrivé', color: 'bg-indigo-100 text-indigo-700' },
-      in_progress: { label: 'En cours', color: 'bg-orange-100 text-orange-700' },
-      completed: { label: 'Terminée', color: 'bg-green-100 text-green-700' },
-      payment_pending: { label: 'Paiement en attente', color: 'bg-yellow-100 text-yellow-700' },
-      payment_confirmed: { label: 'Paiement confirmé', color: 'bg-green-100 text-green-700' },
-      awaiting_payment: { label: 'Paiement carte en cours', color: 'bg-amber-100 text-amber-700' },
-      payment_failed: { label: 'Paiement refusé', color: 'bg-red-100 text-red-700' },
-      cancelled: { label: 'Annulée', color: 'bg-red-100 text-red-700' },
-    };
-    const config = statusConfig[status] || { label: status, color: 'bg-gray-100 text-gray-700' };
-    return (
-      <span className={`rounded-full px-3 py-1 text-sm font-medium ${config.color}`}>
-        {config.label}
-      </span>
-    );
-  }
-
   function renderStars(score: number) {
     return (
       <div className="flex gap-1">
@@ -185,6 +174,10 @@ export function AdminCommandeDetails() {
 
   const { commande, client, chauffeur, ratings = { client: null, chauffeur: null }, prestataire, waitingRatePerMin = 42, freeMinutes = 0 } = details;
   const isRental = commande.rideOption?.type === 'rental' || commande.rideOption?.id?.startsWith('rental-');
+  const rentalPhase = (commande.rideOption as any)?.rentalLifecyclePhase;
+  const canLifecycle = !isClosedOrderStatus(commande.status) && commande.status !== 'pending';
+  const cancelPending =
+    (commande.rideOption as any)?.cancelRequest?.status === 'pending' && !isClosedOrderStatus(commande.status);
   
   // Les adresses sont un tableau avec type: 'pickup' | 'stop' | 'destination'
   const addressesArray = Array.isArray(commande.addresses) ? commande.addresses : [];
@@ -223,7 +216,14 @@ export function AdminCommandeDetails() {
           </div>
         </div>
         <div className="flex items-center gap-3 flex-wrap">
-          {getStatusBadge(commande.status)}
+          {(() => {
+            const display = getRentalStatusDisplay(commande);
+            return (
+              <span className={`rounded-full px-3 py-1 text-sm font-medium ${TONE_BADGE_CLASSES[display.tone]}`}>
+                {display.label}
+              </span>
+            );
+          })()}
           <select
             className="rounded-lg border border-slate-200 bg-white px-2 py-1.5 text-sm"
             value={commande.status}
@@ -239,8 +239,13 @@ export function AdminCommandeDetails() {
               else alert('Erreur mise à jour statut');
             }}
           >
-            {['pending','accepted','booked','in_progress','completed','payment_pending','payment_confirmed','cancelled'].map((s) => (
-              <option key={s} value={s}>{s}</option>
+            {[
+              ...ADMIN_STATUS_OPTIONS,
+              ...(ADMIN_STATUS_OPTIONS.some((o) => o.value === commande.status)
+                ? []
+                : [{ value: commande.status, label: commande.status }]),
+            ].map((o) => (
+              <option key={o.value} value={o.value}>{o.label}</option>
             ))}
           </select>
         </div>
@@ -259,6 +264,7 @@ export function AdminCommandeDetails() {
             )}
           </div>
           <div className="flex flex-wrap gap-2">
+            {canLifecycle && rentalPhase !== 'with_client' && (
             <button
               className="rounded-lg bg-blue-600 px-3 py-1.5 text-xs text-white"
               onClick={async () => {
@@ -273,6 +279,8 @@ export function AdminCommandeDetails() {
             >
               Remise client
             </button>
+            )}
+            {canLifecycle && rentalPhase === 'with_client' && (
             <button
               className="rounded-lg bg-green-600 px-3 py-1.5 text-xs text-white"
               onClick={async () => {
@@ -287,6 +295,8 @@ export function AdminCommandeDetails() {
             >
               Retour véhicule
             </button>
+            )}
+            {cancelPending && (
             <button
               className="rounded-lg bg-red-600 px-3 py-1.5 text-xs text-white"
               onClick={async () => {
@@ -300,6 +310,8 @@ export function AdminCommandeDetails() {
             >
               Approuver annulation
             </button>
+            )}
+            {cancelPending && (
             <button
               className="rounded-lg bg-slate-600 px-3 py-1.5 text-xs text-white"
               onClick={async () => {
@@ -314,6 +326,8 @@ export function AdminCommandeDetails() {
             >
               Rejeter annulation
             </button>
+            )}
+            {commande.rideOption?.payzenStatus === 'paid' && commande.rideOption?.refund?.status !== 'done' && (
             <button
               className="rounded-lg border border-red-300 bg-white px-3 py-1.5 text-xs text-red-700"
               onClick={async () => {
@@ -333,6 +347,7 @@ export function AdminCommandeDetails() {
             >
               Rembourser
             </button>
+            )}
             <button
               className="rounded-lg border border-amber-300 bg-white px-3 py-1.5 text-xs text-amber-800"
               onClick={async () => {
@@ -655,7 +670,11 @@ export function AdminCommandeDetails() {
                       : 'text-gray-600'
                 }`}
               >
-                {commande.rideOption?.payzenStatus === 'paid'
+                {commande.rideOption?.refund?.status === 'pending'
+                  ? `Payée par carte — remboursement de ${formatCurrency(commande.rideOption.refund.amount || commande.totalPrice)} à faire par le loueur`
+                  : commande.rideOption?.refund?.status === 'done'
+                    ? `Payée par carte puis remboursée (${formatCurrency(commande.rideOption.refund.amount || commande.totalPrice)})`
+                  : commande.rideOption?.payzenStatus === 'paid'
                   ? 'Payée par carte en ligne (PayZen / OSB)'
                   : commande.status === 'payment_failed'
                     ? `Paiement carte refusé — non transmise au loueur${commande.rideOption?.payzenFailReason ? ` (${commande.rideOption.payzenFailReason})` : ''}`

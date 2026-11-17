@@ -12,6 +12,16 @@ import {
   CheckCircle, XCircle, Navigation, Star, DollarSign, Building2
 } from 'lucide-react';
 import { RentalContractSignatures } from '@/components/rental/RentalContractSignatures';
+import { getRentalPaymentState } from '@/components/rental/PaymentStatusBadge';
+import { getRentalStatusDisplay, isCompletedOrderStatus, type StatusTone } from '@/lib/rental-status';
+
+const BANNER_TONES: Record<StatusTone, { bg: string; title: string; text: string; icon: string }> = {
+  green: { bg: 'bg-green-50', title: 'text-green-800', text: 'text-green-600', icon: 'text-green-600' },
+  blue: { bg: 'bg-blue-50', title: 'text-blue-800', text: 'text-blue-600', icon: 'text-blue-600' },
+  amber: { bg: 'bg-amber-50', title: 'text-amber-800', text: 'text-amber-700', icon: 'text-amber-600' },
+  red: { bg: 'bg-red-50', title: 'text-red-800', text: 'text-red-600', icon: 'text-red-600' },
+  gray: { bg: 'bg-gray-100', title: 'text-gray-800', text: 'text-gray-600', icon: 'text-gray-500' },
+};
 
 interface CourseDetails {
   course: {
@@ -181,17 +191,26 @@ export function PrestataireCourseDetails() {
   const isRental =
     course.rideOption?.type === 'rental' ||
     (course.rideOption as any)?.isRentalOrder;
-  const isCompleted = course.status === 'payment_confirmed' || course.status === 'completed';
-  const isCancelled = course.status === 'cancelled' || course.status === 'declined';
-  const isDeclined = course.status === 'declined';
-
-  const statusTitle = isDeclined
-    ? 'Réservation refusée'
-    : isCompleted
-      ? (isRental ? 'Location terminée' : 'Course terminée et payée')
-      : isCancelled
-        ? (isRental ? 'Réservation annulée' : 'Course annulée')
-        : (isRental ? 'Réservation en cours' : 'Course en cours');
+  const statusDisplay = getRentalStatusDisplay(course);
+  const isCompleted = isCompletedOrderStatus(course.status);
+  const isStopped = statusDisplay.closed && !isCompleted;
+  const statusTitle = statusDisplay.title;
+  const bannerTone = BANNER_TONES[statusDisplay.tone];
+  const paymentState = getRentalPaymentState(course);
+  const refund = course.rideOption?.refund as { status?: string; amount?: number; doneAt?: string } | undefined;
+  const paymentSummary =
+    paymentState === 'refund_pending'
+      ? `Payée par carte — remboursement de ${Math.round(refund?.amount || course.totalPrice || 0).toLocaleString('fr-FR')} XPF à effectuer`
+      : paymentState === 'refunded'
+        ? `Payée par carte puis remboursée (${Math.round(refund?.amount || course.totalPrice || 0).toLocaleString('fr-FR')} XPF)`
+        : paymentState === 'paid'
+          ? 'Payée par carte en ligne'
+          : paymentState === 'none'
+            ? 'Aucun paiement encaissé'
+            : paymentState === 'card_unpaid'
+              ? 'Paiement carte non abouti — à encaisser'
+              : 'À encaisser chez le loueur';
+  const canDownloadInvoice = !isStopped;
 
   function renderStars(score: number) {
     return (
@@ -233,11 +252,11 @@ export function PrestataireCourseDetails() {
           </Link>
           <div>
             <nav className="flex items-center gap-2 text-sm text-gray-500">
-              <Link href="/prestataire/courses" className="hover:text-gray-900">Courses</Link>
+              <Link href="/prestataire/courses" className="hover:text-gray-900">Réservations</Link>
               <span>/</span>
               <span className="font-medium text-gray-900 truncate max-w-[180px]">{course.id.slice(0, 8).toUpperCase()}…</span>
             </nav>
-            <h1 className="text-xl font-bold text-gray-900 mt-0.5">Détails de la course</h1>
+            <h1 className="text-xl font-bold text-gray-900 mt-0.5">Détails de la réservation</h1>
             <p className="text-sm text-gray-500 mt-0.5">
               {new Date(course.date).toLocaleDateString('fr-FR', {
                 weekday: 'long', day: 'numeric', month: 'long', year: 'numeric',
@@ -246,6 +265,7 @@ export function PrestataireCourseDetails() {
             </p>
           </div>
         </div>
+        {canDownloadInvoice && (
         <button
           onClick={downloadInvoice}
           disabled={isDownloadingPdf}
@@ -263,6 +283,7 @@ export function PrestataireCourseDetails() {
             </>
           )}
         </button>
+        )}
       </div>
 
       {/* Bandeau récap */}
@@ -314,29 +335,29 @@ export function PrestataireCourseDetails() {
       </div>
 
       {/* Status Banner */}
-      <div className={`flex items-center gap-3 rounded-2xl p-4 ${
-        isCompleted ? 'bg-green-50' : isCancelled ? 'bg-red-50' : 'bg-yellow-50'
-      }`}>
+      <div className={`flex items-center gap-3 rounded-2xl p-4 ${bannerTone.bg}`}>
         {isCompleted ? (
-          <CheckCircle className="h-6 w-6 text-green-600" />
-        ) : isCancelled ? (
-          <XCircle className="h-6 w-6 text-red-600" />
+          <CheckCircle className={`h-6 w-6 ${bannerTone.icon}`} />
+        ) : isStopped ? (
+          <XCircle className={`h-6 w-6 ${bannerTone.icon}`} />
         ) : (
-          <Clock className="h-6 w-6 text-yellow-600" />
+          <Clock className={`h-6 w-6 ${bannerTone.icon}`} />
         )}
         <div>
-          <div className={`font-semibold ${
-            isCompleted ? 'text-green-800' : isCancelled ? 'text-red-800' : 'text-yellow-800'
-          }`}>
-            {statusTitle}
-          </div>
-          <div className={`text-sm ${
-            isCompleted ? 'text-green-600' : isCancelled ? 'text-red-600' : 'text-yellow-600'
-          }`}>
-            Paiement par {course.paymentMethod === 'card' ? 'carte bancaire' : 'espèces'}
-          </div>
+          <div className={`font-semibold ${bannerTone.title}`}>{statusTitle}</div>
+          <div className={`text-sm ${bannerTone.text}`}>{paymentSummary}</div>
         </div>
       </div>
+
+      {paymentState === 'refund_pending' && (
+        <div className="rounded-2xl border border-amber-300 bg-amber-50 p-4 text-sm text-amber-900">
+          <p className="font-semibold">Remboursement à effectuer</p>
+          <p className="mt-1">
+            Le client a payé par carte. Remboursez-le, puis confirmez le remboursement depuis l'app RAVE Loueur
+            (onglet Réservations → Passées).
+          </p>
+        </div>
+      )}
 
       <div className="grid grid-cols-1 gap-6 lg:grid-cols-3">
         {/* Colonne gauche */}
@@ -512,7 +533,7 @@ export function PrestataireCourseDetails() {
             </h2>
             <div className="grid gap-4 sm:grid-cols-2">
               <div className="rounded-lg border border-gray-100 p-4">
-                <h3 className="text-xs font-medium text-gray-500 mb-2">Client → Chauffeur</h3>
+                <h3 className="text-xs font-medium text-gray-500 mb-2">Client → Loueur</h3>
                 {ratings?.client ? (
                   <>
                     <div className="flex items-center gap-2">
@@ -528,7 +549,7 @@ export function PrestataireCourseDetails() {
                 )}
               </div>
               <div className="rounded-lg border border-gray-100 p-4">
-                <h3 className="text-xs font-medium text-gray-500 mb-2">Chauffeur → Client</h3>
+                <h3 className="text-xs font-medium text-gray-500 mb-2">Loueur → Client</h3>
                 {ratings?.chauffeur ? (
                   <>
                     <div className="flex items-center gap-2">
@@ -934,18 +955,14 @@ export function PrestataireCourseDetails() {
               style={{
                 fontWeight: 700,
                 color:
-                  (course as any)?.rideOption?.payzenStatus === 'paid'
+                  paymentState === 'paid' || paymentState === 'refunded'
                     ? '#047857'
-                    : course.paymentMethod === 'card'
+                    : paymentState === 'card_unpaid'
                       ? '#b91c1c'
                       : undefined,
               }}
             >
-              {(course as any)?.rideOption?.payzenStatus === 'paid'
-                ? 'Payée par carte en ligne'
-                : course.paymentMethod === 'card'
-                  ? 'Paiement carte non abouti — à encaisser'
-                  : 'À encaisser chez le loueur'}
+              {paymentSummary}
             </span>
           </div>
         </div>

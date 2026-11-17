@@ -1376,6 +1376,8 @@ export function registerAdminRoutes(app: Express) {
         "payment_pending",
         "payment_confirmed",
         "cancelled",
+        "declined",
+        "expired",
         "booked",
         "contract_signed",
       ];

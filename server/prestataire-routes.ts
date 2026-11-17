@@ -1372,14 +1372,6 @@ export function registerPrestataireRoutes(app: Express) {
       const supplements = order.supplements as any;
       const routeInfo = order.routeInfo as any;
 
-      // Debug logs
-      console.log('[PRESTATAIRE] Course details:', {
-        orderId: order.id,
-        rideOption,
-        routeInfo,
-        supplements,
-      });
-
       // Extraire baseFare (peut être stocké comme 'price' ou 'baseFare')
       const baseFare = rideOption?.baseFare || rideOption?.basePrice || rideOption?.price || 0;
       const pricePerKm = rideOption?.pricePerKm || rideOption?.pricePerKilometer || 0;

@@ -3,6 +3,7 @@
  */
 
 import { useEffect, useState } from 'react';
+import { getRentalStatusDisplay, TONE_BADGE_CLASSES } from '@/lib/rental-status';
 import { useLocation, Link } from 'wouter';
 import { ArrowLeft, User, Mail, Phone, Wallet, Calendar, Eye, CreditCard, Trash2 } from 'lucide-react';
 
@@ -80,19 +81,11 @@ export function AdminClientDetails() {
     });
   }
 
-  function getStatusBadge(status: string) {
-    const statusConfig: Record<string, { label: string; color: string }> = {
-      pending: { label: 'En attente', color: 'bg-yellow-100 text-yellow-700' },
-      accepted: { label: 'Acceptée', color: 'bg-blue-100 text-blue-700' },
-      in_progress: { label: 'En cours', color: 'bg-orange-100 text-orange-700' },
-      completed: { label: 'Terminée', color: 'bg-green-100 text-green-700' },
-      payment_confirmed: { label: 'Paiement confirmé', color: 'bg-green-100 text-green-700' },
-      cancelled: { label: 'Annulée', color: 'bg-red-100 text-red-700' },
-    };
-    const config = statusConfig[status] || { label: status, color: 'bg-gray-100 text-gray-700' };
+  function getStatusBadge(commande: { status: string; rideOption?: any }) {
+    const display = getRentalStatusDisplay(commande);
     return (
-      <span className={`rounded-full px-2 py-1 text-xs font-medium ${config.color}`}>
-        {config.label}
+      <span className={`rounded-full px-2 py-1 text-xs font-medium ${TONE_BADGE_CLASSES[display.tone]}`}>
+        {display.label}
       </span>
     );
   }
@@ -366,7 +359,7 @@ export function AdminClientDetails() {
                             <p className="font-medium text-gray-900">
                               {pickup.address || 'Départ'} → {dropoff.address || 'Destination'}
                             </p>
-                            {getStatusBadge(commande.status)}
+                            {getStatusBadge(commande as any)}
                           </div>
                           <div className="flex items-center gap-4 text-sm text-gray-600">
                             <span>{formatDate(commande.createdAt)}</span>

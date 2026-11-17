@@ -6,6 +6,12 @@ import { useEffect, useState } from 'react';
 import { Link } from 'wouter';
 import { Car, Eye, Calendar } from 'lucide-react';
 import { PaymentStatusBadge } from '@/components/rental/PaymentStatusBadge';
+import {
+  getRentalStatusDisplay,
+  isCompletedOrderStatus,
+  TONE_BADGE_CLASSES,
+  type StatusTone,
+} from '@/lib/rental-status';
 
 interface Course {
   rideOption?: any;
@@ -22,31 +28,18 @@ interface Course {
   driverName?: string;
 }
 
-const statusLabels: Record<string, string> = {
-  pending: 'En attente',
-  accepted: 'Acceptée',
-  booked: 'Réservée',
-  driver_enroute: 'En route',
-  driver_arrived: 'Arrivé',
-  in_progress: 'En cours',
-  completed: 'Terminée',
-  payment_pending: 'Paiement en attente',
-  payment_confirmed: 'Payée',
-  cancelled: 'Annulée',
+const ICON_TONE_CLASSES: Record<StatusTone, { bg: string; fg: string }> = {
+  green: { bg: 'bg-green-100', fg: 'text-green-600' },
+  blue: { bg: 'bg-blue-100', fg: 'text-blue-600' },
+  amber: { bg: 'bg-amber-100', fg: 'text-amber-600' },
+  red: { bg: 'bg-red-100', fg: 'text-red-600' },
+  gray: { bg: 'bg-gray-100', fg: 'text-gray-600' },
 };
 
-const statusColors: Record<string, string> = {
-  pending: 'bg-yellow-100 text-yellow-800',
-  accepted: 'bg-blue-100 text-blue-800',
-  booked: 'bg-blue-100 text-blue-800',
-  driver_enroute: 'bg-purple-100 text-purple-800',
-  driver_arrived: 'bg-indigo-100 text-indigo-800',
-  in_progress: 'bg-indigo-100 text-indigo-800',
-  completed: 'bg-green-100 text-green-800',
-  payment_pending: 'bg-orange-100 text-orange-800',
-  payment_confirmed: 'bg-green-100 text-green-800',
-  cancelled: 'bg-red-100 text-red-800',
-};
+function formatShortDate(value?: string) {
+  if (!value) return '';
+  return new Date(value).toLocaleDateString('fr-FR', { day: 'numeric', month: 'short', timeZone: 'Pacific/Tahiti' });
+}
 
 export function PrestataireCourses() {
   const [courses, setCourses] = useState<Course[]>([]);
@@ -74,9 +67,7 @@ export function PrestataireCourses() {
     }
   }
 
-  const completedCourses = courses.filter(
-    (c) => c.status === 'completed' || c.status === 'payment_confirmed'
-  );
+  const completedCourses = courses.filter((c) => isCompletedOrderStatus(c.status));
   const pipelineCourses = courses.filter(
     (c) =>
       c.status === 'accepted' ||
@@ -130,24 +121,16 @@ export function PrestataireCourses() {
           </div>
         ) : (
           <div className="divide-y divide-gray-50">
-            {courses.map((course) => (
+            {courses.map((course) => {
+              const status = getRentalStatusDisplay(course);
+              const iconTone = ICON_TONE_CLASSES[status.tone];
+              const ro = course.rideOption || {};
+              return (
               <Link key={course.id} href={`/prestataire/courses/${course.id}`}>
                 <div className="flex items-start gap-4 px-6 py-4 transition-colors hover:bg-gray-50 cursor-pointer">
                   {/* Status Icon */}
-                  <div className={`flex h-12 w-12 flex-shrink-0 items-center justify-center rounded-xl ${
-                    course.status === 'payment_confirmed' || course.status === 'completed'
-                      ? 'bg-green-100' 
-                      : course.status === 'cancelled' 
-                        ? 'bg-red-100' 
-                        : 'bg-gray-100'
-                  }`}>
-                    <Car className={`h-6 w-6 ${
-                      course.status === 'payment_confirmed' || course.status === 'completed'
-                        ? 'text-green-600' 
-                        : course.status === 'cancelled' 
-                          ? 'text-red-600' 
-                          : 'text-gray-600'
-                    }`} />
+                  <div className={`flex h-12 w-12 flex-shrink-0 items-center justify-center rounded-xl ${iconTone.bg}`}>
+                    <Car className={`h-6 w-6 ${iconTone.fg}`} />
                   </div>
                   
                   {/* Main Info */}
@@ -161,30 +144,21 @@ export function PrestataireCourses() {
                           {course.driverName}
                         </span>
                       )}
-                      <span className={`rounded-full px-2 py-0.5 text-xs font-medium ${statusColors[course.status] || 'bg-gray-100 text-gray-800'}`}>
-                        {statusLabels[course.status] || course.status}
+                      <span className={`rounded-full px-2 py-0.5 text-xs font-medium ${TONE_BADGE_CLASSES[status.tone]}`}>
+                        {status.label}
                       </span>
                     </div>
                     
-                    {/* Addresses */}
-                    <div className="mt-2 space-y-1">
-                      {course.pickupAddress && (
-                        <div className="flex items-center gap-2 text-sm text-gray-600">
-                          <div className="h-2 w-2 rounded-full bg-green-500 flex-shrink-0" />
-                          <span className="truncate">{course.pickupAddress}</span>
+                    <div className="mt-2 space-y-1 text-sm text-gray-600">
+                      <div className="truncate font-medium text-gray-800">{ro.title || 'Véhicule'}</div>
+                      {(ro.startDate || ro.endDate) && (
+                        <div className="truncate">
+                          {formatShortDate(ro.startDate)} → {formatShortDate(ro.endDate)}
+                          {ro.days ? ` · ${ro.days} jour${ro.days > 1 ? 's' : ''}` : ''}
                         </div>
                       )}
-                      {course.stops?.map((stop, i) => (
-                        <div key={i} className="flex items-center gap-2 text-sm text-gray-500">
-                          <div className="h-2 w-2 rounded-full bg-yellow-500 flex-shrink-0" />
-                          <span className="truncate">{stop}</span>
-                        </div>
-                      ))}
-                      {course.dropoffAddress && (
-                        <div className="flex items-center gap-2 text-sm text-gray-600">
-                          <div className="h-2 w-2 rounded-full bg-red-500 flex-shrink-0" />
-                          <span className="truncate">{course.dropoffAddress}</span>
-                        </div>
+                      {course.pickupAddress && (
+                        <div className="truncate text-gray-500">{course.pickupAddress}</div>
                       )}
                     </div>
 
@@ -222,7 +196,8 @@ export function PrestataireCourses() {
                   </div>
                 </div>
               </Link>
-            ))}
+              );
+            })}
           </div>
         )}
       </div>
