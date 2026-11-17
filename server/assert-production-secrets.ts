@@ -44,11 +44,11 @@ export function assertProductionSecrets(): void {
   if (!process.env.ONESIGNAL_REST_API_KEY_DRIVER) {
     console.warn(
       "[WARN] ONESIGNAL_REST_API_KEY_DRIVER unset — " +
-        "les push vers l'app Loueur (62d9a9ec-c62b-4aae-9cb3-e0d0c46ccfe8) sont désactivées. Ajoutez ONESIGNAL_REST_API_KEY_DRIVER dans Render."
+        "les push vers l'app Loueur (a36c17b6-38b3-48a4-bc95-72503a18aa2b) sont désactivées. Ajoutez ONESIGNAL_REST_API_KEY_DRIVER dans Render."
     );
   } else {
     console.log(
-      `[OneSignal] Push Client & Loueur actives (loueur appId=${process.env.ONESIGNAL_DRIVER_APP_ID || "62d9a9ec-c62b-4aae-9cb3-e0d0c46ccfe8"})`
+      `[OneSignal] Push Client & Loueur actives (loueur appId=${process.env.ONESIGNAL_DRIVER_APP_ID || "a36c17b6-38b3-48a4-bc95-72503a18aa2b"})`
     );
   }
 

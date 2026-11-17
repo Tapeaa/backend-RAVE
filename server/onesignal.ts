@@ -4,7 +4,7 @@
  */
 
 const DEFAULT_CLIENT_APP_ID = 'e5e23506-2176-47ce-9861-cae3b49ed002';
-const DEFAULT_DRIVER_APP_ID = '62d9a9ec-c62b-4aae-9cb3-e0d0c46ccfe8';
+const DEFAULT_DRIVER_APP_ID = 'a36c17b6-38b3-48a4-bc95-72503a18aa2b';
 
 function getClientAppId(): string {
   return (process.env.ONESIGNAL_CLIENT_APP_ID || DEFAULT_CLIENT_APP_ID).trim();
