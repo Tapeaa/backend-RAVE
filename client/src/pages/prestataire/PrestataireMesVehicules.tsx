@@ -3,8 +3,9 @@
  * Flotte + tarifs dégressifs + termes fiche client
  */
 
-import { useEffect, useRef, useState } from 'react';
-import { CarFront, Plus, X, Check, Edit, Trash2, Eye, EyeOff, Search, CalendarOff, FileText, Bold, List, Heading2, FilePlus2 } from 'lucide-react';
+import { useEffect, useState } from 'react';
+import { CarFront, Plus, X, Check, Edit, Trash2, Eye, EyeOff, Search, CalendarOff, FileText, Pencil } from 'lucide-react';
+import { ContractStudio, parseContractSections } from '@/components/loueur/ContractStudio';
 import { useLoueurNotice } from '@/components/loueur/LoueurNotice';
 import {
   buildCustomRentalContractHtml,
@@ -196,7 +197,6 @@ export function PrestataireMesVehicules() {
     customContractText: '',
   });
   const [showContractPreview, setShowContractPreview] = useState(false);
-  const customContractRef = useRef<HTMLTextAreaElement>(null);
   const [availabilityBlocks, setAvailabilityBlocks] = useState<AvailabilityBlock[]>([]);
   const [blockStart, setBlockStart] = useState(todayYmd());
   const [blockEnd, setBlockEnd] = useState(todayYmd());
@@ -584,114 +584,30 @@ export function PrestataireMesVehicules() {
   const selectedModel = models.find((m) => m.id === formData.vehicleModelId);
   const extras = formData.listingExtras;
 
-  const setCustomText = (customContractText: string) => {
-    setFormData((prev) => ({ ...prev, customContractText }));
-    setShowContractPreview(true);
+  const contractBasePrice = formData.pricingTiers[0]?.pricePerDay || 0;
+  const contractPreviewParams = {
+    ref: 'APERCU',
+    contractDate: new Date().toLocaleDateString('fr-FR'),
+    loueurName: 'Votre nom (loueur)',
+    loueurNumeroTahiti: '[Votre N° Tahiti]',
+    clientName: '[Nom du client]',
+    clientInfo: '[Coordonnées client]',
+    vehicleName: selectedModel?.name || editingVehicle?.modelName || 'Véhicule',
+    vehicleMeta: formData.plate ? `Immat. ${formData.plate}` : undefined,
+    startLabel: '[Date début]',
+    endLabel: '[Date fin]',
+    days: 3,
+    pickupLocation: formData.defaultMeetingPoint || '[Lieu]',
+    pricePerDayLabel: `${contractBasePrice.toLocaleString('fr-FR')} XPF`,
+    totalLabel: `${(contractBasePrice * 3).toLocaleString('fr-FR')} XPF`,
+    previewMode: true,
   };
-
-  const nextArticleNumber = (text: string) => {
-    const matches = [...text.matchAll(/Article\s+(\d+)/gi)];
-    return matches.reduce((max, m) => Math.max(max, Number(m[1]) || 0), 0) + 1;
-  };
-
-  const insertAtCursor = (insert: string, selectInner?: { start: number; end: number }) => {
-    const el = customContractRef.current;
-    const text = formData.customContractText;
-    if (!el) {
-      setCustomText(text + insert);
-      return;
-    }
-    const start = el.selectionStart ?? text.length;
-    const end = el.selectionEnd ?? start;
-    const next = text.slice(0, start) + insert + text.slice(end);
-    setCustomText(next);
-    requestAnimationFrame(() => {
-      el.focus();
-      const pos = selectInner
-        ? { start: start + selectInner.start, end: start + selectInner.end }
-        : { start: start + insert.length, end: start + insert.length };
-      el.setSelectionRange(pos.start, pos.end);
-    });
-  };
-
-  const wrapSelection = (before: string, after: string, placeholder: string) => {
-    const el = customContractRef.current;
-    const text = formData.customContractText;
-    if (!el) {
-      setCustomText(text + before + placeholder + after);
-      return;
-    }
-    const start = el.selectionStart ?? 0;
-    const end = el.selectionEnd ?? 0;
-    const selected = text.slice(start, end);
-    const inner = selected || placeholder;
-    const insert = `${before}${inner}${after}`;
-    const next = text.slice(0, start) + insert + text.slice(end);
-    setCustomText(next);
-    requestAnimationFrame(() => {
-      el.focus();
-      el.setSelectionRange(start + before.length, start + before.length + inner.length);
-    });
-  };
-
-  const insertTitle = () => {
-    const n = nextArticleNumber(formData.customContractText);
-    const label = window.prompt('Titre de la section (apparaîtra en vert)', `Article ${n} — `);
-    if (label == null) return;
-    const clean = label.trim() || `Article ${n} — Titre`;
-    const prefix = formData.customContractText
-      ? formData.customContractText.endsWith('\n')
-        ? '\n'
-        : '\n\n'
-      : '';
-    insertAtCursor(`${prefix}## ${clean}\n`);
-  };
-
-  const insertBullet = () => {
-    const el = customContractRef.current;
-    const text = formData.customContractText;
-    if (el && el.selectionEnd > el.selectionStart) {
-      const start = el.selectionStart;
-      const end = el.selectionEnd;
-      const chunk = text.slice(start, end);
-      const bulleted = chunk
-        .split('\n')
-        .map((line) => {
-          const t = line.trim();
-          if (!t || t.startsWith('- ')) return line;
-          return `- ${t}`;
-        })
-        .join('\n');
-      const next = text.slice(0, start) + bulleted + text.slice(end);
-      setCustomText(next);
-      return;
-    }
-    const prefix = text && !text.endsWith('\n') ? '\n' : '';
-    insertAtCursor(`${prefix}- `);
-  };
-
-  const insertContractTemplate = () => {
-    const name = selectedModel?.name || editingVehicle?.modelName || 'Véhicule';
-    setCustomText(
-      [
-        '## Article 1 — Parties',
-        'Le Loueur : **Votre nom / société**',
-        'Le Locataire : le client signataire',
-        '',
-        '## Article 2 — Véhicule',
-        `Modèle : ${name}`,
-        'État et accessoires constatés à la remise des clés.',
-        '',
-        '## Article 3 — Conditions',
-        '- Permis de conduire valide obligatoire',
-        '- Restituer le véhicule propre et avec le même niveau de carburant',
-        '- Signaler immédiatement tout sinistre au loueur',
-        '',
-        '## Article 4 — Caution et assurance',
-        'La caution est restituée après contrôle du véhicule, sous réserve de dégâts ou amendes.',
-      ].join('\n')
-    );
-  };
+  const buildContractPreview = (body: string) =>
+    formData.rentalContractMode === 'custom'
+      ? buildCustomRentalContractHtml({ ...contractPreviewParams, customBody: body, isCustom: true })
+      : buildDefaultRentalContractHtml(contractPreviewParams);
+  const customSections = parseContractSections(formData.customContractText);
+  const customTitles = customSections.map((s) => s.title).filter(Boolean);
 
   return (
     <div className="space-y-6">
@@ -969,38 +885,14 @@ export function PrestataireMesVehicules() {
                 </button>
 
                 {formData.rentalContractMode === 'app_default' && (
-                  <div className="rounded-lg border border-gray-200 bg-white p-3 space-y-2">
-                    <button
-                      type="button"
-                      onClick={() => setShowContractPreview((v) => !v)}
-                      className="text-xs font-medium text-violet-700 hover:underline"
-                    >
-                      {showContractPreview ? 'Masquer l’aperçu' : 'Voir le contrat (identique à la signature client)'}
-                    </button>
-                    {showContractPreview ? (
-                      <iframe
-                        title="Aperçu contrat RAVE"
-                        className="w-full h-80 rounded-md border border-gray-100 bg-white"
-                        srcDoc={buildDefaultRentalContractHtml({
-                          ref: 'APERCU',
-                          contractDate: new Date().toLocaleDateString('fr-FR'),
-                          loueurName: 'Votre nom (loueur)',
-                          loueurNumeroTahiti: '[Votre N° Tahiti / K-BIS]',
-                          clientName: '[Nom du client]',
-                          clientInfo: '[Coordonnées client]',
-                          vehicleName: selectedModel?.name || editingVehicle?.modelName || 'Véhicule',
-                          vehicleMeta: formData.plate ? `Immat. ${formData.plate}` : undefined,
-                          startLabel: '[Date début]',
-                          endLabel: '[Date fin]',
-                          days: 3,
-                          pickupLocation: formData.defaultMeetingPoint || '[Lieu]',
-                          pricePerDayLabel: `${(formData.pricingTiers[0]?.pricePerDay || 0).toLocaleString('fr-FR')} XPF`,
-                          totalLabel: `${((formData.pricingTiers[0]?.pricePerDay || 0) * 3).toLocaleString('fr-FR')} XPF`,
-                          previewMode: true,
-                        })}
-                      />
-                    ) : null}
-                  </div>
+                  <button
+                    type="button"
+                    onClick={() => setShowContractPreview(true)}
+                    className="w-full inline-flex items-center justify-center gap-2 rounded-lg border border-violet-200 bg-white px-4 py-2.5 text-sm font-semibold text-violet-700 hover:bg-violet-50"
+                  >
+                    <Eye className="h-4 w-4" />
+                    Voir le contrat en grand
+                  </button>
                 )}
 
                 <button
@@ -1010,7 +902,6 @@ export function PrestataireMesVehicules() {
                       ...prev,
                       rentalContractMode: 'custom',
                     }));
-                    setShowContractPreview(true);
                   }}
                   className={`w-full text-left rounded-xl border p-3 transition ${
                     formData.rentalContractMode === 'custom'
@@ -1040,99 +931,45 @@ export function PrestataireMesVehicules() {
                 </button>
 
                 {formData.rentalContractMode === 'custom' && (
-                  <div className="space-y-2">
-                    <p className="text-xs text-gray-500">
-                      Écrivez normalement, puis utilisez les boutons. L’aperçu montre exactement ce que
-                      verra le client à la signature.
-                    </p>
-                    <div className="flex flex-wrap gap-2">
-                      <button
-                        type="button"
-                        className="inline-flex items-center gap-1.5 text-xs px-2.5 py-1.5 rounded-lg border border-gray-200 bg-white font-medium hover:bg-gray-50"
-                        onClick={insertTitle}
-                      >
-                        <Heading2 className="h-3.5 w-3.5" />
-                        + Titre
-                      </button>
-                      <button
-                        type="button"
-                        className="inline-flex items-center gap-1.5 text-xs px-2.5 py-1.5 rounded-lg border border-gray-200 bg-white font-medium hover:bg-gray-50"
-                        onClick={() => wrapSelection('**', '**', 'texte important')}
-                      >
-                        <Bold className="h-3.5 w-3.5" />
-                        + Gras
-                      </button>
-                      <button
-                        type="button"
-                        className="inline-flex items-center gap-1.5 text-xs px-2.5 py-1.5 rounded-lg border border-gray-200 bg-white font-medium hover:bg-gray-50"
-                        onClick={insertBullet}
-                      >
-                        <List className="h-3.5 w-3.5" />
-                        + Liste
-                      </button>
-                      <button
-                        type="button"
-                        className="inline-flex items-center gap-1.5 text-xs px-2.5 py-1.5 rounded-lg border border-gray-200 bg-white font-medium hover:bg-gray-50"
-                        onClick={insertContractTemplate}
-                      >
-                        <FilePlus2 className="h-3.5 w-3.5" />
-                        + Modèle
-                      </button>
-                    </div>
-                    <textarea
-                      ref={customContractRef}
-                      value={formData.customContractText}
-                      onChange={(e) => {
-                        setFormData((prev) => ({
-                          ...prev,
-                          customContractText: e.target.value,
-                        }));
-                        if (e.target.value.trim()) setShowContractPreview(true);
-                      }}
-                      rows={12}
-                      placeholder={`Écrivez vos articles ici…
-
-Astuce : sélectionnez un mot puis cliquez sur Gras.
-Cliquez sur Titre pour une section verte.`}
-                      className="w-full px-3 py-2 border border-violet-200 rounded-lg text-sm leading-relaxed focus:outline-none focus:ring-2 focus:ring-violet-300"
-                    />
-                    <div className="flex items-center justify-between">
-                      <button
-                        type="button"
-                        onClick={() => setShowContractPreview((v) => !v)}
-                        className="text-xs font-medium text-violet-700 hover:underline"
-                      >
-                        {showContractPreview ? 'Masquer l’aperçu' : 'Voir l’aperçu client'}
-                      </button>
-                      <p className="text-xs text-gray-500">
-                        {formData.customContractText.length} caractère
-                        {formData.customContractText.length > 1 ? 's' : ''}
+                  <div className="rounded-lg border border-violet-200 bg-white p-4 space-y-3">
+                    {customSections.length === 0 ? (
+                      <p className="text-sm text-gray-600">
+                        Votre contrat est encore vide. Ouvrez l’éditeur pour partir de notre modèle ou écrire vos règles.
                       </p>
-                    </div>
-                    {showContractPreview ? (
-                      <iframe
-                        title="Aperçu contrat perso"
-                        className="w-full h-72 rounded-md border border-violet-100 bg-white"
-                        srcDoc={buildCustomRentalContractHtml({
-                          ref: 'APERCU',
-                          contractDate: new Date().toLocaleDateString('fr-FR'),
-                          loueurName: 'Votre nom',
-                          clientName: '[Client]',
-                          vehicleName: selectedModel?.name || editingVehicle?.modelName || 'Véhicule',
-                          startLabel: '[Début]',
-                          endLabel: '[Fin]',
-                          days: 1,
-                          pricePerDayLabel: `${(formData.pricingTiers[0]?.pricePerDay || 0).toLocaleString('fr-FR')} XPF`,
-                          totalLabel: `${(formData.pricingTiers[0]?.pricePerDay || 0).toLocaleString('fr-FR')} XPF`,
-                          customBody:
-                            formData.customContractText.trim() ||
-                            'Rédigez votre contrat…\nL’aperçu se met à jour ici.',
-                          isCustom: true,
-                        })}
-                      />
-                    ) : null}
+                    ) : (
+                      <div>
+                        <p className="text-sm font-semibold text-gray-900">
+                          {customTitles.length} article{customTitles.length > 1 ? 's' : ''}
+                        </p>
+                        <ul className="mt-1 space-y-0.5 text-sm text-gray-600">
+                          {customTitles.map((t, i) => (
+                            <li key={i}>
+                              Article {i + 1} — {t}
+                            </li>
+                          ))}
+                        </ul>
+                      </div>
+                    )}
+                    <button
+                      type="button"
+                      onClick={() => setShowContractPreview(true)}
+                      className="w-full inline-flex items-center justify-center gap-2 rounded-lg bg-violet-600 px-4 py-3 text-sm font-semibold text-white hover:bg-violet-700"
+                    >
+                      <Pencil className="h-4 w-4" />
+                      {customSections.length === 0 ? 'Créer mon contrat' : 'Modifier mon contrat'}
+                    </button>
                   </div>
                 )}
+
+                <ContractStudio
+                  open={showContractPreview}
+                  onClose={() => setShowContractPreview(false)}
+                  mode={formData.rentalContractMode === 'custom' ? 'custom' : 'app_default'}
+                  value={formData.customContractText}
+                  onChange={(customContractText) => setFormData((prev) => ({ ...prev, customContractText }))}
+                  buildPreview={buildContractPreview}
+                  onSwitchToCustom={() => setFormData((prev) => ({ ...prev, rentalContractMode: 'custom' }))}
+                />
               </div>
 
               {editingVehicle && (
