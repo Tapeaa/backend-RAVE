@@ -271,6 +271,24 @@ export const clientNotifications = {
         orderId,
       }
     ),
+
+  rentalCancelApproved: (clientId: string, orderId: string) =>
+    notifyClient(clientId, 'Annulation acceptée', 'Le loueur a accepté votre demande d\'annulation.', {
+      type: 'rental_cancel_approved',
+      orderId,
+    }),
+
+  rentalCancelRejected: (clientId: string, orderId: string) =>
+    notifyClient(clientId, 'Annulation refusée', 'Le loueur a refusé votre demande d\'annulation. Votre location est maintenue.', {
+      type: 'rental_cancel_rejected',
+      orderId,
+    }),
+
+  rentalCancelledByLoueur: (clientId: string, orderId: string) =>
+    notifyClient(clientId, 'Location annulée', 'Le loueur a annulé votre location.', {
+      type: 'rental_cancelled_by_loueur',
+      orderId,
+    }),
 };
 
 /**
@@ -297,6 +315,22 @@ export const driverNotifications = {
       { type: 'new_rental_order', orderId, price }
     ),
   
+  rentalCancelRequest: (driverId: string, orderId: string, clientName: string, vehicleTitle: string) =>
+    notifyDriver(
+      driverId,
+      '⚠️ Demande d\'annulation',
+      `${clientName} souhaite annuler la location ${vehicleTitle}. Validez ou refusez.`,
+      { type: 'rental_cancel_request', orderId }
+    ),
+
+  rentalCancelledByClient: (driverId: string, orderId: string, clientName: string, vehicleTitle: string) =>
+    notifyDriver(
+      driverId,
+      '❌ Demande annulée',
+      `${clientName} a annulé sa demande pour ${vehicleTitle}.`,
+      { type: 'rental_cancelled_by_client', orderId }
+    ),
+
   // Client a annulé
   clientCancelled: (driverId: string, orderId: string) => 
     notifyDriver(driverId, '❌ Course annulée', 'Le client a annulé la course.', { 
