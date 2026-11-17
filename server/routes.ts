@@ -20,7 +20,7 @@ import { generateInvoicePDF } from "./pdf-generator";
 import { sendSupportMessageNotification } from "./email";
 import { assertVehicleAvailableForRental, getVehicleBusyRanges, filterVehicleIdsAvailableForRange } from "./rental-availability";
 import { computeDigressiveRentalPrice, validatePricingTiers, MAX_RENTAL_DAYS_CAP } from "./rental-pricing";
-import { normalizeListingExtras, resolveVehicleSpecs } from "@shared/listing-extras";
+import { normalizeListingExtras, resolveVehicleSpecs, isCancellationConfigured } from "@shared/listing-extras";
 import { persistImageUri, persistContractHtml, isEphemeralLocalUri } from "./persist-media";
 import {
   buildRentalContractHtml,
@@ -2170,10 +2170,19 @@ app.post("/api/rental-orders", async (req, res) => {
       return res.status(409).json({ success: false, error: "Tarif journalier invalide pour ce véhicule" });
     }
 
-    const listingCatalog = (() => {
-      const extras = normalizeListingExtras((vehicleRow as any).listingExtras);
-      return [...extras.insuranceOptions, ...extras.supplementOptions];
-    })();
+    const vehicleExtras = normalizeListingExtras((vehicleRow as any).listingExtras);
+    if (!isCancellationConfigured(vehicleExtras)) {
+      return res.status(409).json({
+        success: false,
+        error: "Ce véhicule n'est pas encore réservable : le loueur doit d'abord publier ses conditions d'annulation.",
+      });
+    }
+    const cancellationPolicySnapshot = {
+      title: vehicleExtras.cancellationTitle.trim(),
+      desc: vehicleExtras.cancellationDesc.trim(),
+      acceptedAt: new Date().toISOString(),
+    };
+    const listingCatalog = [...vehicleExtras.insuranceOptions, ...vehicleExtras.supplementOptions];
     // Seules les options publiées sur l'annonce sont acceptées, au prix serveur
     type ListedSupplement = { id: string; name: string; priceListed: number; price: number; quantity: number };
     const requestedExtras: any[] = [
@@ -2429,6 +2438,7 @@ app.post("/api/rental-orders", async (req, res) => {
         imageUrls: vehicleImageUrls,
         supplementsTotal,
         isRentalOrder: true,
+        cancellationPolicy: cancellationPolicySnapshot,
         pricingBreakdown: (priced.breakdown || []).map((line: any) => ({
           ...line,
           pricePerDayListed: line.pricePerDay,
@@ -5567,6 +5577,7 @@ app.post("/api/live-activities/end", async (req, res) => {
         );
 
         const listingExtras = normalizeListingExtras(row.listingExtras);
+        if (!isCancellationConfigured(listingExtras)) continue;
         const specs = resolveVehicleSpecs(listingExtras, {
           seats: row.seats,
           transmission: row.transmission,
@@ -5762,6 +5773,7 @@ app.post("/api/live-activities/end", async (req, res) => {
           row.modelImageUrl,
         );
         const listingExtras = normalizeListingExtras(row.listingExtras);
+        if (!isCancellationConfigured(listingExtras)) continue;
         const specs = resolveVehicleSpecs(listingExtras, {
           seats: row.seats,
           transmission: row.transmission,
@@ -5972,6 +5984,7 @@ app.post("/api/live-activities/end", async (req, res) => {
             customImageUrls: loueurVehicles.customImageUrls,
             rentalContractMode: loueurVehicles.rentalContractMode,
             customContractText: loueurVehicles.customContractText,
+            listingExtras: loueurVehicles.listingExtras,
             isActive: loueurVehicles.isActive,
             createdAt: loueurVehicles.createdAt,
             modelName: vehicleModels.name,
@@ -6002,6 +6015,7 @@ app.post("/api/live-activities/end", async (req, res) => {
             customImageUrl: loueurVehicles.customImageUrl,
             rentalContractMode: loueurVehicles.rentalContractMode,
             customContractText: loueurVehicles.customContractText,
+            listingExtras: loueurVehicles.listingExtras,
             isActive: loueurVehicles.isActive,
             createdAt: loueurVehicles.createdAt,
             modelName: vehicleModels.name,
@@ -6031,12 +6045,81 @@ app.post("/api/live-activities/end", async (req, res) => {
           customImageUrl: customUrls[0] || null,
           displayImageUrl: displayUrls[0] || null,
           displayImageUrls: displayUrls,
+          cancellation: (() => {
+            const extras = normalizeListingExtras(v.listingExtras);
+            return {
+              title: extras.cancellationTitle,
+              desc: extras.cancellationDesc,
+              configured: isCancellationConfigured(extras),
+            };
+          })(),
         };
       });
 
       return res.json(normalized);
     } catch (error) {
       console.error("Error fetching driver vehicles:", error);
+      return res.status(500).json({ error: "Erreur serveur" });
+    }
+  });
+
+  // PUT /api/driver/vehicles/cancellation-policy - Conditions d'annulation (un, plusieurs ou tous les véhicules)
+  app.put("/api/driver/vehicles/cancellation-policy", async (req, res) => {
+    try {
+      const sessionId = req.headers['x-driver-session'] as string;
+      if (!sessionId) return res.status(401).json({ error: "Session requise" });
+      const session = await getDriverSessionWithFallback(sessionId);
+      if (!session) return res.status(401).json({ error: "Session invalide" });
+
+      const driver = await dbStorage.getDriver(session.driverId);
+      if (!driver || !driver.prestataireId) {
+        return res.status(403).json({ error: "Aucun prestataire associé" });
+      }
+
+      const title = typeof req.body?.title === "string" ? req.body.title.trim() : "";
+      const desc = typeof req.body?.desc === "string" ? req.body.desc.trim() : "";
+      if (title.length < 3 || title.length > 80) {
+        return res.status(400).json({ error: "Le titre doit faire entre 3 et 80 caractères" });
+      }
+      if (desc.length < 20 || desc.length > 2000) {
+        return res.status(400).json({ error: "Les conditions doivent faire entre 20 et 2000 caractères" });
+      }
+
+      const applyToAll = req.body?.vehicleIds === "all";
+      const requestedIds: string[] = Array.isArray(req.body?.vehicleIds)
+        ? req.body.vehicleIds.map((x: unknown) => String(x)).filter(Boolean)
+        : [];
+      if (!applyToAll && requestedIds.length === 0) {
+        return res.status(400).json({ error: "Aucun véhicule sélectionné" });
+      }
+
+      const owned = await db
+        .select({ id: loueurVehicles.id, listingExtras: loueurVehicles.listingExtras })
+        .from(loueurVehicles)
+        .where(eq(loueurVehicles.prestataireId, driver.prestataireId));
+      const targets = applyToAll ? owned : owned.filter((v) => requestedIds.includes(v.id));
+      if (targets.length === 0) {
+        return res.status(404).json({ error: "Véhicule introuvable" });
+      }
+
+      for (const v of targets) {
+        const extras = normalizeListingExtras(v.listingExtras);
+        await db
+          .update(loueurVehicles)
+          .set({
+            listingExtras: {
+              ...extras,
+              cancellationTitle: title,
+              cancellationDesc: desc,
+              cancellationConfigured: true,
+            },
+          })
+          .where(eq(loueurVehicles.id, v.id));
+      }
+
+      return res.json({ success: true, updated: targets.length });
+    } catch (error) {
+      console.error("Error updating cancellation policy:", error);
       return res.status(500).json({ error: "Erreur serveur" });
     }
   });

@@ -29,6 +29,8 @@ export type VehicleListingExtras = {
   fuel: FuelCode | null;
   cancellationTitle: string;
   cancellationDesc: string;
+  /** Le loueur a explicitement préparé ses conditions : sinon le véhicule est masqué aux clients. */
+  cancellationConfigured: boolean;
   paymentTitle: string;
   paymentDesc: string;
   mileageUnlimited: boolean;
@@ -130,6 +132,7 @@ export const DEFAULT_LISTING_EXTRAS: VehicleListingExtras = {
   cancellationTitle: "Annulation gratuite",
   cancellationDesc:
     "Remboursement complet dans les 24 heures suivant la réservation. Options plus flexibles lors du paiement.",
+  cancellationConfigured: false,
   paymentTitle: "Paiement au loueur",
   paymentDesc:
     "Le paiement se fait directement auprès du loueur lors de la prise en charge du véhicule.",
@@ -284,6 +287,7 @@ export function normalizeListingExtras(raw: unknown): VehicleListingExtras {
     fuel,
     cancellationTitle: asString(o.cancellationTitle, d.cancellationTitle) || d.cancellationTitle,
     cancellationDesc: asString(o.cancellationDesc, d.cancellationDesc),
+    cancellationConfigured: o.cancellationConfigured === true,
     paymentTitle: asString(o.paymentTitle, d.paymentTitle) || d.paymentTitle,
     paymentDesc: asString(o.paymentDesc, d.paymentDesc),
     mileageUnlimited: o.mileageUnlimited === true,
@@ -312,6 +316,18 @@ export function normalizeListingExtras(raw: unknown): VehicleListingExtras {
     depositAmount: asNullableNumber(o.depositAmount),
     depositNote: asString(o.depositNote, d.depositNote),
   };
+}
+
+/** Conditions préparées par le loueur (drapeau, ou texte déjà personnalisé avant l'existence du drapeau). */
+export function isCancellationConfigured(extras: VehicleListingExtras): boolean {
+  if (extras.cancellationConfigured) return true;
+  const title = extras.cancellationTitle.trim();
+  const desc = extras.cancellationDesc.trim();
+  if (!title || !desc) return false;
+  return (
+    title !== DEFAULT_LISTING_EXTRAS.cancellationTitle ||
+    desc !== DEFAULT_LISTING_EXTRAS.cancellationDesc
+  );
 }
 
 export function hasInsuranceSection(extras: VehicleListingExtras): boolean {

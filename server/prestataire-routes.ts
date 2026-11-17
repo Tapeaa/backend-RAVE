@@ -13,8 +13,29 @@ import { eq, desc, asc, count, sql, and, gte, lte, inArray, or } from "drizzle-o
 import { dbStorage } from "./db-storage";
 import { uploadDocument, uploadDocumentToCloudinary } from "./cloudinary";
 import { validatePricingTiers, MAX_RENTAL_DAYS_CAP } from "./rental-pricing";
-import { normalizeListingExtras } from "@shared/listing-extras";
+import { normalizeListingExtras, DEFAULT_LISTING_EXTRAS } from "@shared/listing-extras";
 import { normalizeContractSettings } from "@shared/rental-contract-html";
+
+/**
+ * Le dashboard n'envoie pas le drapeau : on le conserve, et on le pose si le loueur
+ * a réellement rédigé ses conditions (texte différent du modèle par défaut / de l'existant).
+ */
+function withCancellationFlag(rawIncoming: unknown, rawExisting: unknown) {
+  const next = normalizeListingExtras(rawIncoming);
+  const prev = rawExisting ? normalizeListingExtras(rawExisting) : null;
+  const differsFromDefault =
+    next.cancellationTitle.trim() !== DEFAULT_LISTING_EXTRAS.cancellationTitle ||
+    next.cancellationDesc.trim() !== DEFAULT_LISTING_EXTRAS.cancellationDesc;
+  const editedNow =
+    !!prev &&
+    (next.cancellationTitle.trim() !== prev.cancellationTitle.trim() ||
+      next.cancellationDesc.trim() !== prev.cancellationDesc.trim());
+  return {
+    ...next,
+    cancellationConfigured:
+      next.cancellationConfigured || !!prev?.cancellationConfigured || differsFromDefault || editedNow,
+  };
+}
 import {
   assertVehicleOwnedByPrestataire,
   createAvailabilityBlock,
@@ -2091,7 +2112,7 @@ export function registerPrestataireRoutes(app: Express) {
           pricePerDayLongTerm: pricePerDayLongTerm || null,
           pricingTiers: validated.tiers,
           maxRentalDays: validated.maxRentalDays,
-          listingExtras: normalizeListingExtras(listingExtras),
+          listingExtras: withCancellationFlag(listingExtras, null),
           availableForRental: availableForRental ?? true,
           availableForDelivery: false,
           availableForLongTerm: false,
@@ -2203,7 +2224,7 @@ export function registerPrestataireRoutes(app: Express) {
       }
 
       if (req.body.listingExtras !== undefined) {
-        updates.listingExtras = normalizeListingExtras(req.body.listingExtras);
+        updates.listingExtras = withCancellationFlag(req.body.listingExtras, existing.listingExtras);
       }
 
       // Services retirés de l’offre
