@@ -1541,15 +1541,6 @@ export async function registerRoutes(app: Express): Promise<Server> {
         }
       }
       
-      // Method 3: Check if socket is in the order room and order has this client
-      if (!isValidClient && order.clientId) {
-        const socketRooms = socket.rooms;
-        if (socketRooms.has(`order:${data.orderId}`)) {
-          isValidClient = true;
-          console.log(`[CHAT] Client validated via room membership`);
-        }
-      }
-      
       if (!isValidClient) {
         console.log(`[CHAT] Invalid client authentication for order ${data.orderId}`);
         socket.emit("chat:error", { message: "Authentification invalide. Veuillez recharger l'application." });
@@ -3570,6 +3561,16 @@ app.post("/api/rental-orders/:id/lifecycle", async (req, res) => {
     const currentPhase = (order.rideOption as any)?.rentalLifecyclePhase;
     const status = order.status;
 
+    if (RENTAL_CLOSED_STATUSES.includes(status)) {
+      return res.status(409).json({ success: false, error: "Cette réservation est terminée ou annulée" });
+    }
+    if (phase === "with_client" && (order.rideOption as any)?.cancelRequest?.status === "pending") {
+      return res.status(409).json({
+        success: false,
+        error: "Le client a demandé l'annulation : acceptez ou refusez sa demande avant de remettre le véhicule",
+      });
+    }
+
     if (phase === "with_client") {
       const validStatus = ["accepted", "booked"].includes(status);
       const validPhase = !currentPhase || currentPhase === "vehicle_ready" || currentPhase === "awaiting_validation";
@@ -3893,6 +3894,10 @@ app.post("/api/live-activities/end", async (req, res) => {
     if (!order) {
       return res.status(404).json({ error: "Order not found" });
     }
+    const locClientId = await getAuthenticatedClient(req as any);
+    if (!locClientId || order.clientId !== locClientId) {
+      return res.status(403).json({ error: "Accès non autorisé" });
+    }
     
     const location = driverLocations.get(orderId);
     if (!location) {
@@ -4073,6 +4078,14 @@ app.post("/api/live-activities/end", async (req, res) => {
       if (!order) {
         return res.status(404).json({ error: "Commande non trouvée" });
       }
+
+      const cancelRo = (order.rideOption || {}) as any;
+      if (cancelRo?.type === "rental" || cancelRo?.isRentalOrder) {
+        return res.status(409).json({
+          error: "Les locations s'annulent via /api/rental-orders/:id/cancel",
+          code: "USE_RENTAL_CANCEL",
+        });
+      }
       
       // Vérifier si la commande peut être annulée
       // Permettre la ré-annulation si déjà cancelled (cas de double appel) - ne pas retourner d'erreur
@@ -4115,10 +4128,12 @@ app.post("/api/live-activities/end", async (req, res) => {
           }
         }
       } else if (role === 'client') {
-        // Pour le client, vérifier le token si fourni (mais permettre aussi sans token si pas de sécurité requise)
         const tokenData = orderClientTokens.get(orderId);
-        if (tokenData && clientToken && tokenData.token !== clientToken) {
-          return res.status(403).json({ error: "Token client invalide" });
+        const tokenOk = !!tokenData && !!clientToken && tokenData.token === clientToken;
+        const authClientId = await getAuthenticatedClient(req as any);
+        const ownerOk = !!authClientId && order.clientId === authClientId;
+        if (!tokenOk && !ownerOk) {
+          return res.status(403).json({ error: "Vous n'êtes pas le client de cette commande" });
         }
       }
       
@@ -6710,7 +6725,7 @@ app.post("/api/live-activities/end", async (req, res) => {
         needsVerification: true,
         phone: client.phone,
         message: (twilioConfigured && smsSuccess) ? "Code de vérification envoyé par SMS" : "Mode développement - utilisez le code de secours",
-        ...(shouldUseDevCode && { devCode: "111111" })
+        ...(shouldUseDevCode && isDev && { devCode: "111111" })
       });
     } catch (error: any) {
       console.error("Error registering client:", error);
@@ -6745,7 +6760,7 @@ app.post("/api/live-activities/end", async (req, res) => {
     try {
       const { phone, code, type } = req.body;
       
-      console.log(`[VERIFY] Phone: ${phone}, Code: ${code}, Type: ${type}, NODE_ENV: ${process.env.NODE_ENV}`);
+      console.log(`[VERIFY] Phone: ${phone}, Type: ${type}, NODE_ENV: ${process.env.NODE_ENV}`);
       
       if (!phone || !code) {
         return res.status(400).json({ error: "Téléphone et code requis" });
@@ -6877,7 +6892,7 @@ app.post("/api/live-activities/end", async (req, res) => {
         } else {
           // Fallback to database verification code
           const verificationCode = await dbStorage.createVerificationCode(phone, "login");
-          console.log(`[SMS] Code de connexion pour ${phone}: ${verificationCode.code}`);
+          if (isDev) console.log(`[SMS] Code de connexion pour ${phone}: ${verificationCode.code}`);
         }
         
         return res.status(403).json({ 
@@ -6885,7 +6900,7 @@ app.post("/api/live-activities/end", async (req, res) => {
           needsVerification: true,
           phone: client.phone,
           message: twilioConfigured ? "Code de vérification envoyé par SMS" : "Mode développement - utilisez le code de secours",
-          ...((isDev || !twilioConfigured) && { devCode: "111111" })
+          ...(isDev && { devCode: "111111" })
         });
       }
       

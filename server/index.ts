@@ -30,11 +30,33 @@ assertProductionSecrets();
 const app = express();
 app.set("trust proxy", 1);
 
-app.use(cors({
-  origin: true,
-  credentials: true,
-  methods: ["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
-  allowedHeaders: ["Content-Type", "Cookie", "Authorization", "X-Client-Session-Id", "X-Driver-Session-Id", "X-Driver-Session", "X-Admin-Secret", "X-App-Supports-Menu-Burger", "X-App-Version"],
+const extraCorsOrigins = (process.env.CORS_ORIGINS || "")
+  .split(",")
+  .map((o) => o.trim())
+  .filter(Boolean);
+const DEV_ORIGIN_RE = /^https?:\/\/(localhost|127\.0\.0\.1|10\.\d+\.\d+\.\d+|192\.168\.\d+\.\d+)(:\d+)?$/;
+
+// Apps natives : pas d'en-tête Origin. Navigateur : même domaine, dev local ou CORS_ORIGINS.
+app.use(cors((req, callback) => {
+  const origin = req.headers.origin;
+  let allowed = !origin;
+  if (origin) {
+    try {
+      const host = String(req.headers["x-forwarded-host"] || req.headers.host || "");
+      allowed =
+        new URL(origin).host === host ||
+        DEV_ORIGIN_RE.test(origin) ||
+        extraCorsOrigins.includes(origin);
+    } catch {
+      allowed = false;
+    }
+  }
+  callback(null, {
+    origin: allowed,
+    credentials: true,
+    methods: ["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
+    allowedHeaders: ["Content-Type", "Cookie", "Authorization", "X-Client-Session-Id", "X-Driver-Session-Id", "X-Driver-Session", "X-Admin-Secret", "X-App-Supports-Menu-Burger", "X-App-Version"],
+  });
 }));
 
 app.use(express.json({

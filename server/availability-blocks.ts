@@ -4,6 +4,7 @@
 import { db } from "./db";
 import { loueurVehicles, vehicleAvailabilityBlocks } from "@shared/schema";
 import { and, desc, eq } from "drizzle-orm";
+import { datesOverlap, getVehicleBusyRanges } from "./rental-availability";
 
 export type AvailabilityBlockRow = {
   id: string;
@@ -74,6 +75,20 @@ export async function createAvailabilityBlock(input: {
     typeof input.reason === "string" && input.reason.trim()
       ? input.reason.trim().slice(0, 200)
       : "Réservation hors RAVE";
+
+  const busy = await getVehicleBusyRanges(input.loueurVehicleId);
+  const hit = busy.find((b) =>
+    datesOverlap(range.start, range.end, new Date(b.startDate), new Date(b.endDate))
+  );
+  if (hit) {
+    return {
+      ok: false,
+      status: 409,
+      error: hit.orderId
+        ? "Une réservation RAVE existe déjà sur ces dates. Annulez-la avant de bloquer la période."
+        : "Ces dates chevauchent une période déjà bloquée.",
+    };
+  }
 
   const [created] = await db
     .insert(vehicleAvailabilityBlocks)

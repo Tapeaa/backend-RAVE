@@ -97,7 +97,7 @@ export async function verifyCode(phoneNumber: string, code: string): Promise<{ s
     // Normaliser le numéro de téléphone
     const normalizedPhone = phoneNumber.startsWith('+') ? phoneNumber : `+${phoneNumber}`;
 
-    console.log(`[TWILIO] Vérification du code ${code} pour ${normalizedPhone}`);
+    console.log(`[TWILIO] Vérification du code pour ${normalizedPhone}`);
 
     const verificationCheck = await twilioClient.verify.v2
       .services(TWILIO_VERIFY_SERVICE_SID)

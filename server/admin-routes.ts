@@ -848,7 +848,7 @@ export function registerAdminRoutes(app: Express) {
         })
         .returning();
 
-      console.log(`[Admin] Loueur créé: ${firstName} ${lastName} (${phone}) — code app ${code} — prestataire ${newPrestataire.id}`);
+      console.log(`[Admin] Loueur créé: ${firstName} ${lastName} (${phone}) — prestataire ${newPrestataire.id}`);
 
       return res.json({
         success: true,

@@ -546,7 +546,7 @@ export class DbStorage {
       expiresAt,
     }).returning();
     
-    console.log(`[SMS] Code de vérification pour ${phone}: ${code}`);
+    if (process.env.NODE_ENV !== "production") console.log(`[SMS] Code de vérification pour ${phone}: ${code}`);
     
     return {
       id: vc.id,
