@@ -25,7 +25,19 @@ import {
 } from "@shared/schema";
 import { eq, desc, and, gte, lte, or } from "drizzle-orm";
 import { createAvailabilityBlock } from "./availability-blocks";
-import { buildRentalCancelPayload, emitRentalOrderRealtime, getRealtimeIo } from "./realtime";
+import {
+  buildRentalCancelPayload,
+  emitRentalOrderRealtime,
+  getRealtimeIo,
+  getRentalOwnerDriverIdFromOrder,
+} from "./realtime";
+import {
+  clientNotifications,
+  driverNotifications,
+  getOneSignalConfigStatus,
+  notifyClient,
+  notifyDriver,
+} from "./onesignal";
 
 const stripe = process.env.STRIPE_SECRET_KEY ? new Stripe(process.env.STRIPE_SECRET_KEY) : null;
 
@@ -190,6 +202,14 @@ export function registerAdminBoExtensions(app: Express) {
           updatedBy: "admin",
           order: updated,
         });
+        const vehicleTitle = (rideOption as any)?.title || "Véhicule";
+        if (updated.clientId) {
+          if (phase === "with_client") {
+            clientNotifications.rentalHandedOver(updated.clientId, req.params.id, vehicleTitle).catch(() => {});
+          } else if (phase === "returned") {
+            clientNotifications.rentalCompleted(updated.clientId, req.params.id, vehicleTitle).catch(() => {});
+          }
+        }
       }
 
       await audit(req, "rental.lifecycle", "order", req.params.id, { phase });
@@ -244,6 +264,9 @@ export function registerAdminBoExtensions(app: Express) {
             refund: (rideOption as any).refund || null,
           })
         );
+        if (updated.clientId) {
+          clientNotifications.rentalCancelApproved(updated.clientId, req.params.id).catch(() => {});
+        }
       }
       await audit(req, "rental.cancel_approve", "order", req.params.id);
       return res.json({ success: true, commande: updated });
@@ -283,12 +306,69 @@ export function registerAdminBoExtensions(app: Express) {
           "rental-order:cancel-rejected",
           buildRentalCancelPayload(updated, { reason: rejectReason })
         );
+        if (updated.clientId) {
+          clientNotifications.rentalCancelRejected(updated.clientId, req.params.id).catch(() => {});
+        }
       }
       await audit(req, "rental.cancel_reject", "order", req.params.id);
       return res.json({ success: true, commande: updated });
     } catch (error) {
       console.error("Admin cancel-reject error:", error);
       return res.status(500).json({ error: "Erreur serveur" });
+    }
+  });
+
+  // ─── DIAGNOSTIC & TEST NOTIFICATIONS PUSH ONESIGNAL ─────────────
+  app.get("/api/admin/push-status", requireAdminAuth, (_req, res) => {
+    return res.json(getOneSignalConfigStatus());
+  });
+
+  app.post("/api/admin/push-test", requireAdminAuth, async (req: AuthenticatedRequest, res) => {
+    try {
+      const target = req.body?.target === "driver" ? "driver" : "client";
+      const externalId = String(req.body?.externalId || "").trim();
+      const title = String(req.body?.title || "🔔 Test notification RAVE").slice(0, 80);
+      const message = String(
+        req.body?.message ||
+          (target === "driver"
+            ? "Les notifications push RAVE Loueur sont bien actives !"
+            : "Les notifications push RAVE Client sont bien actives !")
+      ).slice(0, 200);
+
+      const status = getOneSignalConfigStatus();
+      if (target === "driver" && !status.driver.configured) {
+        return res.status(400).json({
+          ok: false,
+          error: "ONESIGNAL_REST_API_KEY_DRIVER manquante sur Render",
+        });
+      }
+      if (target === "client" && !status.client.configured) {
+        return res.status(400).json({
+          ok: false,
+          error: "ONESIGNAL_REST_API_KEY_CLIENT manquante sur Render",
+        });
+      }
+      if (!externalId) {
+        return res.status(400).json({
+          ok: false,
+          error: "Renseignez l'identifiant (ID loueur ou ID client) à notifier",
+        });
+      }
+
+      const sent =
+        target === "driver"
+          ? await notifyDriver(externalId, title, message, { type: "push_test" })
+          : await notifyClient(externalId, title, message, { type: "push_test" });
+
+      await audit(req, "push.test", target, externalId, { sent });
+      return res.json({
+        ok: sent,
+        error: sent
+          ? null
+          : "OneSignal n'a trouvé aucun appareil abonné pour cet ID (l'utilisateur doit avoir ouvert l'app et autorisé les notifications).",
+      });
+    } catch (error: any) {
+      return res.status(500).json({ ok: false, error: error?.message || "Erreur serveur" });
     }
   });
 
@@ -588,6 +668,9 @@ export function registerAdminBoExtensions(app: Express) {
           refund: refundObj,
           vehicleTitle: (order.rideOption as any)?.title || "Véhicule",
         });
+        if (updated.clientId) {
+          clientNotifications.rentalRefunded(updated.clientId, req.params.id, amount).catch(() => {});
+        }
       }
       await audit(req, "order.refund", "order", req.params.id, { amount, reason, stripeRefundId: stripeRefund?.id });
       return res.json({ success: true, stripeRefund, amount });

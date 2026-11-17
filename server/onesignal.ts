@@ -1,26 +1,71 @@
 /**
  * OneSignal Push Notifications Service
- * Pour envoyer des notifications aux clients et chauffeurs
+ * Notifications push pour les apps RAVE Client et RAVE Loueur (SDK OneSignal v5).
  */
 
-// Configuration OneSignal — env only (no hardcoded secrets)
-const ONESIGNAL_CLIENT_APP_ID = process.env.ONESIGNAL_CLIENT_APP_ID || '';
-const ONESIGNAL_DRIVER_APP_ID = process.env.ONESIGNAL_DRIVER_APP_ID || '';
-const ONESIGNAL_REST_API_KEY_CLIENT = process.env.ONESIGNAL_REST_API_KEY_CLIENT || '';
-const ONESIGNAL_REST_API_KEY_DRIVER = process.env.ONESIGNAL_REST_API_KEY_DRIVER || '';
+const DEFAULT_CLIENT_APP_ID = 'e5e23506-2176-47ce-9861-cae3b49ed002';
+const DEFAULT_DRIVER_APP_ID = '62d9a9ec-c62b-4aae-9cb3-e0d0c46ccfe8';
 
-const ONESIGNAL_API_URL = 'https://onesignal.com/api/v1/notifications';
-const ONESIGNAL_API_BASE = 'https://onesignal.com/api/v1';
+function getClientAppId(): string {
+  return (process.env.ONESIGNAL_CLIENT_APP_ID || DEFAULT_CLIENT_APP_ID).trim();
+}
+
+function getDriverAppId(): string {
+  return (process.env.ONESIGNAL_DRIVER_APP_ID || DEFAULT_DRIVER_APP_ID).trim();
+}
+
+function getClientApiKey(): string {
+  return (process.env.ONESIGNAL_REST_API_KEY_CLIENT || '').trim();
+}
+
+function getDriverApiKey(): string {
+  return (process.env.ONESIGNAL_REST_API_KEY_DRIVER || '').trim();
+}
+
+/**
+ * Construit l'en-tête Authorization compatible avec :
+ * - les nouvelles clés REST OneSignal v2 (`os_v2_app_...` / `os_v2_org_...`) → `Key <token>`
+ * - les anciennes clés REST héritées → `Basic <token>`
+ * - une valeur déjà préfixée par `Key ` ou `Basic ` dans les variables d'environnement
+ */
+function buildAuthHeader(rawApiKey: string): string {
+  const key = rawApiKey.trim();
+  if (/^(Key|Basic)\s+/i.test(key)) return key;
+  if (key.startsWith('os_v2_')) return `Key ${key}`;
+  return `Basic ${key}`;
+}
+
+const ONESIGNAL_API_URL = 'https://api.onesignal.com/notifications?c=push';
+const ONESIGNAL_API_BASE = 'https://api.onesignal.com';
 
 // URL du logo RAVE pour les notifications
 const RAVE_LOGO_URL = process.env.RAVE_LOGO_URL || 'https://backend-rave.onrender.com/logo.png';
+
+export function getOneSignalConfigStatus() {
+  const clientAppId = getClientAppId();
+  const driverAppId = getDriverAppId();
+  const clientKey = getClientApiKey();
+  const driverKey = getDriverApiKey();
+  return {
+    client: {
+      configured: Boolean(clientAppId && clientKey),
+      appId: clientAppId || null,
+      hasRestApiKey: Boolean(clientKey),
+    },
+    driver: {
+      configured: Boolean(driverAppId && driverKey),
+      appId: driverAppId || null,
+      hasRestApiKey: Boolean(driverKey),
+    },
+  };
+}
 
 interface NotificationPayload {
   title: string;
   message: string;
   data?: Record<string, any>;
   targetType: 'all' | 'user' | 'tag';
-  targetValue?: string; // userId ou tag value
+  targetValue?: string; // external_id ou tag value
   tagKey?: string; // si targetType === 'tag'
 }
 
@@ -28,20 +73,26 @@ interface NotificationPayload {
  * Envoie une notification aux CLIENTS
  */
 export async function sendNotificationToClients(payload: NotificationPayload): Promise<boolean> {
-  return sendNotification(ONESIGNAL_CLIENT_APP_ID, ONESIGNAL_REST_API_KEY_CLIENT, payload);
+  return sendNotification('client', getClientAppId(), getClientApiKey(), payload);
 }
 
 /**
- * Envoie une notification aux CHAUFFEURS
+ * Envoie une notification aux LOUEURS
  */
 export async function sendNotificationToDrivers(payload: NotificationPayload): Promise<boolean> {
-  return sendNotification(ONESIGNAL_DRIVER_APP_ID, ONESIGNAL_REST_API_KEY_DRIVER, payload);
+  return sendNotification('driver', getDriverAppId(), getDriverApiKey(), payload);
 }
 
 /**
- * Envoie une notification à un CLIENT spécifique (par son ID)
+ * Envoie une notification à un CLIENT spécifique (par son ID = external_id OneSignal)
  */
-export async function notifyClient(clientId: string, title: string, message: string, data?: Record<string, any>): Promise<boolean> {
+export async function notifyClient(
+  clientId: string,
+  title: string,
+  message: string,
+  data?: Record<string, any>
+): Promise<boolean> {
+  if (!clientId) return false;
   return sendNotificationToClients({
     title,
     message,
@@ -52,9 +103,15 @@ export async function notifyClient(clientId: string, title: string, message: str
 }
 
 /**
- * Envoie une notification à un CHAUFFEUR spécifique (par son ID)
+ * Envoie une notification à un LOUEUR spécifique (par son ID = external_id OneSignal)
  */
-export async function notifyDriver(driverId: string, title: string, message: string, data?: Record<string, any>): Promise<boolean> {
+export async function notifyDriver(
+  driverId: string,
+  title: string,
+  message: string,
+  data?: Record<string, any>
+): Promise<boolean> {
+  if (!driverId) return false;
   return sendNotificationToDrivers({
     title,
     message,
@@ -99,20 +156,20 @@ async function sendLiveActivityEvent(
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
-        'Authorization': `Basic ${apiKey}`,
+        Authorization: buildAuthHeader(apiKey),
       },
       body: JSON.stringify(body),
     });
 
     const result = await response.json();
     if (response.ok) {
-      console.log(`[OneSignal] ✅ Live Activity ${event} sent`, result);
+      console.log(`[OneSignal] Live Activity ${event} sent`, result);
       return true;
     }
-    console.error(`[OneSignal] ❌ Live Activity ${event} error:`, result);
+    console.error(`[OneSignal] Live Activity ${event} error:`, result);
     return false;
   } catch (error) {
-    console.error('[OneSignal] ❌ Live Activity network error:', error);
+    console.error('[OneSignal] Live Activity network error:', error);
     return false;
   }
 }
@@ -124,8 +181,8 @@ export async function startClientLiveActivity(
   updates: Record<string, any>
 ): Promise<boolean> {
   return sendLiveActivityEvent(
-    ONESIGNAL_CLIENT_APP_ID,
-    ONESIGNAL_REST_API_KEY_CLIENT,
+    getClientAppId(),
+    getClientApiKey(),
     activityType,
     activityId,
     'start',
@@ -141,8 +198,8 @@ export async function updateClientLiveActivity(
   updates: Record<string, any>
 ): Promise<boolean> {
   return sendLiveActivityEvent(
-    ONESIGNAL_CLIENT_APP_ID,
-    ONESIGNAL_REST_API_KEY_CLIENT,
+    getClientAppId(),
+    getClientApiKey(),
     activityType,
     activityId,
     'update',
@@ -158,8 +215,8 @@ export async function endClientLiveActivity(
   updates: Record<string, any>
 ): Promise<boolean> {
   return sendLiveActivityEvent(
-    ONESIGNAL_CLIENT_APP_ID,
-    ONESIGNAL_REST_API_KEY_CLIENT,
+    getClientAppId(),
+    getClientApiKey(),
     activityType,
     activityId,
     'end',
@@ -169,9 +226,13 @@ export async function endClientLiveActivity(
 }
 
 /**
- * Envoie une notification à TOUS les chauffeurs en ligne
+ * Envoie une notification à TOUS les loueurs connectés (tag status=online)
  */
-export async function notifyAllOnlineDrivers(title: string, message: string, data?: Record<string, any>): Promise<boolean> {
+export async function notifyAllOnlineDrivers(
+  title: string,
+  message: string,
+  data?: Record<string, any>
+): Promise<boolean> {
   return sendNotificationToDrivers({
     title,
     message,
@@ -186,103 +247,120 @@ export async function notifyAllOnlineDrivers(title: string, message: string, dat
  * Notifications prédéfinies pour les CLIENTS
  */
 export const clientNotifications = {
-  // Chauffeur a accepté la course
-  driverAccepted: (clientId: string, driverName: string, orderId: string) => 
-    sendNotificationToClients({
-      title: '🚕 Chauffeur en route !',
-      message: `${driverName} a accepté votre course et arrive.`,
-      data: { type: 'driver_accepted', orderId },
-      targetType: 'user',
-      targetValue: clientId,
-    }),
-  
-  // Chauffeur est arrivé
-  driverArrived: (clientId: string, driverName: string, orderId: string) => 
-    sendNotificationToClients({
-      title: `📍 ${driverName} vous attend`,
-      message: `Temps d'attente gratuit: 5min. Au-delà des frais s'appliqueront.`,
-      data: { type: 'driver_arrived', orderId },
-      targetType: 'user',
-      targetValue: clientId,
-    }),
-  
-  // Course terminée
-  rideCompleted: (clientId: string, amount: number, orderId: string) => 
-    notifyClient(clientId, '✅ Course terminée', `Montant: ${amount.toLocaleString()} XPF. Merci d'avoir choisi RAVE !`, { 
-      type: 'ride_completed', 
-      orderId,
-      amount 
-    }),
-  
-  // Nouveau message du chauffeur
-  newMessageFromDriver: (clientId: string, driverName: string, orderId: string) => 
-    notifyClient(clientId, '💬 Nouveau message', `${driverName} vous a envoyé un message.`, { 
-      type: 'new_message', 
-      orderId 
-    }),
-  
-  // ═══════════════════════════════════════════════════════════════════════════
-  // RÉSERVATION À L'AVANCE: Confirmation de réservation
-  // ═══════════════════════════════════════════════════════════════════════════
-  bookingConfirmed: (clientId: string, driverName: string, orderId: string, formattedDate: string, formattedTime: string) => 
-    notifyClient(clientId, '📅 Réservation confirmée !', 
-      `${driverName} a accepté votre réservation pour le ${formattedDate} à ${formattedTime}.`, { 
-        type: 'booking_confirmed', 
-        orderId 
-      }),
-  
-  // Rappel 1 heure avant la réservation
-  reservationIn1Hour: (clientId: string, driverName: string, orderId: string) => 
-    notifyClient(clientId, '⏰ Votre course dans 1 heure', 
-      `${driverName} vous prendra en charge bientôt. Préparez-vous !`, { 
-        type: 'reservation_1hour', 
-        orderId 
-      }),
-  
-  // Rappel 30 minutes avant la réservation
-  reservationIn30Min: (clientId: string, driverName: string, orderId: string) => 
-    notifyClient(clientId, '⏰ Votre course dans 30 minutes', 
-      `${driverName} sera bientôt en route pour vous chercher.`, { 
-        type: 'reservation_30min', 
-        orderId 
-      }),
+  driverAccepted: (clientId: string, driverName: string, orderId: string) =>
+    notifyClient(
+      clientId,
+      '🚗 Location acceptée !',
+      `${driverName} a validé votre demande de location.`,
+      { type: 'driver_accepted', orderId }
+    ),
 
-  /** Loueur a fixé / mis à jour le lieu de récupération */
-  meetingPointSet: (clientId: string, meetingPoint: string, orderId: string, driverName?: string) =>
+  driverArrived: (clientId: string, driverName: string, orderId: string) =>
+    notifyClient(
+      clientId,
+      `📍 ${driverName} vous attend`,
+      'Votre loueur est prêt pour la remise du véhicule.',
+      { type: 'driver_arrived', orderId }
+    ),
+
+  rideCompleted: (clientId: string, amount: number, orderId: string) =>
+    notifyClient(
+      clientId,
+      '✅ Location terminée',
+      `Montant : ${amount.toLocaleString('fr-FR')} XPF. Merci d'avoir choisi RAVE !`,
+      { type: 'ride_completed', orderId, amount }
+    ),
+
+  newMessageFromDriver: (clientId: string, driverName: string, orderId: string) =>
+    notifyClient(
+      clientId,
+      '💬 Nouveau message',
+      `${driverName || 'Votre loueur'} vous a envoyé un message.`,
+      { type: 'new_message', orderId }
+    ),
+
+  bookingConfirmed: (
+    clientId: string,
+    driverName: string,
+    orderId: string,
+    formattedDate: string,
+    formattedTime: string
+  ) =>
+    notifyClient(
+      clientId,
+      '📅 Location confirmée !',
+      `${driverName} a accepté votre location pour le ${formattedDate} à ${formattedTime}.`,
+      { type: 'booking_confirmed', orderId }
+    ),
+
+  reservationIn1Hour: (clientId: string, driverName: string, orderId: string) =>
+    notifyClient(
+      clientId,
+      '⏰ Votre location dans 1 heure',
+      `Remise du véhicule prévue avec ${driverName} dans environ 1 heure.`,
+      { type: 'reservation_1hour', orderId }
+    ),
+
+  reservationIn30Min: (clientId: string, driverName: string, orderId: string) =>
+    notifyClient(
+      clientId,
+      '⏰ Votre location dans 30 minutes',
+      `Remise du véhicule prévue avec ${driverName} dans 30 minutes.`,
+      { type: 'reservation_30min', orderId }
+    ),
+
+  meetingPointSet: (
+    clientId: string,
+    meetingPoint: string,
+    orderId: string,
+    driverName?: string
+  ) =>
     notifyClient(
       clientId,
       '📍 Lieu de récupération',
       `${driverName ? `${driverName} : ` : ''}${meetingPoint}`,
-      {
-        type: 'rental_meeting_point',
-        orderId,
-        meetingPoint,
-      }
+      { type: 'rental_meeting_point', orderId, meetingPoint }
     ),
 
-  /** Loueur a refusé la demande de location */
+  rentalHandedOver: (clientId: string, orderId: string, vehicleTitle?: string) =>
+    notifyClient(
+      clientId,
+      '🔑 Véhicule remis',
+      `Bonne route avec ${vehicleTitle || 'votre véhicule'} !`,
+      { type: 'rental_handed_over', orderId }
+    ),
+
+  rentalCompleted: (clientId: string, orderId: string, vehicleTitle?: string) =>
+    notifyClient(
+      clientId,
+      '✅ Véhicule restitué',
+      `Le retour de ${vehicleTitle || 'votre véhicule'} est confirmé. Vous pouvez laisser un avis !`,
+      { type: 'rental_completed', orderId }
+    ),
+
   rentalDeclined: (clientId: string, driverName: string, orderId: string) =>
     notifyClient(
       clientId,
       'Demande refusée',
       `${driverName || 'Le loueur'} a refusé votre demande de location.`,
-      {
-        type: 'rental_declined',
-        orderId,
-      }
+      { type: 'rental_declined', orderId }
     ),
 
   rentalCancelApproved: (clientId: string, orderId: string) =>
-    notifyClient(clientId, 'Annulation acceptée', 'Le loueur a accepté votre demande d\'annulation.', {
-      type: 'rental_cancel_approved',
-      orderId,
-    }),
+    notifyClient(
+      clientId,
+      'Annulation acceptée',
+      "Le loueur a accepté votre demande d'annulation.",
+      { type: 'rental_cancel_approved', orderId }
+    ),
 
   rentalCancelRejected: (clientId: string, orderId: string) =>
-    notifyClient(clientId, 'Annulation refusée', 'Le loueur a refusé votre demande d\'annulation. Votre location est maintenue.', {
-      type: 'rental_cancel_rejected',
-      orderId,
-    }),
+    notifyClient(
+      clientId,
+      'Annulation refusée',
+      "Le loueur a refusé votre demande d'annulation. Votre location est maintenue.",
+      { type: 'rental_cancel_rejected', orderId }
+    ),
 
   rentalCancelledByLoueur: (clientId: string, orderId: string) =>
     notifyClient(clientId, 'Location annulée', 'Le loueur a annulé votre location.', {
@@ -295,8 +373,8 @@ export const clientNotifications = {
       clientId,
       'Demande expirée',
       refundPending
-        ? 'Le loueur n\'a pas répondu à temps. Votre demande a expiré et le loueur va vous rembourser.'
-        : 'Le loueur n\'a pas répondu à temps. Votre demande de location a expiré.',
+        ? "Le loueur n'a pas répondu à temps. Votre demande a expiré et le loueur va vous rembourser."
+        : "Le loueur n'a pas répondu à temps. Votre demande de location a expiré.",
       { type: 'rental_expired', orderId }
     ),
 
@@ -304,44 +382,53 @@ export const clientNotifications = {
     notifyClient(
       clientId,
       'Remboursement effectué',
-      `Le loueur a confirmé votre remboursement de ${amount.toLocaleString('fr-FR')} XPF.`,
+      `Votre remboursement de ${amount.toLocaleString('fr-FR')} XPF a été confirmé.`,
       { type: 'rental_refunded', orderId }
     ),
 };
 
 /**
- * Notifications prédéfinies pour les CHAUFFEURS
+ * Notifications prédéfinies pour les LOUEURS
  */
 export const driverNotifications = {
-  // Nouvelle demande disponible (broadcast tag online — legacy taxi)
-  newOrder: (orderId: string, description: string, price: number) => 
+  newOrder: (orderId: string, description: string, price: number) =>
     sendNotificationToDrivers({
       title: '🚗 Nouvelle demande !',
-      message: `${description} - ${price.toLocaleString()} XPF`,
+      message: `${description} - ${price.toLocaleString('fr-FR')} XPF`,
       data: { type: 'new_order', orderId, price },
       targetType: 'tag',
       tagKey: 'status',
       targetValue: 'online',
     }),
 
-  /** Nouvelle demande de location ciblée vers un loueur (external_user_id = driverId) */
+  /** Nouvelle demande de location ciblée vers un loueur (external_id = driverId) */
   newRentalOrder: (driverId: string, orderId: string, description: string, price: number) =>
     notifyDriver(
       driverId,
       '🚗 Nouvelle demande de location !',
-      `${description} — ${price.toLocaleString()} XPF`,
+      `${description} — ${price.toLocaleString('fr-FR')} XPF`,
       { type: 'new_rental_order', orderId, price }
     ),
-  
-  rentalCancelRequest: (driverId: string, orderId: string, clientName: string, vehicleTitle: string) =>
+
+  rentalCancelRequest: (
+    driverId: string,
+    orderId: string,
+    clientName: string,
+    vehicleTitle: string
+  ) =>
     notifyDriver(
       driverId,
-      '⚠️ Demande d\'annulation',
+      "⚠️ Demande d'annulation",
       `${clientName} souhaite annuler la location ${vehicleTitle}. Validez ou refusez.`,
       { type: 'rental_cancel_request', orderId }
     ),
 
-  rentalCancelledByClient: (driverId: string, orderId: string, clientName: string, vehicleTitle: string) =>
+  rentalCancelledByClient: (
+    driverId: string,
+    orderId: string,
+    clientName: string,
+    vehicleTitle: string
+  ) =>
     notifyDriver(
       driverId,
       '❌ Demande annulée',
@@ -349,80 +436,145 @@ export const driverNotifications = {
       { type: 'rental_cancelled_by_client', orderId }
     ),
 
-  // Client a annulé
-  clientCancelled: (driverId: string, orderId: string) => 
-    notifyDriver(driverId, '❌ Course annulée', 'Le client a annulé la course.', { 
-      type: 'order_cancelled', 
-      orderId 
-    }),
-  
-  // Nouveau message du client
-  newMessageFromClient: (driverId: string, clientName: string, orderId: string) => 
-    notifyDriver(driverId, '💬 Nouveau message', `${clientName} vous a envoyé un message.`, { 
-      type: 'new_message', 
-      orderId 
-    }),
-  
-  // Paiement confirmé
-  paymentConfirmed: (driverId: string, amount: number, orderId: string) => 
-    notifyDriver(driverId, '💰 Paiement reçu !', `${amount.toLocaleString()} XPF crédités sur votre compte.`, { 
-      type: 'payment_confirmed', 
+  rentalExpired: (
+    driverId: string,
+    orderId: string,
+    vehicleTitle: string,
+    refundPending = false
+  ) =>
+    notifyDriver(
+      driverId,
+      refundPending ? '💸 Demande expirée — remboursement à faire' : '⌛ Demande expirée',
+      refundPending
+        ? `La demande pour ${vehicleTitle} a expiré. Remboursez le client puis confirmez dans Réservations → Passées.`
+        : `La demande pour ${vehicleTitle} a expiré faute de réponse à temps.`,
+      { type: 'rental_expired', orderId, refundPending }
+    ),
+
+  rentalHandedOverByClient: (
+    driverId: string,
+    orderId: string,
+    clientName: string,
+    vehicleTitle?: string
+  ) =>
+    notifyDriver(
+      driverId,
+      '🔑 Remise confirmée par le client',
+      `${clientName} a confirmé la prise en charge de ${vehicleTitle || 'votre véhicule'}.`,
+      { type: 'rental_handed_over', orderId }
+    ),
+
+  rentalReturnedByClient: (
+    driverId: string,
+    orderId: string,
+    clientName: string,
+    vehicleTitle?: string
+  ) =>
+    notifyDriver(
+      driverId,
+      '✅ Retour confirmé par le client',
+      `${clientName} a confirmé la restitution de ${vehicleTitle || 'votre véhicule'}.`,
+      { type: 'rental_completed', orderId }
+    ),
+
+  clientCancelled: (driverId: string, orderId: string) =>
+    notifyDriver(driverId, '❌ Réservation annulée', 'Le client a annulé la réservation.', {
+      type: 'order_cancelled',
       orderId,
-      amount 
     }),
-  
-  // Rappel réservation dans 1 heure
-  reservationIn1Hour: (driverId: string, clientName: string, orderId: string, pickupAddress: string) => 
-    notifyDriver(driverId, '⏰ Réservation dans 1 heure', 
-      `Course prévue avec ${clientName} - ${pickupAddress}`, { 
-        type: 'reservation_1hour', 
-        orderId 
-      }),
-  
-  // Rappel réservation dans 30 minutes
-  reservationIn30Min: (driverId: string, clientName: string, orderId: string, pickupAddress: string) => 
-    notifyDriver(driverId, '⏰ Réservation dans 30 minutes', 
-      `Préparez-vous ! Course avec ${clientName} - ${pickupAddress}`, { 
-        type: 'reservation_30min', 
-        orderId 
-      }),
+
+  newMessageFromClient: (driverId: string, clientName: string, orderId: string) =>
+    notifyDriver(
+      driverId,
+      '💬 Nouveau message',
+      `${clientName || 'Le client'} vous a envoyé un message.`,
+      { type: 'new_message', orderId }
+    ),
+
+  paymentConfirmed: (driverId: string, amount: number, orderId: string) =>
+    notifyDriver(
+      driverId,
+      '💰 Paiement carte confirmé !',
+      `${amount.toLocaleString('fr-FR')} XPF réglés en ligne.`,
+      { type: 'payment_confirmed', orderId, amount }
+    ),
+
+  reservationIn1Hour: (
+    driverId: string,
+    clientName: string,
+    orderId: string,
+    pickupAddress: string
+  ) =>
+    notifyDriver(
+      driverId,
+      '⏰ Location dans 1 heure',
+      `Remise prévue avec ${clientName}${pickupAddress ? ` — ${pickupAddress}` : ''}`,
+      { type: 'reservation_1hour', orderId }
+    ),
+
+  reservationIn30Min: (
+    driverId: string,
+    clientName: string,
+    orderId: string,
+    pickupAddress: string
+  ) =>
+    notifyDriver(
+      driverId,
+      '⏰ Location dans 30 minutes',
+      `Préparez la remise avec ${clientName}${pickupAddress ? ` — ${pickupAddress}` : ''}`,
+      { type: 'reservation_30min', orderId }
+    ),
 };
 
 /**
- * Fonction générique d'envoi de notification
+ * Fonction générique d'envoi de notification OneSignal (compatible SDK v5 / User Model v2)
  */
-async function sendNotification(appId: string, apiKey: string, payload: NotificationPayload): Promise<boolean> {
-  if (!apiKey) {
-    console.warn('[OneSignal] API Key not configured, skipping notification');
+async function sendNotification(
+  channelLabel: 'client' | 'driver',
+  appId: string,
+  apiKey: string,
+  payload: NotificationPayload
+): Promise<boolean> {
+  if (!apiKey || !appId) {
+    console.warn(
+      `[OneSignal:${channelLabel}] Clés manquantes (appId=${Boolean(appId)}, apiKey=${Boolean(apiKey)}), notification ignorée : ${payload.title}`
+    );
     return false;
   }
 
   try {
     const body: any = {
       app_id: appId,
+      target_channel: 'push',
       headings: { en: payload.title, fr: payload.title },
       contents: { en: payload.message, fr: payload.message },
       data: payload.data || {},
-      // Icône / image RAVE (clients OneSignal compatibles)
       chrome_web_icon: RAVE_LOGO_URL,
       large_icon: RAVE_LOGO_URL,
+      ios_badgeType: 'Increase',
+      ios_badgeCount: 1,
     };
 
-    if (payload.data?.url && typeof payload.data.url === "string") {
+    // OneSignal rejette toute valeur `url` qui n'est pas une URL complète http(s)://
+    if (
+      payload.data?.url &&
+      typeof payload.data.url === 'string' &&
+      /^https?:\/\//i.test(payload.data.url)
+    ) {
       body.url = payload.data.url;
     }
 
-    // Ciblage
     switch (payload.targetType) {
       case 'all':
         body.included_segments = ['All'];
         break;
       case 'user':
-        body.include_external_user_ids = [payload.targetValue];
+        if (!payload.targetValue) return false;
+        body.include_aliases = { external_id: [payload.targetValue] };
         break;
       case 'tag':
         body.filters = [
-          { field: 'tag', key: payload.tagKey, relation: '=', value: payload.targetValue }
+          { field: 'tag', key: payload.tagKey, relation: '=', value: payload.targetValue },
         ];
         break;
     }
@@ -431,27 +583,31 @@ async function sendNotification(appId: string, apiKey: string, payload: Notifica
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
-        'Authorization': `Basic ${apiKey}`,
+        Authorization: buildAuthHeader(apiKey),
       },
       body: JSON.stringify(body),
     });
 
-    const result = await response.json();
+    const result = await response.json().catch(() => ({}));
 
-    if (response.ok) {
-      console.log(`[OneSignal] ✅ Notification sent: ${payload.title}`, result);
-      return true;
+    if (response.ok && !result?.errors?.invalid_aliases) {
+      console.log(`[OneSignal:${channelLabel}] ✅ Notification envoyée: "${payload.title}"`, {
+        id: result?.id || null,
+        recipients: result?.recipients,
+      });
+      return Boolean(result?.id);
     } else {
-      console.error(`[OneSignal] ❌ Error:`, result);
+      console.warn(`[OneSignal:${channelLabel}] ⚠️ Réponse OneSignal:`, result);
       return false;
     }
   } catch (error) {
-    console.error('[OneSignal] ❌ Network error:', error);
+    console.error(`[OneSignal:${channelLabel}] ❌ Erreur réseau:`, error);
     return false;
   }
 }
 
 export default {
+  getOneSignalConfigStatus,
   sendNotificationToClients,
   sendNotificationToDrivers,
   notifyClient,

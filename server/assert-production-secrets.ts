@@ -19,9 +19,6 @@ export function assertProductionSecrets(): void {
   if (!process.env.ADMIN_SECRET) {
     missing.push("ADMIN_SECRET");
   }
-  if (!process.env.ONESIGNAL_CLIENT_APP_ID) {
-    missing.push("ONESIGNAL_CLIENT_APP_ID");
-  }
   if (!process.env.ONESIGNAL_REST_API_KEY_CLIENT) {
     missing.push("ONESIGNAL_REST_API_KEY_CLIENT");
   }
@@ -44,10 +41,14 @@ export function assertProductionSecrets(): void {
     process.exit(1);
   }
 
-  if (!process.env.ONESIGNAL_DRIVER_APP_ID || !process.env.ONESIGNAL_REST_API_KEY_DRIVER) {
+  if (!process.env.ONESIGNAL_REST_API_KEY_DRIVER) {
     console.warn(
-      "[WARN] ONESIGNAL_DRIVER_APP_ID / ONESIGNAL_REST_API_KEY_DRIVER unset — " +
-        "les push vers l'app Loueur sont désactivées. À ajouter plus tard (Keys & IDs OneSignal, sans Apple)."
+      "[WARN] ONESIGNAL_REST_API_KEY_DRIVER unset — " +
+        "les push vers l'app Loueur (62d9a9ec-c62b-4aae-9cb3-e0d0c46ccfe8) sont désactivées. Ajoutez ONESIGNAL_REST_API_KEY_DRIVER dans Render."
+    );
+  } else {
+    console.log(
+      `[OneSignal] Push Client & Loueur actives (loueur appId=${process.env.ONESIGNAL_DRIVER_APP_ID || "62d9a9ec-c62b-4aae-9cb3-e0d0c46ccfe8"})`
     );
   }
 

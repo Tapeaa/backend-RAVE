@@ -1664,12 +1664,12 @@ export async function registerRoutes(app: Express): Promise<Server> {
           orderId: data.orderId, 
           message,
           fromDriver: true,
-          driverName: session?.driverName || 'Chauffeur'
+          driverName: session?.driverName || 'Votre loueur'
         });
         
         // Send OneSignal push notification to client
         if (order.clientId) {
-          clientNotifications.newMessageFromDriver(order.clientId, session?.driverName || 'Chauffeur', data.orderId);
+          clientNotifications.newMessageFromDriver(order.clientId, session?.driverName || 'Votre loueur', data.orderId);
         }
 
         console.log(`[CHAT] Message sent from driver for order ${data.orderId}`);
@@ -3309,6 +3309,10 @@ async function expireStaleRentalRequests() {
       refund,
     }));
     if (order.clientId) clientNotifications.rentalExpired(order.clientId, order.id, !!refund).catch(() => {});
+    const expiredOwnerId = getRentalOwnerDriverId(order);
+    if (expiredOwnerId) {
+      driverNotifications.rentalExpired(expiredOwnerId, order.id, ro?.title || "Véhicule", !!refund).catch(() => {});
+    }
     console.log(`[RENTAL] Demande ${order.id} expirée`);
   }
 }
@@ -3757,6 +3761,25 @@ app.post("/api/rental-orders/:id/lifecycle", async (req, res) => {
       updatedBy,
       order: updatedOrder,
     });
+
+    // Push croisée client ↔ loueur
+    const vehicleTitle = updatedRideOption?.title || "Véhicule";
+    if (updatedBy === "driver" && order.clientId) {
+      if (phase === "with_client") {
+        clientNotifications.rentalHandedOver(order.clientId, id, vehicleTitle).catch(() => {});
+      } else if (phase === "returned") {
+        clientNotifications.rentalCompleted(order.clientId, id, vehicleTitle).catch(() => {});
+      }
+    } else if (updatedBy === "client") {
+      const ownerId = getRentalOwnerDriverId(order);
+      if (ownerId) {
+        if (phase === "with_client") {
+          driverNotifications.rentalHandedOverByClient(ownerId, id, order.clientName || "Le client", vehicleTitle).catch(() => {});
+        } else if (phase === "returned") {
+          driverNotifications.rentalReturnedByClient(ownerId, id, order.clientName || "Le client", vehicleTitle).catch(() => {});
+        }
+      }
+    }
 
     console.log(`[RENTAL] Order ${id} lifecycle → ${phase} (by ${updatedBy})`);
     res.json({ success: true, order: updatedOrder });
@@ -9774,6 +9797,17 @@ setTimeout(notify, 400);
         orderId,
         message,
       });
+      io.to(`order:${orderId}`).emit("chat:notification", {
+        orderId,
+        message,
+        fromDriver: true,
+        driverName: session.driverName || "Votre loueur",
+      });
+      if (order.clientId) {
+        clientNotifications
+          .newMessageFromDriver(order.clientId, session.driverName || "Votre loueur", orderId)
+          .catch(() => {});
+      }
 
       res.json(message);
     } catch (error) {

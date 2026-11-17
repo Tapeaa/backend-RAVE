@@ -1,4 +1,4 @@
-import { eq, and, or, gt, isNull, isNotNull, sql, desc } from "drizzle-orm";
+import { eq, and, or, gt, isNull, isNotNull, inArray, sql, desc } from "drizzle-orm";
 import { db } from "./db";
 import { dbErrorMessage } from "./db-error";
 import { 
@@ -2383,31 +2383,24 @@ export class DbStorage {
       const minTime = new Date(targetTime.getTime() - toleranceMinutes * 60 * 1000);
       const maxTime = new Date(targetTime.getTime() + toleranceMinutes * 60 * 1000);
 
-      console.log(`[getUpcomingReservations] Now: ${now.toISOString()}`);
-      console.log(`[getUpcomingReservations] Checking for reservations ${minutesBefore} min ahead`);
-      console.log(`[getUpcomingReservations] Target window: ${minTime.toISOString()} - ${maxTime.toISOString()}`);
-
-      // Récupérer toutes les réservations booked avec un chauffeur assigné
+      // Récupérer les réservations confirmées (accepted ou booked) pas encore remises au client
       const result = await db
         .select()
         .from(orders)
         .where(
           and(
             eq(orders.isAdvanceBooking, true),
-            eq(orders.status, 'booked'),
+            inArray(orders.status, ['accepted', 'booked']),
             isNotNull(orders.assignedDriverId),
             isNotNull(orders.scheduledTime),
             sql`${orders.scheduledTime} >= ${minTime.toISOString()}`,
-            sql`${orders.scheduledTime} <= ${maxTime.toISOString()}`
+            sql`${orders.scheduledTime} <= ${maxTime.toISOString()}`,
+            sql`coalesce(${orders.rideOption}->>'rentalLifecyclePhase', '') NOT IN ('with_client', 'returned')`
           )
         );
 
-      console.log(`[getUpcomingReservations] Found ${result.length} reservations for ${minutesBefore} min reminder`);
-      
       if (result.length > 0) {
-        result.forEach((r: any) => {
-          console.log(`[getUpcomingReservations] - Order ${r.id}: scheduledTime=${r.scheduled_time}, assignedDriverId=${r.assigned_driver_id}`);
-        });
+        console.log(`[getUpcomingReservations] Found ${result.length} reservations for ${minutesBefore} min reminder`);
       }
       
       return result.map(this.mapOrder);

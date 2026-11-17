@@ -11,8 +11,13 @@ import { requireAdminAuth, requirePrestataireAuth, requireDashboardAuth, Authent
 import { db } from "./db";
 import { dbErrorMessage } from "./db-error";
 import { getIO } from "./routes";
-import { buildRentalCancelPayload, emitRentalOrderRealtime, getRealtimeIo } from "./realtime";
-import { notifyClient, notifyDriver } from "./onesignal";
+import {
+  buildRentalCancelPayload,
+  emitRentalOrderRealtime,
+  getRealtimeIo,
+  getRentalOwnerDriverIdFromOrder,
+} from "./realtime";
+import { clientNotifications, driverNotifications, notifyClient, notifyDriver } from "./onesignal";
 import { clients, drivers, orders, invoices, tarifs, supplements, carouselImages, homeCategories, messages, prestataires, collecteFrais, vehicleModels, loueurVehicles, driverSessions } from "@shared/schema";
 import { eq, desc, asc, count, sql, and, gte, inArray, isNotNull, or } from "drizzle-orm";
 import { syncTahitiVehicleCatalog } from "./sync-vehicle-catalog";
@@ -466,22 +471,25 @@ export function registerAdminRoutes(app: Express) {
           });
         }
       } else {
-        io.to(`driver:${order.assignedDriverId}`).emit("chat:message", { orderId, message });
+        const targetDriverId = getRentalOwnerDriverIdFromOrder(order);
+        if (targetDriverId) {
+          io.to(`driver:${targetDriverId}`).emit("chat:message", { orderId, message });
+          io.to(`driver:${targetDriverId}`).emit("chat:notification", {
+            orderId,
+            message,
+            fromAdmin: true,
+            senderName: "Support RAVE",
+          });
+        }
         io.to(`order:${orderId}`).emit("chat:message", { orderId, message });
-        io.to(`driver:${order.assignedDriverId}`).emit("chat:notification", {
-          orderId,
-          message,
-          fromAdmin: true,
-          senderName: "Support RAVE",
-        });
         io.to(`order:${orderId}`).emit("chat:notification", {
           orderId,
           message,
           fromAdmin: true,
           senderName: "Support RAVE",
         });
-        if (order.assignedDriverId) {
-          await notifyDriver(order.assignedDriverId, "💬 Message du support", content.substring(0, 1000), {
+        if (targetDriverId) {
+          await notifyDriver(targetDriverId, "💬 Message du support", content.substring(0, 1000), {
             type: "admin_message",
             orderId,
           });
@@ -539,7 +547,6 @@ export function registerAdminRoutes(app: Express) {
         await notifyClient(recipientId, "💬 Message du support", content.substring(0, 1000), {
           type: "support_message",
           recipientType: "client",
-          url: "/support-chat",
         });
         return res.json({ message });
       } else {
@@ -556,7 +563,6 @@ export function registerAdminRoutes(app: Express) {
         await notifyDriver(recipientId, "💬 Message du support", content.substring(0, 1000), {
           type: "support_message",
           recipientType: "driver",
-          url: "/chauffeur/support-chat",
         });
         const io = getIO();
         io.to(`driver:${recipientId}`).emit("chat:notification", {
@@ -1470,12 +1476,26 @@ export function registerAdminRoutes(app: Express) {
             refund: ro.refund || null,
           })
         );
+        if (updatedOrder.clientId) {
+          if (status === "expired") {
+            clientNotifications.rentalExpired(updatedOrder.clientId, updatedOrder.id, Boolean(ro.refund)).catch(() => {});
+          } else {
+            clientNotifications.rentalCancelledByLoueur(updatedOrder.clientId, updatedOrder.id).catch(() => {});
+          }
+        }
+        const ownerId = getRentalOwnerDriverIdFromOrder(updatedOrder);
+        if (ownerId && status === "expired") {
+          driverNotifications.rentalExpired(ownerId, updatedOrder.id, ro?.title || "Véhicule", Boolean(ro.refund)).catch(() => {});
+        }
       } else if (status === "declined") {
         emitRentalOrderRealtime(
           updatedOrder,
           "rental-order:declined",
           buildRentalCancelPayload(updatedOrder, { refund: ro.refund || null })
         );
+        if (updatedOrder.clientId) {
+          clientNotifications.rentalDeclined(updatedOrder.clientId, ro?.owner || "Le loueur", updatedOrder.id).catch(() => {});
+        }
       } else if (status === "completed" || status === "payment_confirmed") {
         getRealtimeIo()?.to(`order:${updatedOrder.id}`).emit("rental-order:lifecycle-changed", {
           orderId: updatedOrder.id,
@@ -1483,6 +1503,9 @@ export function registerAdminRoutes(app: Express) {
           updatedBy: "admin",
           order: updatedOrder,
         });
+        if (updatedOrder.clientId) {
+          clientNotifications.rentalCompleted(updatedOrder.clientId, updatedOrder.id, ro?.title || "Véhicule").catch(() => {});
+        }
       }
 
       return res.json(updatedOrder);
