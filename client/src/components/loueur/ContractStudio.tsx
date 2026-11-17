@@ -2,8 +2,23 @@
  * Éditeur de contrat plein écran : articles sous forme de cartes + aperçu client en grand.
  * Le texte produit reste le markdown léger lu par formatCustomContractBody (## titre, - liste, **gras**).
  */
-import { useEffect, useState } from 'react';
-import { ArrowDown, ArrowUp, Eye, FileText, Pencil, Plus, Sparkles, Trash2, X } from 'lucide-react';
+import { useEffect, useRef, useState } from 'react';
+import { ArrowDown, ArrowUp, ChevronDown, Eye, FileText, Pencil, Plus, Sparkles, Trash2, X } from 'lucide-react';
+import {
+  CONTRACT_SUMMARY_DEFAULT_LABELS,
+  CONTRACT_VARIABLES,
+  type ContractSettings,
+  type ContractSummaryKey,
+} from '@shared/rental-contract-html';
+
+const SUMMARY_EXAMPLES: Record<ContractSummaryKey, string> = {
+  loueur: 'Votre nom ou société',
+  tahiti: 'Votre N° Tahiti (si renseigné)',
+  client: 'Nom du client',
+  vehicle: 'Le véhicule loué',
+  period: 'Dates de début et de fin',
+  total: 'Prix total de la location',
+};
 
 type Section = { id: string; title: string; body: string };
 
@@ -103,13 +118,44 @@ type Props = {
   onChange: (text: string) => void;
   buildPreview: (body: string) => string;
   onSwitchToCustom?: () => void;
+  settings?: ContractSettings | null;
+  onSettingsChange?: (s: ContractSettings | null) => void;
 };
 
-export function ContractStudio({ open, onClose, mode, value, onChange, buildPreview, onSwitchToCustom }: Props) {
+export function ContractStudio({
+  open,
+  onClose,
+  mode,
+  value,
+  onChange,
+  buildPreview,
+  onSwitchToCustom,
+  settings,
+  onSettingsChange,
+}: Props) {
   const [sections, setSections] = useState<Section[]>([]);
   const [mobileView, setMobileView] = useState<'edit' | 'preview'>('edit');
   const [showClauses, setShowClauses] = useState(false);
+  const [showHeader, setShowHeader] = useState(false);
+  const [focusedId, setFocusedId] = useState<string | null>(null);
+  const bodyRefs = useRef<Record<string, HTMLTextAreaElement | null>>({});
   const readOnly = mode === 'app_default';
+  const st: ContractSettings = settings || {};
+  const hidden = new Set(st.hidden || []);
+  const extraRows = st.extraRows || [];
+  const headerCustomized =
+    Object.values(st.labels || {}).some((v) => v && v.trim()) || hidden.size > 0 || extraRows.length > 0;
+
+  const setSettings = (next: ContractSettings) => onSettingsChange?.(next);
+  const setLabel = (k: ContractSummaryKey, v: string) =>
+    setSettings({ ...st, labels: { ...(st.labels || {}), [k]: v } });
+  const toggleHidden = (k: ContractSummaryKey) => {
+    const h = new Set(hidden);
+    if (h.has(k)) h.delete(k);
+    else h.add(k);
+    setSettings({ ...st, hidden: Array.from(h) });
+  };
+  const setExtraRows = (rows: { label: string; value: string }[]) => setSettings({ ...st, extraRows: rows });
 
   useEffect(() => {
     if (!open) return;
@@ -137,6 +183,21 @@ export function ContractStudio({ open, onClose, mode, value, onChange, buildPrev
   };
   const patch = (id: string, p: Partial<Section>) =>
     update(sections.map((s) => (s.id === id ? { ...s, ...p } : s)));
+  const insertVariable = (s: Section, token: string) => {
+    const el = bodyRefs.current[s.id];
+    const start = el?.selectionStart ?? s.body.length;
+    const end = el?.selectionEnd ?? start;
+    const before = s.body.slice(0, start);
+    const pad = before && !/\s$/.test(before) ? ' ' : '';
+    const insert = `${pad}${token}`;
+    patch(s.id, { body: before + insert + s.body.slice(end) });
+    requestAnimationFrame(() => {
+      if (!el) return;
+      el.focus();
+      const pos = start + insert.length;
+      el.setSelectionRange(pos, pos);
+    });
+  };
   const move = (i: number, dir: -1 | 1) => {
     const j = i + dir;
     if (j < 0 || j >= sections.length) return;
@@ -228,6 +289,116 @@ export function ContractStudio({ open, onClose, mode, value, onChange, buildPrev
                 </p>
               </div>
 
+              {onSettingsChange && (
+                <div className="rounded-xl border border-gray-200 bg-white shadow-sm">
+                  <button
+                    type="button"
+                    onClick={() => setShowHeader((v) => !v)}
+                    className="flex w-full items-center justify-between gap-3 p-4 text-left"
+                  >
+                    <div>
+                      <p className="text-sm font-semibold text-gray-900">En-tête du contrat</p>
+                      <p className="text-xs text-gray-500">
+                        {headerCustomized
+                          ? 'Personnalisé — cliquez pour modifier'
+                          : 'Renommer ou cacher les lignes du haut, ajouter vos propres lignes'}
+                      </p>
+                    </div>
+                    <ChevronDown
+                      className={`h-5 w-5 shrink-0 text-gray-400 transition-transform ${showHeader ? 'rotate-180' : ''}`}
+                    />
+                  </button>
+                  {showHeader && (
+                    <div className="space-y-4 border-t px-4 pb-4 pt-3">
+                      <p className="text-xs text-gray-500">
+                        Les valeurs (nom du client, dates, prix…) sont remplies automatiquement à chaque réservation.
+                        Vous pouvez changer le nom de chaque ligne ou la cacher.
+                      </p>
+                      <div className="space-y-2">
+                        {(Object.keys(CONTRACT_SUMMARY_DEFAULT_LABELS) as ContractSummaryKey[]).map((k) => {
+                          const visible = !hidden.has(k);
+                          return (
+                            <div
+                              key={k}
+                              className={`flex flex-col gap-2 rounded-lg border p-2.5 sm:flex-row sm:items-center ${
+                                visible ? 'border-gray-200' : 'border-dashed border-gray-200 bg-gray-50 opacity-70'
+                              }`}
+                            >
+                              <label className="flex shrink-0 items-center gap-2 text-xs font-medium text-gray-700 sm:w-24">
+                                <input
+                                  type="checkbox"
+                                  checked={visible}
+                                  onChange={() => toggleHidden(k)}
+                                  className="h-4 w-4 accent-violet-600"
+                                />
+                                {visible ? 'Affichée' : 'Cachée'}
+                              </label>
+                              <input
+                                value={st.labels?.[k] ?? ''}
+                                onChange={(e) => setLabel(k, e.target.value)}
+                                placeholder={CONTRACT_SUMMARY_DEFAULT_LABELS[k]}
+                                disabled={!visible}
+                                className="min-w-0 flex-1 rounded-md border border-gray-300 px-2.5 py-1.5 text-sm font-semibold disabled:bg-gray-100"
+                              />
+                              <span className="text-xs italic text-gray-400 sm:w-44 sm:text-right">
+                                {SUMMARY_EXAMPLES[k]}
+                              </span>
+                            </div>
+                          );
+                        })}
+                      </div>
+
+                      <div>
+                        <p className="text-sm font-semibold text-gray-900">Vos lignes en plus</p>
+                        <p className="mb-2 text-xs text-gray-500">
+                          Ex. « Kilométrage » : « Illimité », ou « Carburant » : « Plein à plein ».
+                        </p>
+                        <div className="space-y-2">
+                          {extraRows.map((r, i) => (
+                            <div key={i} className="flex items-center gap-2">
+                              <input
+                                value={r.label}
+                                onChange={(e) =>
+                                  setExtraRows(extraRows.map((x, j) => (j === i ? { ...x, label: e.target.value } : x)))
+                                }
+                                placeholder="Nom de la ligne"
+                                className="w-2/5 min-w-0 rounded-md border border-gray-300 px-2.5 py-1.5 text-sm font-semibold"
+                              />
+                              <input
+                                value={r.value}
+                                onChange={(e) =>
+                                  setExtraRows(extraRows.map((x, j) => (j === i ? { ...x, value: e.target.value } : x)))
+                                }
+                                placeholder="Valeur"
+                                className="min-w-0 flex-1 rounded-md border border-gray-300 px-2.5 py-1.5 text-sm"
+                              />
+                              <button
+                                type="button"
+                                title="Supprimer la ligne"
+                                onClick={() => setExtraRows(extraRows.filter((_, j) => j !== i))}
+                                className="rounded-md p-1.5 text-red-500 hover:bg-red-50"
+                              >
+                                <Trash2 className="h-4 w-4" />
+                              </button>
+                            </div>
+                          ))}
+                        </div>
+                        {extraRows.length < 15 && (
+                          <button
+                            type="button"
+                            onClick={() => setExtraRows([...extraRows, { label: '', value: '' }])}
+                            className="mt-2 inline-flex items-center gap-1.5 rounded-lg border border-dashed border-violet-300 px-3 py-1.5 text-sm font-semibold text-violet-700 hover:bg-violet-50"
+                          >
+                            <Plus className="h-4 w-4" />
+                            Ajouter une ligne
+                          </button>
+                        )}
+                      </div>
+                    </div>
+                  )}
+                </div>
+              )}
+
               {sections.length === 0 && (
                 <div className="rounded-xl border-2 border-dashed border-gray-300 bg-white p-6 text-center">
                   <p className="text-base font-semibold text-gray-900">Votre contrat est vide</p>
@@ -301,12 +472,47 @@ export function ContractStudio({ open, onClose, mode, value, onChange, buildPrev
                     />
                     <label className="text-xs font-medium text-gray-500">Texte</label>
                     <textarea
+                      ref={(el) => {
+                        bodyRefs.current[s.id] = el;
+                      }}
                       value={s.body}
+                      onFocus={() => setFocusedId(s.id)}
                       onChange={(e) => patch(s.id, { body: e.target.value })}
                       rows={Math.min(12, Math.max(3, s.body.split('\n').length + 1))}
                       placeholder="Écrivez la règle comme vous l’expliqueriez au client."
                       className="mt-1 w-full rounded-lg border border-gray-300 px-3 py-2 text-base leading-relaxed focus:outline-none focus:ring-2 focus:ring-violet-300"
                     />
+                    {focusedId === s.id ? (
+                      <>
+                        <p className="mt-2 text-xs text-gray-500">
+                          Insérer une info remplie automatiquement à chaque réservation :
+                        </p>
+                        <div className="mt-1 flex flex-wrap gap-1.5">
+                          {CONTRACT_VARIABLES.map((v) => (
+                            <button
+                              key={v.token}
+                              type="button"
+                              onMouseDown={(e) => e.preventDefault()}
+                              onClick={() => insertVariable(s, v.token)}
+                              className="rounded-full border border-sky-200 bg-sky-50 px-2.5 py-1 text-xs font-medium text-sky-800 hover:bg-sky-100"
+                            >
+                              + {v.label}
+                            </button>
+                          ))}
+                        </div>
+                      </>
+                    ) : (
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setFocusedId(s.id);
+                          bodyRefs.current[s.id]?.focus();
+                        }}
+                        className="mt-2 text-xs font-medium text-sky-700 hover:underline"
+                      >
+                        + Insérer une info automatique (nom du client, dates, prix…)
+                      </button>
+                    )}
                   </div>
                 );
               })}

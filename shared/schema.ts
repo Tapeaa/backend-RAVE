@@ -127,6 +127,8 @@ export const loueurVehicles = pgTable("loueur_vehicles", {
   /** app_default = contrat RAVE partagé (plusieurs loueurs même modèle peuvent recevoir la demande) ; custom = annonce liée à un seul loueur */
   rentalContractMode: text("rental_contract_mode").default("app_default").notNull(),
   customContractText: text("custom_contract_text"),
+  /** Réglages du résumé du contrat perso : libellés, lignes masquées, lignes ajoutées */
+  contractSettings: jsonb("contract_settings").$type<Record<string, unknown>>(),
   isActive: boolean("is_active").default(true).notNull(),
   createdAt: timestamp("created_at").defaultNow().notNull(),
 });

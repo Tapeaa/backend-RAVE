@@ -24,6 +24,10 @@ export async function ensureCustomContractTextColumn() {
     } else {
       console.log("[Migration] Colonne custom_contract_text existe déjà");
     }
+    await db.execute(sql`
+      ALTER TABLE loueur_vehicles
+      ADD COLUMN IF NOT EXISTS contract_settings JSONB
+    `);
   } catch (error) {
     console.error("[Migration] Erreur migration custom_contract_text:", error);
   }

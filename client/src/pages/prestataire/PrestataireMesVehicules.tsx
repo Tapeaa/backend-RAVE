@@ -10,6 +10,7 @@ import { useLoueurNotice } from '@/components/loueur/LoueurNotice';
 import {
   buildCustomRentalContractHtml,
   buildDefaultRentalContractHtml,
+  type ContractSettings,
 } from '@shared/rental-contract-html';
 import {
   DEFAULT_LISTING_EXTRAS,
@@ -55,6 +56,7 @@ interface LoueurVehicle {
   defaultMeetingPoint?: string | null;
   rentalContractMode?: 'app_default' | 'custom' | string | null;
   customContractText?: string | null;
+  contractSettings?: ContractSettings | null;
   isActive: boolean;
   createdAt: string;
   modelName: string;
@@ -173,6 +175,7 @@ type FormState = {
   defaultMeetingPoint: string;
   rentalContractMode: 'app_default' | 'custom';
   customContractText: string;
+  contractSettings: ContractSettings | null;
 };
 
 export function PrestataireMesVehicules() {
@@ -195,6 +198,7 @@ export function PrestataireMesVehicules() {
     defaultMeetingPoint: '',
     rentalContractMode: 'app_default',
     customContractText: '',
+    contractSettings: null,
   });
   const [showContractPreview, setShowContractPreview] = useState(false);
   const [availabilityBlocks, setAvailabilityBlocks] = useState<AvailabilityBlock[]>([]);
@@ -339,6 +343,7 @@ export function PrestataireMesVehicules() {
       defaultMeetingPoint: '',
       rentalContractMode: 'app_default',
       customContractText: '',
+      contractSettings: null,
     });
     setShowModal(true);
   }
@@ -369,6 +374,7 @@ export function PrestataireMesVehicules() {
       defaultMeetingPoint: vehicle.defaultMeetingPoint || '',
       rentalContractMode: vehicle.rentalContractMode === 'custom' ? 'custom' : 'app_default',
       customContractText: vehicle.customContractText || '',
+      contractSettings: vehicle.contractSettings || null,
     });
     setShowModal(true);
   }
@@ -513,6 +519,7 @@ export function PrestataireMesVehicules() {
         rentalContractMode: formData.rentalContractMode,
         customContractText:
           formData.rentalContractMode === 'custom' ? formData.customContractText.trim() : null,
+        contractSettings: formData.rentalContractMode === 'custom' ? formData.contractSettings : null,
       };
 
       if (!editingVehicle) {
@@ -601,10 +608,17 @@ export function PrestataireMesVehicules() {
     pricePerDayLabel: `${contractBasePrice.toLocaleString('fr-FR')} XPF`,
     totalLabel: `${(contractBasePrice * 3).toLocaleString('fr-FR')} XPF`,
     previewMode: true,
+    plate: formData.plate || '[Plaque]',
+    depositLabel: '[Caution]',
   };
   const buildContractPreview = (body: string) =>
     formData.rentalContractMode === 'custom'
-      ? buildCustomRentalContractHtml({ ...contractPreviewParams, customBody: body, isCustom: true })
+      ? buildCustomRentalContractHtml({
+          ...contractPreviewParams,
+          customBody: body,
+          isCustom: true,
+          contractSettings: formData.contractSettings,
+        })
       : buildDefaultRentalContractHtml(contractPreviewParams);
   const customSections = parseContractSections(formData.customContractText);
   const customTitles = customSections.map((s) => s.title).filter(Boolean);
@@ -967,6 +981,8 @@ export function PrestataireMesVehicules() {
                   mode={formData.rentalContractMode === 'custom' ? 'custom' : 'app_default'}
                   value={formData.customContractText}
                   onChange={(customContractText) => setFormData((prev) => ({ ...prev, customContractText }))}
+                  settings={formData.contractSettings}
+                  onSettingsChange={(contractSettings) => setFormData((prev) => ({ ...prev, contractSettings }))}
                   buildPreview={buildContractPreview}
                   onSwitchToCustom={() => setFormData((prev) => ({ ...prev, rentalContractMode: 'custom' }))}
                 />

@@ -282,6 +282,14 @@ export function buildRentalContractHtml(
         : "TVA non applicable (franchise en base).",
     signatureHtml,
     customBody: rideOpt.customContractText || null,
+    plate: rideOpt.plate || null,
+    depositLabel:
+      typeof rideOpt.deposit === "number"
+        ? fmtXpf(rideOpt.deposit)
+        : rideOpt.deposit
+          ? String(rideOpt.deposit)
+          : null,
+    contractSettings: rideOpt.contractSettings || null,
   };
 
   const isCustom =

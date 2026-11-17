@@ -14,6 +14,7 @@ import { dbStorage } from "./db-storage";
 import { uploadDocument, uploadDocumentToCloudinary } from "./cloudinary";
 import { validatePricingTiers, MAX_RENTAL_DAYS_CAP } from "./rental-pricing";
 import { normalizeListingExtras } from "@shared/listing-extras";
+import { normalizeContractSettings } from "@shared/rental-contract-html";
 import {
   assertVehicleOwnedByPrestataire,
   createAvailabilityBlock,
@@ -1983,6 +1984,7 @@ export function registerPrestataireRoutes(app: Express) {
           defaultMeetingPoint: loueurVehicles.defaultMeetingPoint,
           rentalContractMode: loueurVehicles.rentalContractMode,
           customContractText: loueurVehicles.customContractText,
+          contractSettings: loueurVehicles.contractSettings,
           isActive: loueurVehicles.isActive,
           createdAt: loueurVehicles.createdAt,
           // Infos du modèle
@@ -2029,6 +2031,7 @@ export function registerPrestataireRoutes(app: Express) {
         vehicleModelId, plate, pricePerDay, pricePerDayLongTerm,
         availableForRental, availableForDelivery, availableForLongTerm, customImageUrl,
         rentalContractMode, customContractText, pricingTiers, maxRentalDays, listingExtras, defaultMeetingPoint,
+        contractSettings,
       } = req.body;
 
       if (!vehicleModelId) {
@@ -2099,6 +2102,7 @@ export function registerPrestataireRoutes(app: Express) {
               : null,
           rentalContractMode: contractMode,
           customContractText: contractText,
+          contractSettings: contractMode === "custom" ? normalizeContractSettings(contractSettings) : null,
           isActive: true,
         })
         .returning();
@@ -2164,9 +2168,14 @@ export function registerPrestataireRoutes(app: Express) {
         updates.rentalContractMode = updates.rentalContractMode === "custom" ? "custom" : "app_default";
       }
 
+      if (req.body.contractSettings !== undefined) {
+        updates.contractSettings = normalizeContractSettings(req.body.contractSettings);
+      }
+
       // Mode RAVE → effacer le texte custom ; mode custom → trim
       if (updates.rentalContractMode === "app_default") {
         updates.customContractText = null;
+        updates.contractSettings = null;
       } else if (updates.customContractText !== undefined) {
         updates.customContractText =
           typeof updates.customContractText === "string" && updates.customContractText.trim()
