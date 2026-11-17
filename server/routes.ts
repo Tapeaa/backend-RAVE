@@ -261,6 +261,12 @@ const updateDriverProfileSchema = z.object({
   vehicleColor: z.string().max(50).optional().nullable(),
   vehiclePlate: z.string().max(20).optional().nullable(),
   defaultMeetingPoint: z.string().max(500).optional().nullable(),
+  photoUrl: z
+    .string()
+    .max(1000)
+    .regex(/^https:\/\/res\.cloudinary\.com\//, "URL de photo invalide")
+    .optional()
+    .nullable(),
 });
 
 // Configure web-push with VAPID keys
@@ -7960,6 +7966,7 @@ const sessionId = headerSessionId || cookieSessionId;
           privacyPolicyReadAt: driver.privacyPolicyReadAt || null,
           privacyPolicyVersion: driver.privacyPolicyVersion || null,
           defaultMeetingPoint: driver.defaultMeetingPoint || null,
+          photoUrl: driver.photoUrl || null,
           subscriptionPlan: driver.subscriptionPlan || null,
           subscriptionStatus: driver.subscriptionStatus || "none",
           subscriptionStartsAt: driver.subscriptionStartsAt || null,
@@ -8209,7 +8216,7 @@ const sessionId = headerSessionId || cookieSessionId;
         });
       }
       
-      const { firstName, lastName, phone, vehicleModel, vehicleColor, vehiclePlate, defaultMeetingPoint } = validationResult.data;
+      const { firstName, lastName, phone, vehicleModel, vehicleColor, vehiclePlate, defaultMeetingPoint, photoUrl } = validationResult.data;
 
       if (phone) {
         const [phoneTaken] = await db
@@ -8230,6 +8237,7 @@ const sessionId = headerSessionId || cookieSessionId;
         vehicleColor,
         vehiclePlate,
         defaultMeetingPoint,
+        photoUrl,
       });
       
       if (!updatedDriver) {
@@ -8259,6 +8267,7 @@ const sessionId = headerSessionId || cookieSessionId;
           prestataireId: updatedDriver.prestataireId || null,
           prestataireName: updatedDriver.prestataireName || null,
           defaultMeetingPoint: updatedDriver.defaultMeetingPoint || null,
+          photoUrl: updatedDriver.photoUrl || null,
         }
       });
     } catch (error) {

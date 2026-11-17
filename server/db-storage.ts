@@ -311,8 +311,10 @@ export class DbStorage {
     vehicleColor?: string | null;
     vehiclePlate?: string | null;
     defaultMeetingPoint?: string | null;
+    photoUrl?: string | null;
   }): Promise<Driver | undefined> {
     const updateData: Record<string, unknown> = {};
+    if (data.photoUrl !== undefined) updateData.photoUrl = data.photoUrl;
     if (data.firstName !== undefined) updateData.firstName = data.firstName;
     if (data.lastName !== undefined) updateData.lastName = data.lastName;
     if (data.phone !== undefined) updateData.phone = data.phone;
