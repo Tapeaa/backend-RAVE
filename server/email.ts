@@ -20,7 +20,10 @@ if (fromIsPublicDomain) {
       "Vérifiez votre domaine sur resend.com/domains puis utilisez une adresse de ce domaine.",
   );
 }
-const ADMIN_EMAIL = process.env.ADMIN_SUPPORT_EMAIL || process.env.ADMIN_EMAIL || "tapea.app@gmail.com";
+const ADMIN_EMAIL =
+  process.env.ADMIN_SUPPORT_EMAIL ||
+  process.env.ADMIN_EMAIL ||
+  (fromIsPublicDomain ? fromAddress : "tapea.app@gmail.com");
 
 let resend: Resend | null = null;
 if (RESEND_API_KEY) {
