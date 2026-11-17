@@ -4,7 +4,7 @@
 import { createHmac, timingSafeEqual } from "crypto";
 import { db } from "./db";
 import { loueurVehicles, orders, prestataires } from "@shared/schema";
-import { eq } from "drizzle-orm";
+import { eq, sql } from "drizzle-orm";
 import { decryptOsbCertificate, prestataireHasOsbCredentials } from "./osb-crypto";
 
 const DEFAULT_API = "https://api.payzen.eu/api-payment";
@@ -146,18 +146,18 @@ export async function createPayzenPaymentForOrder(params: {
     });
   }
 
-  // Mémoriser l’intention de paiement (sans secrets)
-  const updatedRide = {
-    ...ro,
+  // Mémoriser l’intention de paiement (sans secrets) — fusion JSONB atomique sans écraser un éventuel statut payé
+  const nextPayzenStatus = ro.payzenStatus === "paid" ? "paid" : "form_token_issued";
+  const ridePatch = {
     payzenFormTokenIssuedAt: new Date().toISOString(),
-    payzenStatus: "form_token_issued",
+    payzenStatus: nextPayzenStatus,
     paymentOnline: true,
   };
   await db
     .update(orders)
     .set({
       paymentMethod: "card",
-      rideOption: updatedRide as any,
+      rideOption: sql`coalesce(${orders.rideOption}, '{}'::jsonb) || ${JSON.stringify(ridePatch)}::jsonb`,
     } as any)
     .where(eq(orders.id, order.id));
 
@@ -194,8 +194,11 @@ export function verifyPayzenIpnHash(
 export const AWAITING_PAYMENT_STATUS = "awaiting_payment";
 export const PAYMENT_FAILED_STATUS = "payment_failed";
 
+const PAID_TX_STATUSES = new Set(["PAID", "AUTHORISED", "CAPTURED", "AUTHORISED_TO_VALIDATE"]);
+
 /**
  * Paiement validé : la location rejoint le circuit normal (pending → acceptation loueur).
+ * Fusion JSONB atomique : n'écrase jamais la signature loueur ou le contrat écrit en parallèle.
  * `released` = la commande vient d'être libérée vers le loueur (à notifier).
  */
 export async function markOrderPayzenPaid(
@@ -210,11 +213,21 @@ export async function markOrderPayzenPaid(
   // Anciennes locations payées passées à tort en payment_confirmed (statut « terminé ») avant acceptation
   const wrongDone = isRental && order.status === "payment_confirmed" && !order.assignedDriverId;
   if (prev.payzenStatus === "paid" && !wasHeld && !wrongDone) {
+    if (meta && Object.keys(meta).length > 0) {
+      const [refreshed] = await db
+        .update(orders)
+        .set({
+          rideOption: sql`coalesce(${orders.rideOption}, '{}'::jsonb) || ${JSON.stringify(meta)}::jsonb`,
+        } as any)
+        .where(eq(orders.id, orderId))
+        .returning();
+      return { order: refreshed || order, released: false };
+    }
     return { order, released: false };
   }
-  const ro = {
-    ...prev,
-    ...meta,
+  const ridePatch = {
+    ...(meta || {}),
+    paymentOnline: true,
     payzenStatus: "paid",
     payzenPaidAt: prev.payzenPaidAt || new Date().toISOString(),
     payzenFailReason: null,
@@ -225,7 +238,7 @@ export async function markOrderPayzenPaid(
     .set({
       status: nextStatus,
       paymentMethod: "card",
-      rideOption: ro,
+      rideOption: sql`coalesce(${orders.rideOption}, '{}'::jsonb) || ${JSON.stringify(ridePatch)}::jsonb`,
       ...(nextStatus === "pending" && order.status !== "pending"
         ? { expiresAt: new Date(Date.now() + 3 * 24 * 60 * 60 * 1000) }
         : {}),
@@ -241,27 +254,35 @@ export async function markOrderPayzenFailed(orderId: string, reason: string) {
   if (!order) return null;
   const prev = (order.rideOption || {}) as any;
   if (prev.payzenStatus === "paid" || order.status !== AWAITING_PAYMENT_STATUS) return order;
+  const ridePatch = {
+    payzenStatus: "failed",
+    payzenFailReason: reason.slice(0, 300),
+    payzenFailedAt: new Date().toISOString(),
+  };
   const [updated] = await db
     .update(orders)
     .set({
       status: PAYMENT_FAILED_STATUS,
-      rideOption: {
-        ...prev,
-        payzenStatus: "failed",
-        payzenFailReason: reason.slice(0, 300),
-        payzenFailedAt: new Date().toISOString(),
-      },
+      rideOption: sql`coalesce(${orders.rideOption}, '{}'::jsonb) || ${JSON.stringify(ridePatch)}::jsonb`,
     } as any)
     .where(eq(orders.id, orderId))
     .returning();
   return updated;
 }
 
-/** Statut réel côté PayZen (Order/Get) avec les identifiants OSB du loueur de la commande. */
-export async function fetchPayzenOrderStatus(orderId: string): Promise<{
+export type PayzenLiveOrderCheck = {
+  paid: boolean;
   orderStatus: string | null;
+  transactionUuid: string | null;
+  cardBrand: string | null;
+  cardLast4: string | null;
+  paidAmount: number | null;
+  paidCurrency: string | null;
   errorMessage: string | null;
-}> {
+};
+
+/** Statut réel côté PayZen (V4/Order/Get) avec les identifiants OSB du loueur — source de vérité bancaire. */
+export async function fetchPayzenOrderStatus(orderId: string): Promise<PayzenLiveOrderCheck> {
   const [order] = await db.select().from(orders).where(eq(orders.id, orderId));
   if (!order) throw Object.assign(new Error("Commande introuvable"), { status: 404 });
   const loueurVehicleId = String((order.rideOption as any)?.loueurVehicleId || "").trim();
@@ -291,16 +312,104 @@ export async function fetchPayzenOrderStatus(orderId: string): Promise<{
   const pzJson = (await pzRes.json().catch(() => null)) as any;
   if (pzJson?.status !== "SUCCESS") {
     return {
+      paid: false,
       orderStatus: null,
+      transactionUuid: null,
+      cardBrand: null,
+      cardLast4: null,
+      paidAmount: null,
+      paidCurrency: null,
       errorMessage: pzJson?.answer?.errorMessage || `PayZen HTTP ${pzRes.status}`,
     };
   }
   const txs: any[] = Array.isArray(pzJson?.answer?.transactions) ? pzJson.answer.transactions : [];
-  const lastTx = txs[txs.length - 1];
+  // Chercher en priorité la transaction acceptée (le client a pu rater un 1er essai puis réussir au 2e)
+  const paidTx = txs.find((t) => PAID_TX_STATUSES.has(String(t?.status || "").toUpperCase()));
+  const refTx = paidTx || txs[txs.length - 1] || null;
+  const rawOrderStatus = String(pzJson?.answer?.orderStatus || refTx?.status || "").toUpperCase() || null;
+
+  const expectedXpf = Math.round(Number(order.totalPrice) || 0);
+  const txAmount = typeof refTx?.amount === "number" ? refTx.amount : null;
+  const txCurrency = typeof refTx?.currency === "string" ? refTx.currency.toUpperCase() : null;
+  const amountMatches =
+    txAmount == null || txCurrency !== "XPF" || expectedXpf <= 0 || Math.round(txAmount) >= expectedXpf;
+
+  const isPaid =
+    amountMatches &&
+    (PAID_TX_STATUSES.has(String(rawOrderStatus || "")) || Boolean(paidTx));
+
+  const pan = String(refTx?.transactionDetails?.cardDetails?.pan || "");
+  const last4Match = pan.match(/(\d{4})$/);
+  const cardBrand =
+    (refTx?.transactionDetails?.cardDetails?.effectiveBrand as string | undefined) ||
+    (refTx?.paymentMethodType as string | undefined) ||
+    null;
+
   return {
-    orderStatus: pzJson?.answer?.orderStatus || lastTx?.status || null,
-    errorMessage: lastTx?.detailedErrorMessage || lastTx?.errorMessage || null,
+    paid: isPaid,
+    orderStatus: rawOrderStatus,
+    transactionUuid: (refTx?.uuid as string | undefined) || null,
+    cardBrand,
+    cardLast4: last4Match ? last4Match[1] : null,
+    paidAmount: txAmount ?? expectedXpf,
+    paidCurrency: txCurrency || "XPF",
+    errorMessage: isPaid
+      ? null
+      : !amountMatches
+        ? `Montant PayZen incohérent (${txAmount} < ${expectedXpf} XPF)`
+        : refTx?.detailedErrorMessage || refTx?.errorMessage || null,
   };
+}
+
+/** Anti-spam mémoire pour ne pas interroger PayZen en boucle sur de vieilles commandes non payées. */
+const reconcileCooldown = new Map<string, number>();
+const RECONCILE_COOLDOWN_MS = 8_000;
+
+/**
+ * Si une commande carte n'est pas encore marquée `paid` en base (ex. réseau coupé après 3DS ou IPN retardé),
+ * vérifie directement auprès de PayZen `V4/Order/Get` et synchronise la base.
+ */
+export async function reconcilePayzenOrderIfNeeded<T extends { id: string; status: string; paymentMethod: string; rideOption: any }>(
+  order: T,
+  opts?: { force?: boolean }
+): Promise<{ order: T; released: boolean; justPaid: boolean }> {
+  const ro = (order?.rideOption || {}) as any;
+  if (!order || order.paymentMethod !== "card" || ro.payzenStatus === "paid") {
+    return { order, released: false, justPaid: false };
+  }
+  const hasAttempt = Boolean(ro.payzenFormTokenIssuedAt || ro.payzenStatus);
+  if (!hasAttempt) {
+    return { order, released: false, justPaid: false };
+  }
+  // Ne pas revérifier indéfiniment des commandes de plus de 48h déjà refusées/annulées
+  const createdMs = (order as any).createdAt ? new Date((order as any).createdAt).getTime() : Date.now();
+  if (!opts?.force && Date.now() - createdMs > 48 * 3600 * 1000) {
+    return { order, released: false, justPaid: false };
+  }
+  const lastCheck = reconcileCooldown.get(order.id) || 0;
+  if (!opts?.force && Date.now() - lastCheck < RECONCILE_COOLDOWN_MS) {
+    return { order, released: false, justPaid: false };
+  }
+  reconcileCooldown.set(order.id, Date.now());
+
+  try {
+    const check = await fetchPayzenOrderStatus(order.id);
+    if (check.paid) {
+      const res = await markOrderPayzenPaid(order.id, {
+        payzenConfirmStatus: check.orderStatus,
+        ...(check.transactionUuid ? { payzenTransactionUuid: check.transactionUuid } : {}),
+        ...(check.cardBrand ? { payzenCardBrand: check.cardBrand } : {}),
+        ...(check.cardLast4 ? { payzenCardLast4: check.cardLast4 } : {}),
+        ...(check.paidAmount != null ? { payzenPaidAmount: check.paidAmount } : {}),
+      });
+      if (res?.order) {
+        return { order: res.order as unknown as T, released: res.released, justPaid: true };
+      }
+    }
+  } catch (e) {
+    console.warn("[PayZen] reconcile skipped for", order.id, (e as any)?.message || e);
+  }
+  return { order, released: false, justPaid: false };
 }
 
 export async function getPrestataireOsbForVehicle(loueurVehicleId: string): Promise<{

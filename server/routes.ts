@@ -11,6 +11,7 @@ import { db } from "./db";
 import { insertOrderSchema, pushSubscriptionSchema, insertClientSchema, orders, driverSessions, drivers, collecteFrais, vehicleModels, loueurVehicles, prestataires, ratings, clients, type Order, type OrderStatus, type DriverSession } from "@shared/schema";
 import { eq, and, sql as dsql, count, inArray } from "drizzle-orm";
 import cookieParser from "cookie-parser";
+import multer from "multer";
 import { driverNotifications, clientNotifications, notifyDriver, notifyClient, startClientLiveActivity, updateClientLiveActivity, endClientLiveActivity } from "./onesignal";
 import { sendVerificationCode, verifyCode, isTwilioConfigured, sendSMSMessage } from "./twilio";
 import { generateInvoicePDF } from "./pdf-generator";
@@ -1994,22 +1995,29 @@ async function dispatchRentalOrderToLoueur(orderId: string, payload?: Record<str
     status: order.status,
     paymentMethod: order.paymentMethod,
     payzenStatus: ro.payzenStatus || null,
+    payzenPaidAt: ro.payzenPaidAt || null,
+    payzenTransactionUuid: ro.payzenTransactionUuid || null,
+    payzenCardLast4: ro.payzenCardLast4 || null,
   };
   io.to(`driver:${driverId}`).emit("rental-order:new", rentalPayload);
-  console.log(`[RENTAL] Emitted rental-order:new to driver:${driverId}`);
+  console.log(`[RENTAL] Emitted rental-order:new to driver:${driverId} (payzen=${ro.payzenStatus || "none"})`);
   try {
     await driverNotifications.newRentalOrder(
       driverId,
       order.id,
-      `${ro.title || "Location"} — ${ro.days || "?"}j${ro.payzenStatus === "paid" ? " (payée)" : ""}`,
+      `${ro.title || "Location"} — ${ro.days || "?"}j${ro.payzenStatus === "paid" ? " (déjà payée CB)" : ""}`,
       order.totalPrice
     );
   } catch (pushErr) {
     console.warn("[RENTAL] OneSignal push to loueur failed:", pushErr);
   }
   if (ro.loueurNotifyPayload) {
-    const { loueurNotifyPayload: _drop, ...rest } = ro;
-    await db.update(orders).set({ rideOption: rest as any }).where(eq(orders.id, order.id));
+    await db
+      .update(orders)
+      .set({
+        rideOption: dsql`coalesce(${orders.rideOption}, '{}'::jsonb) - 'loueurNotifyPayload'`,
+      } as any)
+      .where(eq(orders.id, order.id));
   }
 }
 
@@ -2587,18 +2595,40 @@ app.get("/api/rental-orders/pending", async (req, res) => {
       return res.status(401).json({ success: false, error: "Session invalide" });
     }
 
-    const allPending = await dbStorage.getPendingOrders();
-    const rentalOrders = allPending
-      .filter((o: any) => {
-        const ro = o.rideOption as any;
-        if (ro?.type !== "rental") return false;
-        // Commande ciblée : uniquement le loueur propriétaire du véhicule
-        if (ro.targetDriverId) {
-          return ro.targetDriverId === session.driverId;
+    // Auto-réconciliation : si une commande carte récente (< 30 min) est restée en awaiting_payment
+    // alors que le client a payé (ex. coupure 4G après 3DS), on la libère immédiatement.
+    try {
+      const heldRows = await db
+        .select()
+        .from(orders)
+        .where(
+          and(
+            eq(orders.status, "awaiting_payment"),
+            dsql`(${orders.rideOption}->>'targetDriverId') = ${session.driverId}`
+          )
+        );
+      if (heldRows.length > 0) {
+        const { reconcilePayzenOrderIfNeeded } = await import("./payzen");
+        for (const h of heldRows) {
+          const rec = await reconcilePayzenOrderIfNeeded(h as any);
+          if (rec.released) await dispatchRentalOrderToLoueur(h.id);
         }
-        // Anciennes commandes sans cible : visibles par tous (rétrocompat)
-        return true;
-      })
+      }
+    } catch (e) {
+      console.warn("[RENTAL] held orders reconcile skipped:", (e as any)?.message || e);
+    }
+
+    const allPending = await dbStorage.getPendingOrders();
+    const { reconcilePayzenOrderIfNeeded } = await import("./payzen");
+    const targetedPending: any[] = [];
+    for (const rawOrder of allPending) {
+      const ro = rawOrder.rideOption as any;
+      if (ro?.type !== "rental") continue;
+      if (ro.targetDriverId && ro.targetDriverId !== session.driverId) continue;
+      const rec = await reconcilePayzenOrderIfNeeded(rawOrder as any);
+      targetedPending.push(rec.order);
+    }
+    const rentalOrders = targetedPending
       .map((o: any) => {
         const ro = o.rideOption as any;
         // Nom affiché : compte lié si dispo (sera enrichi juste après)
@@ -2651,6 +2681,9 @@ app.get("/api/rental-orders/pending", async (req, res) => {
           expiresAt: o.expiresAt,
           paymentMethod: o.paymentMethod,
           payzenStatus: ro.payzenStatus || null,
+          payzenPaidAt: ro.payzenPaidAt || null,
+          payzenTransactionUuid: ro.payzenTransactionUuid || null,
+          payzenCardLast4: ro.payzenCardLast4 || null,
         };
       });
 
@@ -2712,9 +2745,14 @@ app.post("/api/rental-orders/:id/accept", async (req, res) => {
       return res.status(401).json({ success: false, error: "Session invalide" });
     }
 
-    const currentOrder = await dbStorage.getOrder(id);
+    let currentOrder = await dbStorage.getOrder(id);
     if (!currentOrder) {
       return res.status(404).json({ success: false, error: "Commande introuvable" });
+    }
+    if (currentOrder.paymentMethod === "card" && (currentOrder.rideOption as any)?.payzenStatus !== "paid") {
+      const { reconcilePayzenOrderIfNeeded } = await import("./payzen");
+      const rec = await reconcilePayzenOrderIfNeeded(currentOrder);
+      currentOrder = rec.order;
     }
     const currentRideOption = currentOrder.rideOption as any;
     if (currentRideOption?.type === "rental" && currentRideOption?.targetDriverId
@@ -2784,21 +2822,28 @@ app.post("/api/rental-orders/:id/accept", async (req, res) => {
     const loueurSignature = isValidDrawnSignature(req.body.loueurSignature)
       ? String(req.body.loueurSignature).trim()
       : null;
-    const rideOptionPatch: Record<string, any> = {
-      ...currentRideOption,
-    };
+    const atomicPatch: Record<string, any> = {};
     if (meetingPoint) {
-      rideOptionPatch.meetingPoint = meetingPoint;
-      rideOptionPatch.meetingPointSetAt = new Date().toISOString();
-      rideOptionPatch.meetingPointSetBy = "driver";
+      atomicPatch.meetingPoint = meetingPoint;
+      atomicPatch.meetingPointSetAt = new Date().toISOString();
+      atomicPatch.meetingPointSetBy = "driver";
     }
     if (loueurSignature) {
-      rideOptionPatch.loueurSignatureSvg = loueurSignature;
-      rideOptionPatch.loueurSignedAt = new Date().toISOString();
+      atomicPatch.loueurSignatureSvg = loueurSignature;
+      atomicPatch.loueurSignedAt = new Date().toISOString();
     }
-    if (loueurSignature || meetingPoint) {
-      await db.update(orders).set({ rideOption: rideOptionPatch as any }).where(eq(orders.id, id));
+    if (Object.keys(atomicPatch).length > 0) {
+      await db
+        .update(orders)
+        .set({
+          rideOption: dsql`coalesce(${orders.rideOption}, '{}'::jsonb) || ${JSON.stringify(atomicPatch)}::jsonb`,
+        } as any)
+        .where(eq(orders.id, id));
     }
+    const rideOptionPatch: Record<string, any> = {
+      ...currentRideOption,
+      ...atomicPatch,
+    };
 
     const updatedOrder = await dbStorage.tryAcceptOrderIfStillPending(id, session.driverId);
     if (!updatedOrder) {
@@ -3679,13 +3724,26 @@ app.post("/api/live-activities/end", async (req, res) => {
       return res.status(401).json({ error: "Authentification requise" });
     }
 
-    const order = await dbStorage.getOrder(req.params.id);
+    let order = await dbStorage.getOrder(req.params.id);
     if (!order) {
       return res.status(404).json({ error: "Order not found" });
     }
 
     if (clientId && order.clientId !== clientId && !driverSession) {
       return res.status(403).json({ error: "Accès non autorisé" });
+    }
+
+    if (order.paymentMethod === "card" && (order.rideOption as any)?.payzenStatus !== "paid") {
+      try {
+        const { reconcilePayzenOrderIfNeeded } = await import("./payzen");
+        const rec = await reconcilePayzenOrderIfNeeded(order);
+        if (rec.justPaid) {
+          if (rec.released) await dispatchRentalOrderToLoueur(order.id);
+          order = (await dbStorage.getOrder(req.params.id)) || rec.order;
+        }
+      } catch (e) {
+        console.warn("[ORDERS] PayZen reconcile on GET skipped:", (e as any)?.message || e);
+      }
     }
     
     // Enrich with current driver info if assigned
@@ -4608,7 +4666,7 @@ app.post("/api/live-activities/end", async (req, res) => {
       }
 
       const orderId = req.params.id;
-      const order = await dbStorage.getOrder(orderId);
+      let order = await dbStorage.getOrder(orderId);
       if (!order) return res.status(404).json({ error: "Commande introuvable" });
 
       if (clientId) {
@@ -4619,6 +4677,19 @@ app.post("/api/live-activities/end", async (req, res) => {
         const ownerId = getRentalOwnerDriverId(order);
         if (!ownerId || ownerId !== driverAuth.session.driverId) {
           return res.status(403).json({ error: "Accès non autorisé" });
+        }
+      }
+
+      if (order.paymentMethod === "card" && (order.rideOption as any)?.payzenStatus !== "paid") {
+        try {
+          const { reconcilePayzenOrderIfNeeded } = await import("./payzen");
+          const rec = await reconcilePayzenOrderIfNeeded(order);
+          if (rec.justPaid) {
+            if (rec.released) await dispatchRentalOrderToLoueur(order.id);
+            order = (await dbStorage.getOrder(orderId)) || rec.order;
+          }
+        } catch (e) {
+          console.warn("[CONTRACT] PayZen reconcile skipped:", (e as any)?.message || e);
         }
       }
 
@@ -4641,12 +4712,16 @@ app.post("/api/live-activities/end", async (req, res) => {
           rideOption: rideOpt,
         });
         const url = await persistContractHtml(html, order.id);
-        const nextRide = {
-          ...rideOpt,
+        const snapPatch = {
           contractHtmlSnapshot: html,
           ...(url ? { contractUrl: url } : {}),
         };
-        await db.update(orders).set({ rideOption: nextRide as any }).where(eq(orders.id, orderId));
+        await db
+          .update(orders)
+          .set({
+            rideOption: dsql`coalesce(${orders.rideOption}, '{}'::jsonb) || ${JSON.stringify(snapPatch)}::jsonb`,
+          } as any)
+          .where(eq(orders.id, orderId));
         contractUrl = url || contractUrl;
       }
 
@@ -4663,6 +4738,9 @@ app.post("/api/live-activities/end", async (req, res) => {
         paymentMethod: order.paymentMethod,
         payzenStatus: rideOpt.payzenStatus || null,
         payzenPaidAt: rideOpt.payzenPaidAt || null,
+        payzenTransactionUuid: rideOpt.payzenTransactionUuid || null,
+        payzenCardBrand: rideOpt.payzenCardBrand || null,
+        payzenCardLast4: rideOpt.payzenCardLast4 || null,
         yousignSignatureRequestId: rideOpt.yousignSignatureRequestId || null,
         licenses: {
           front: isEphemeralLocalUri(rideOpt.clientLicenseFront)
@@ -7060,14 +7138,25 @@ const sessionId = headerSessionId || cookieSessionId;
       return res.status(401).json({ error: "Session expirée" });
     }
 
-    const orders = await dbStorage.getOrdersByClient(clientId);
+    const rawOrders = await dbStorage.getOrdersByClient(clientId);
+    const { reconcilePayzenOrderIfNeeded } = await import("./payzen");
+    const ordersList = await Promise.all(
+      rawOrders.map(async (o, idx) => {
+        if (idx < 6 && o.paymentMethod === "card" && (o.rideOption as any)?.payzenStatus !== "paid") {
+          const rec = await reconcilePayzenOrderIfNeeded(o as any);
+          if (rec.released) await dispatchRentalOrderToLoueur(o.id);
+          return rec.order;
+        }
+        return o;
+      })
+    );
 
     console.log("[CLIENT_ORDERS] Orders found", {
       clientId,
-      count: orders.length,
+      count: ordersList.length,
     });
 
-    res.json(orders);
+    res.json(ordersList);
   } catch (error) {
     console.error("Error getting client orders:", error);
     res.status(500).json({ error: "Erreur lors de la récupération des commandes" });
@@ -8058,8 +8147,18 @@ const sessionId = headerSessionId || cookieSessionId;
       return res.status(401).json({ error: "Session expirée" });
     }
     
-    const orders = await dbStorage.getOrdersByDriver(driverId);
-    res.json(orders);
+    const rawOrders = await dbStorage.getOrdersByDriver(driverId);
+    const { reconcilePayzenOrderIfNeeded } = await import("./payzen");
+    const reconciled = await Promise.all(
+      rawOrders.map(async (o, idx) => {
+        if (idx < 8 && o.paymentMethod === "card" && (o.rideOption as any)?.payzenStatus !== "paid") {
+          const rec = await reconcilePayzenOrderIfNeeded(o as any);
+          return rec.order;
+        }
+        return o;
+      })
+    );
+    res.json(reconciled);
   });
 
   // Get loueur / driver earnings statistics (rental-first for RAVE MVP)
@@ -8222,6 +8321,24 @@ const sessionId = headerSessionId || cookieSessionId;
     }
   });
 
+  const payzenFormUpload = multer();
+
+  function emitPayzenOrderPaidSocket(order: { id: string; rideOption: any }) {
+    const ro = (order.rideOption || {}) as any;
+    const payload = {
+      orderId: order.id,
+      payzenStatus: "paid",
+      payzenPaidAt: ro.payzenPaidAt || new Date().toISOString(),
+      transactionUuid: ro.payzenTransactionUuid || null,
+      cardBrand: ro.payzenCardBrand || null,
+      cardLast4: ro.payzenCardLast4 || null,
+    };
+    io.to(`order:${order.id}`).emit("order:payment:updated", payload);
+    if (ro.targetDriverId) {
+      io.to(`driver:${ro.targetDriverId}`).emit("order:payment:updated", payload);
+    }
+  }
+
   /** Page du formulaire carte PayZen (servie sur une vraie URL : Krypton ne s'initialise pas en srcdoc/about:blank) */
   app.get("/api/payzen/form", async (req, res) => {
     try {
@@ -8244,6 +8361,12 @@ const sessionId = headerSessionId || cookieSessionId;
       const publicKey = String((prestataire as any)?.osbPublicKey || "").replace(/["<>]/g, "");
       if (!publicKey) return res.status(400).send("Paiement en ligne non configuré");
       const amount = Number(order.totalPrice || 0).toLocaleString("fr-FR");
+      const publicBase = (
+        process.env.PUBLIC_API_URL ||
+        process.env.RENDER_EXTERNAL_URL ||
+        `${req.protocol}://${req.get("host")}`
+      ).replace(/\/$/, "");
+      const returnUrl = `${publicBase}/api/payzen/return?orderId=${encodeURIComponent(orderId)}`;
 
       res.setHeader("Content-Type", "text/html; charset=utf-8");
       res.setHeader("Cache-Control", "no-store");
@@ -8253,6 +8376,8 @@ const sessionId = headerSessionId || cookieSessionId;
 <title>Paiement sécurisé</title>
 <script src="https://static.payzen.eu/static/js/krypton-client/V4.0/stable/kr-payment-form.min.js"
   kr-public-key="${publicKey}"
+  kr-post-url-success="${returnUrl}"
+  kr-post-url-refused="${returnUrl}"
   kr-language="fr-FR"></script>
 <link rel="stylesheet" href="https://static.payzen.eu/static/js/krypton-client/V4.0/ext/neon-reset.min.css"/>
 <script src="https://static.payzen.eu/static/js/krypton-client/V4.0/ext/neon.js"></script>
@@ -8260,16 +8385,28 @@ const sessionId = headerSessionId || cookieSessionId;
 body{font-family:system-ui,-apple-system,sans-serif;padding:16px;background:#fff;margin:0;color:#111827}
 h1{font-size:18px;margin:0 0 4px}
 .hint{color:#6b7280;font-size:13px;margin:0 0 16px}
-.err{color:#b91c1c;font-size:13px;margin-top:10px}
+.err{color:#b91c1c;font-size:13px;margin-top:10px;line-height:1.45}
+.done{display:none;text-align:center;padding:36px 16px}
+.done-badge{width:64px;height:64px;border-radius:999px;background:#dcfce7;color:#15803d;font-size:32px;display:flex;align-items:center;justify-content:center;margin:0 auto 14px;font-weight:800}
+.done h2{font-size:20px;margin:0 0 6px;color:#065f46}
+.done p{font-size:14px;color:#4b5563;margin:0;line-height:1.5}
 </style>
 </head><body>
-<h1>Paiement sécurisé</h1>
-<p class="hint">Montant : ${amount} XPF</p>
-<div class="kr-embedded" kr-form-token="${formToken}"></div>
-<p class="err" id="err"></p>
+<div id="formWrap">
+  <h1>Paiement sécurisé</h1>
+  <p class="hint">Montant : ${amount} XPF</p>
+  <div class="kr-embedded" kr-form-token="${formToken}"></div>
+  <p class="err" id="err"></p>
+</div>
+<div class="done" id="doneWrap">
+  <div class="done-badge">✓</div>
+  <h2>Paiement accepté (${amount} XPF)</h2>
+  <p>Confirmation bancaire en cours auprès du serveur…</p>
+</div>
 <script>
-function post(type, message){
-  var msg = JSON.stringify({ type: type, message: message || null });
+function post(type, extra){
+  var payload = Object.assign({ type: type }, extra || {});
+  var msg = JSON.stringify(payload);
   try { if (window.ReactNativeWebView) { window.ReactNativeWebView.postMessage(msg); return; } } catch(e){}
   try { window.parent && window.parent !== window && window.parent.postMessage(msg, "*"); } catch(e){}
 }
@@ -8284,9 +8421,19 @@ function friendly(e){
 function init(){
   if (typeof KR === "undefined") { setTimeout(init, 200); return; }
   KR.onSubmit(function(event){
-    var st = event && event.clientAnswer && event.clientAnswer.orderStatus;
-    if (st === "PAID" || st === "AUTHORISED") post("payzen_success");
-    else post("payzen_error", "Paiement refusé par votre banque (solde insuffisant, plafond atteint ou carte non acceptée).");
+    var ans = (event && event.clientAnswer) || {};
+    var st = String(ans.orderStatus || "").toUpperCase();
+    var tx = (ans.transactions && ans.transactions[0]) || {};
+    var txSt = String(tx.status || "").toUpperCase();
+    if (st === "PAID" || st === "AUTHORISED" || txSt === "PAID" || txSt === "AUTHORISED" || txSt === "CAPTURED") {
+      var fw = document.getElementById("formWrap");
+      var dw = document.getElementById("doneWrap");
+      if (fw) fw.style.display = "none";
+      if (dw) dw.style.display = "block";
+      post("payzen_success", { transactionUuid: tx.uuid || null, status: st || txSt });
+    } else {
+      post("payzen_error", { message: "Paiement refusé par votre banque (solde insuffisant, plafond atteint ou carte non acceptée)." });
+    }
     return false;
   });
   KR.onError(function(e){
@@ -8303,11 +8450,96 @@ init();
     }
   });
 
-  /** IPN PayZen — body form: kr-answer, kr-hash, kr-hash-algorithm */
-  app.post("/api/payzen/ipn", async (req, res) => {
+  /** Retour navigateur / WebView après challenge 3D Secure Krypton (kr-post-url-success / kr-post-url-refused). */
+  const handlePayzenBrowserReturn = async (req: any, res: any) => {
+    try {
+      let orderId = String(req.query?.orderId || "").trim();
+      const krAnswer = String(req.body?.["kr-answer"] || req.body?.krAnswer || "");
+      if (!orderId && krAnswer) {
+        try {
+          const parsed = JSON.parse(krAnswer);
+          orderId = String(parsed?.orderDetails?.orderId || parsed?.orderId || "").trim();
+        } catch {
+          /* ignore */
+        }
+      }
+      if (!orderId) {
+        return res.status(400).send("Commande introuvable");
+      }
+
+      const { fetchPayzenOrderStatus, markOrderPayzenPaid, markOrderPayzenFailed } = await import("./payzen");
+      const check = await fetchPayzenOrderStatus(orderId);
+      let isPaid = check.paid;
+      if (isPaid) {
+        const paidRes = await markOrderPayzenPaid(orderId, {
+          payzenReturnStatus: check.orderStatus,
+          ...(check.transactionUuid ? { payzenTransactionUuid: check.transactionUuid } : {}),
+          ...(check.cardBrand ? { payzenCardBrand: check.cardBrand } : {}),
+          ...(check.cardLast4 ? { payzenCardLast4: check.cardLast4 } : {}),
+          ...(check.paidAmount != null ? { payzenPaidAmount: check.paidAmount } : {}),
+        });
+        if (paidRes?.order) emitPayzenOrderPaidSocket(paidRes.order as any);
+        if (paidRes?.released) await dispatchRentalOrderToLoueur(orderId);
+      } else {
+        await markOrderPayzenFailed(orderId, check.errorMessage || `return_${check.orderStatus || "refused"}`);
+      }
+
+      const [ord] = await db.select().from(orders).where(eq(orders.id, orderId));
+      const amount = Number(ord?.totalPrice || check.paidAmount || 0).toLocaleString("fr-FR");
+      const errMsg =
+        check.errorMessage ||
+        "Paiement refusé par votre banque (solde insuffisant, plafond atteint ou carte non acceptée).";
+
+      res.setHeader("Content-Type", "text/html; charset=utf-8");
+      res.setHeader("Cache-Control", "no-store");
+      return res.send(`<!DOCTYPE html><html lang="fr"><head>
+<meta charset="utf-8"/><meta name="viewport" content="width=device-width, initial-scale=1"/>
+<title>${isPaid ? "Paiement validé" : "Paiement refusé"}</title>
+<style>
+body{font-family:system-ui,-apple-system,sans-serif;margin:0;min-height:100vh;display:flex;align-items:center;justify-content:center;padding:24px;box-sizing:border-box;background:#fff;color:#111827;text-align:center}
+.card{max-width:360px;width:100%}
+.badge{width:68px;height:68px;border-radius:999px;display:flex;align-items:center;justify-content:center;font-size:34px;font-weight:800;margin:0 auto 16px;background:${isPaid ? "#dcfce7" : "#fee2e2"};color:${isPaid ? "#15803d" : "#b91c1c"}}
+h1{font-size:21px;margin:0 0 8px;color:${isPaid ? "#065f46" : "#991b1b"}}
+p{font-size:14px;color:#4b5563;line-height:1.5;margin:0 0 18px}
+button{width:100%;padding:14px 16px;border-radius:12px;border:none;font-size:15px;font-weight:700;cursor:pointer;background:${isPaid ? "#10b981" : "#111827"};color:#fff}
+</style></head><body><div class="card">
+<div class="badge">${isPaid ? "✓" : "✕"}</div>
+<h1>${isPaid ? `Paiement validé (${amount} XPF)` : "Paiement refusé"}</h1>
+<p>${isPaid ? "Votre règlement par carte a bien été confirmé. Votre réservation est transmise au loueur." : errMsg.replace(/[<>&"]/g, "")}</p>
+<button onclick="notify()">Continuer</button>
+</div>
+<script>
+var payload = ${JSON.stringify(
+        isPaid
+          ? { type: "payzen_success", alreadyConfirmed: true, transactionUuid: check.transactionUuid, cardBrand: check.cardBrand, cardLast4: check.cardLast4, status: check.orderStatus }
+          : { type: "payzen_error", message: errMsg }
+      )};
+function notify(){
+  var msg = JSON.stringify(payload);
+  try { if (window.ReactNativeWebView) { window.ReactNativeWebView.postMessage(msg); return; } } catch(e){}
+  try { window.parent && window.parent !== window && window.parent.postMessage(msg, "*"); } catch(e){}
+}
+notify();
+setTimeout(notify, 400);
+</script></body></html>`);
+    } catch (error) {
+      console.error("[PayZen] return error:", error);
+      return res.status(500).send("Erreur lors de la vérification du paiement");
+    }
+  };
+  app.post("/api/payzen/return", payzenFormUpload.none(), handlePayzenBrowserReturn);
+  app.get("/api/payzen/return", handlePayzenBrowserReturn);
+
+  /**
+   * IPN PayZen (serveur → serveur) — urlencoded ou multipart/form-data.
+   * Source de vérité = re-vérification directe auprès de PayZen V4/Order/Get avec les identifiants OSB du loueur
+   * (immunisé contre tout payload forgé ET contre l'écart kr-hash-key password vs sha256_key).
+   */
+  app.post("/api/payzen/ipn", payzenFormUpload.none(), async (req, res) => {
     try {
       const krAnswer = String(req.body?.["kr-answer"] || req.body?.krAnswer || "");
       const krHash = String(req.body?.["kr-hash"] || req.body?.krHash || "");
+      const krHashKey = String(req.body?.["kr-hash-key"] || "").toLowerCase();
       if (!krAnswer) {
         return res.status(400).send("KO");
       }
@@ -8326,53 +8558,57 @@ init();
 
       const [order] = await db.select().from(orders).where(eq(orders.id, orderId));
       if (!order) {
-        return res.status(404).send("KO");
+        // Peut être un ping de test de connexion (`rave-conn-...`)
+        return res.status(200).send("OK");
       }
 
-      const ro = (order.rideOption || {}) as any;
-      const loueurVehicleId = String(ro.loueurVehicleId || "").trim();
-      if (!loueurVehicleId) {
-        return res.status(400).send("KO");
+      const { fetchPayzenOrderStatus, verifyPayzenIpnHash, markOrderPayzenPaid, markOrderPayzenFailed } =
+        await import("./payzen");
+
+      // Si PayZen signe avec le password REST, on valide aussi le HMAC ; dans tous les cas V4/Order/Get fait foi
+      if (krHash && (!krHashKey || krHashKey === "password")) {
+        try {
+          const loueurVehicleId = String((order.rideOption as any)?.loueurVehicleId || "").trim();
+          const [vehicle] = loueurVehicleId
+            ? await db
+                .select({ prestataireId: loueurVehicles.prestataireId })
+                .from(loueurVehicles)
+                .where(eq(loueurVehicles.id, loueurVehicleId))
+                .limit(1)
+            : [];
+          const [prestataire] = vehicle?.prestataireId
+            ? await db.select().from(prestataires).where(eq(prestataires.id, vehicle.prestataireId)).limit(1)
+            : [];
+          if (prestataire && (await import("./osb-crypto")).prestataireHasOsbCredentials(prestataire as any)) {
+            const { decryptOsbCertificate } = await import("./osb-crypto");
+            const cert = await decryptOsbCertificate(String((prestataire as any).osbCertificateEncrypted));
+            const algo = String(req.body?.["kr-hash-algorithm"] || "").toLowerCase() === "sha1" ? "sha1" : "sha256";
+            if (!verifyPayzenIpnHash(krAnswer, krHash, cert, algo as "sha256" | "sha1")) {
+              console.warn("[PayZen] IPN hash mismatch (key=", krHashKey || "default", "), verifying via Order/Get for", orderId);
+            }
+          }
+        } catch (e) {
+          console.warn("[PayZen] IPN hash check skipped:", (e as any)?.message || e);
+        }
       }
 
-      const [vehicle] = await db
-        .select({ prestataireId: loueurVehicles.prestataireId })
-        .from(loueurVehicles)
-        .where(eq(loueurVehicles.id, loueurVehicleId))
-        .limit(1);
-      if (!vehicle?.prestataireId) {
-        return res.status(404).send("KO");
-      }
+      const check = await fetchPayzenOrderStatus(orderId);
+      console.log(`[PayZen] IPN received for order ${orderId} → verified status=${check.orderStatus} paid=${check.paid}`);
 
-      const [prestataire] = await db
-        .select()
-        .from(prestataires)
-        .where(eq(prestataires.id, vehicle.prestataireId))
-        .limit(1);
-
-      if (!prestataire || !(await import("./osb-crypto")).prestataireHasOsbCredentials(prestataire as any)) {
-        return res.status(400).send("KO");
-      }
-
-      const { decryptOsbCertificate } = await import("./osb-crypto");
-      const { verifyPayzenIpnHash, markOrderPayzenPaid } = await import("./payzen");
-      const certificate = await decryptOsbCertificate(
-        String((prestataire as any).osbCertificateEncrypted)
-      );
-      const algo =
-        String(req.body?.["kr-hash-algorithm"] || "").toLowerCase() === "sha1"
-          ? "sha1"
-          : "sha256";
-
-      if (!verifyPayzenIpnHash(krAnswer, krHash, certificate, algo as "sha256" | "sha1")) {
-        console.warn("[PayZen] IPN hash invalid for order", orderId);
-        return res.status(403).send("KO");
-      }
-
-      const status = String(answer?.orderStatus || answer?.transactions?.[0]?.status || "");
-      if (status === "PAID" || status === "AUTHORISED") {
-        const paid = await markOrderPayzenPaid(orderId, { payzenIpnStatus: status });
+      if (check.paid) {
+        const paid = await markOrderPayzenPaid(orderId, {
+          payzenIpnStatus: check.orderStatus,
+          ...(check.transactionUuid ? { payzenTransactionUuid: check.transactionUuid } : {}),
+          ...(check.cardBrand ? { payzenCardBrand: check.cardBrand } : {}),
+          ...(check.cardLast4 ? { payzenCardLast4: check.cardLast4 } : {}),
+          ...(check.paidAmount != null ? { payzenPaidAmount: check.paidAmount } : {}),
+        });
+        if (paid?.order) emitPayzenOrderPaidSocket(paid.order as any);
         if (paid?.released) await dispatchRentalOrderToLoueur(orderId);
+      } else if (check.orderStatus === "UNPAID" && order.status === "awaiting_payment") {
+        // Ne pas échouer définitivement si le client est encore sur le formulaire pour retenter une autre carte,
+        // seulement tracer le dernier refus IPN.
+        console.log(`[PayZen] IPN non-paid (${check.orderStatus}) for ${orderId}: ${check.errorMessage || ""}`);
       }
 
       return res.status(200).send("OK");
@@ -8382,7 +8618,7 @@ init();
     }
   });
 
-  /** Confirm client-side after KR success (re-check via GetOrder) */
+  /** Confirm client-side after KR success (re-check via V4/Order/Get — jamais sur simple parole du client) */
   app.post("/api/payzen/confirm", async (req, res) => {
     try {
       const authClientId = await getAuthenticatedClient(req);
@@ -8400,17 +8636,40 @@ init();
       }
 
       const { fetchPayzenOrderStatus, markOrderPayzenPaid } = await import("./payzen");
-      const { orderStatus } = await fetchPayzenOrderStatus(orderId);
-      if (orderStatus === "PAID" || orderStatus === "AUTHORISED") {
-        const paid = await markOrderPayzenPaid(orderId, { payzenConfirmStatus: orderStatus });
+      // Petit retry (1.2s) si PayZen met une fraction de seconde à indexer la transaction après KR.onSubmit
+      let check = await fetchPayzenOrderStatus(orderId);
+      if (!check.paid && (!check.orderStatus || check.orderStatus === "RUNNING")) {
+        await new Promise((r) => setTimeout(r, 1200));
+        check = await fetchPayzenOrderStatus(orderId);
+      }
+
+      if (check.paid) {
+        const paid = await markOrderPayzenPaid(orderId, {
+          payzenConfirmStatus: check.orderStatus,
+          ...(check.transactionUuid ? { payzenTransactionUuid: check.transactionUuid } : {}),
+          ...(check.cardBrand ? { payzenCardBrand: check.cardBrand } : {}),
+          ...(check.cardLast4 ? { payzenCardLast4: check.cardLast4 } : {}),
+          ...(check.paidAmount != null ? { payzenPaidAmount: check.paidAmount } : {}),
+        });
+        if (paid?.order) emitPayzenOrderPaidSocket(paid.order as any);
         if (paid?.released) await dispatchRentalOrderToLoueur(orderId);
-        return res.json({ success: true, paid: true, status: orderStatus });
+        return res.json({
+          success: true,
+          paid: true,
+          status: check.orderStatus,
+          transactionUuid: check.transactionUuid,
+          cardBrand: check.cardBrand,
+          cardLast4: check.cardLast4,
+          paidAmount: check.paidAmount,
+          paidAt: ((paid?.order?.rideOption as any)?.payzenPaidAt as string | undefined) || new Date().toISOString(),
+        });
       }
 
       return res.json({
         success: true,
         paid: false,
-        status: orderStatus || "UNKNOWN",
+        status: check.orderStatus || "UNKNOWN",
+        error: check.errorMessage || null,
       });
     } catch (error: any) {
       console.error("[PayZen] confirm:", error);
@@ -8439,10 +8698,23 @@ init();
       let pzError: string | null = null;
       try {
         const pz = await fetchPayzenOrderStatus(orderId);
-        if (pz.orderStatus === "PAID" || pz.orderStatus === "AUTHORISED") {
-          const paid = await markOrderPayzenPaid(orderId, { payzenConfirmStatus: pz.orderStatus });
+        if (pz.paid) {
+          const paid = await markOrderPayzenPaid(orderId, {
+            payzenConfirmStatus: pz.orderStatus,
+            ...(pz.transactionUuid ? { payzenTransactionUuid: pz.transactionUuid } : {}),
+            ...(pz.cardBrand ? { payzenCardBrand: pz.cardBrand } : {}),
+            ...(pz.cardLast4 ? { payzenCardLast4: pz.cardLast4 } : {}),
+            ...(pz.paidAmount != null ? { payzenPaidAmount: pz.paidAmount } : {}),
+          });
+          if (paid?.order) emitPayzenOrderPaidSocket(paid.order as any);
           if (paid?.released) await dispatchRentalOrderToLoueur(orderId);
-          return res.json({ success: true, paid: true });
+          return res.json({
+            success: true,
+            paid: true,
+            transactionUuid: pz.transactionUuid,
+            cardBrand: pz.cardBrand,
+            cardLast4: pz.cardLast4,
+          });
         }
         pzError = pz.errorMessage;
       } catch (e) {

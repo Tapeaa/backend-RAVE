@@ -12,7 +12,7 @@ import type { Request } from "express";
 import { downloadSignedDocumentPdf } from "./yousign";
 import { db } from "./db";
 import { orders } from "@shared/schema";
-import { eq } from "drizzle-orm";
+import { eq, sql } from "drizzle-orm";
 
 type ContractOrder = {
   id: string;
@@ -244,13 +244,24 @@ export async function refreshContractSnapshot(order: ContractOrder): Promise<any
   const rideOpt = { ...((order.rideOption || {}) as any) };
   const html = buildRentalContractHtml({ ...order, rideOption: rideOpt });
   rideOpt.contractHtmlSnapshot = html;
+  const patch: Record<string, unknown> = { contractHtmlSnapshot: html };
+  if (rideOpt.loueurSignatureSvg) patch.loueurSignatureSvg = rideOpt.loueurSignatureSvg;
+  if (rideOpt.loueurSignedAt) patch.loueurSignedAt = rideOpt.loueurSignedAt;
   try {
     const url = await persistContractHtml(html, order.id);
-    if (url) rideOpt.contractUrl = url;
+    if (url) {
+      rideOpt.contractUrl = url;
+      patch.contractUrl = url;
+    }
   } catch (e) {
     console.warn("[CONTRACT] snapshot upload failed:", e);
   }
-  await db.update(orders).set({ rideOption: rideOpt as any }).where(eq(orders.id, order.id));
+  await db
+    .update(orders)
+    .set({
+      rideOption: sql`coalesce(${orders.rideOption}, '{}'::jsonb) || ${JSON.stringify(patch)}::jsonb`,
+    } as any)
+    .where(eq(orders.id, order.id));
   return rideOpt;
 }
 
@@ -288,13 +299,18 @@ export async function resolveOrderContract(order: {
   let pdfBase64: string | null = null;
   let error: string | null = null;
 
+  const cachePatch: Record<string, unknown> = {};
   if (!html || isSnapshotStale(html, rideOpt)) {
     html = buildRentalContractHtml({ ...order, rideOption: rideOpt });
     try {
       const url = await persistContractHtml(html, order.id);
-      if (url) contractUrl = url;
+      if (url) {
+        contractUrl = url;
+        rideOpt.contractUrl = url;
+        cachePatch.contractUrl = url;
+      }
       rideOpt.contractHtmlSnapshot = html;
-      if (url) rideOpt.contractUrl = url;
+      cachePatch.contractHtmlSnapshot = html;
     } catch {
       /* ignore */
     }
@@ -324,6 +340,7 @@ export async function resolveOrderContract(order: {
         if (url) {
           signedPdfUrl = url;
           rideOpt.yousignSignedPdfUrl = url;
+          cachePatch.yousignSignedPdfUrl = url;
         }
       } catch {
         /* ignore cache fail */
@@ -334,12 +351,14 @@ export async function resolveOrderContract(order: {
     }
   }
 
-  // Persister cache éventuel
-  if (rideOpt.yousignSignedPdfUrl || rideOpt.contractHtmlSnapshot) {
+  // Persister uniquement les clés régénérées (sans jamais écraser payzenStatus écrit en parallèle)
+  if (Object.keys(cachePatch).length > 0) {
     try {
       await db
         .update(orders)
-        .set({ rideOption: rideOpt as any })
+        .set({
+          rideOption: sql`coalesce(${orders.rideOption}, '{}'::jsonb) || ${JSON.stringify(cachePatch)}::jsonb`,
+        } as any)
         .where(eq(orders.id, order.id));
     } catch {
       /* ignore */

@@ -31,7 +31,9 @@ export const apiLimiter = rateLimit({
     req.path.startsWith('/api/messages') ||
     req.path.startsWith('/api/admin/messages') ||
     req.path.startsWith('/api/orders/active') ||
-    req.path.includes('/webhooks/stripe'),
+    req.path.includes('/webhooks/stripe') ||
+    req.path.startsWith('/api/payzen/ipn') ||
+    req.path.startsWith('/api/payzen/return'),
 });
 
 /**
@@ -91,7 +93,11 @@ export const smsLimiter = rateLimit({
  * Middleware pour valider les headers essentiels
  */
 export const validateHeaders = (req: Request, res: Response, next: NextFunction) => {
-  if (req.originalUrl?.includes('/webhooks/stripe')) {
+  if (
+    req.originalUrl?.includes('/webhooks/stripe') ||
+    req.originalUrl?.includes('/api/payzen/ipn') ||
+    req.originalUrl?.includes('/api/payzen/return')
+  ) {
     return next();
   }
 

@@ -1192,13 +1192,25 @@ export function registerPrestataireRoutes(app: Express) {
         .orderBy(desc(orders.createdAt))
         .limit(limit);
 
+      // Auto-réconciliation PayZen sur les commandes carte récentes non encore marquées payées
+      const { reconcilePayzenOrderIfNeeded } = await import("./payzen");
+      const reconciledOrders = await Promise.all(
+        driverOrders.map(async (o) => {
+          if (o.paymentMethod === "card" && (o.rideOption as any)?.payzenStatus !== "paid") {
+            const rec = await reconcilePayzenOrderIfNeeded(o as any);
+            return rec.order;
+          }
+          return o;
+        })
+      );
+
       // Récupérer le % de frais de service depuis la config
       const fraisConfig = await dbStorage.getFraisServiceConfig();
       const fraisServicePercent = fraisConfig?.fraisServicePrestataire || 15;
 
       return res.json({
         fraisServicePercent, // Inclure le % pour l'affichage
-        courses: driverOrders
+        courses: reconciledOrders
           // Locations carte non payées : jamais transmises au loueur
           .filter((o) => o.status !== "awaiting_payment" && o.status !== "payment_failed")
           .map(o => {
@@ -1267,10 +1279,16 @@ export function registerPrestataireRoutes(app: Express) {
       const { id } = req.params;
 
       // Récupérer la course
-      const [order] = await db.select().from(orders).where(eq(orders.id, id));
+      let [order] = await db.select().from(orders).where(eq(orders.id, id));
 
       if (!order) {
         return res.status(404).json({ error: "Course non trouvée" });
+      }
+
+      if (order.paymentMethod === "card" && (order.rideOption as any)?.payzenStatus !== "paid") {
+        const { reconcilePayzenOrderIfNeeded } = await import("./payzen");
+        const rec = await reconcilePayzenOrderIfNeeded(order as any, { force: true });
+        order = rec.order;
       }
 
   // Vérifier l'accès : chauffeur assigné du prestataire, ou location ciblée (targetDriverId / véhicule)
