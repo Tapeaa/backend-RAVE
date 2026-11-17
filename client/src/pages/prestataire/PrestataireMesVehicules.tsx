@@ -4,7 +4,8 @@
  */
 
 import { useEffect, useState } from 'react';
-import { CarFront, Plus, X, Check, Edit, Trash2, Eye, EyeOff, Search, CalendarOff, FileText, Pencil } from 'lucide-react';
+import { CarFront, Plus, X, Check, Edit, Trash2, Eye, EyeOff, Search, CalendarOff, FileText, Pencil, ShieldCheck, AlertTriangle } from 'lucide-react';
+import { CancellationPolicyEditor } from '@/components/loueur/CancellationPolicyEditor';
 import { ContractStudio, parseContractSections } from '@/components/loueur/ContractStudio';
 import { useLoueurNotice } from '@/components/loueur/LoueurNotice';
 import {
@@ -20,6 +21,8 @@ import {
   FUEL_OPTIONS,
   TRANSMISSION_OPTIONS,
   normalizeListingExtras,
+  isCancellationConfigured,
+  isValidCancellationText,
   type VehicleListingExtras,
   type IncludedItem,
   type FuelCode,
@@ -187,6 +190,11 @@ export function PrestataireMesVehicules() {
   const [editingVehicle, setEditingVehicle] = useState<LoueurVehicle | null>(null);
   const [isSaving, setIsSaving] = useState(false);
   const [searchTerm, setSearchTerm] = useState('');
+  const [applyCancellationToAll, setApplyCancellationToAll] = useState(false);
+  const [showFleetPolicy, setShowFleetPolicy] = useState(false);
+  const [fleetPolicy, setFleetPolicy] = useState({ title: '', desc: '' });
+  const [fleetSelected, setFleetSelected] = useState<string[]>([]);
+  const [isSavingFleet, setIsSavingFleet] = useState(false);
 
   const [formData, setFormData] = useState<FormState>({
     vehicleModelId: '',
@@ -328,18 +336,81 @@ export function PrestataireMesVehicules() {
     }
   }
 
+  function vehicleHasPolicy(v: LoueurVehicle) {
+    return isCancellationConfigured(normalizeListingExtras(v.listingExtras));
+  }
+
+  function fleetReferencePolicy(excludeId?: string) {
+    const ref = vehicles.find((v) => v.id !== excludeId && vehicleHasPolicy(v));
+    if (!ref) return null;
+    const e = normalizeListingExtras(ref.listingExtras);
+    return { title: e.cancellationTitle, desc: e.cancellationDesc };
+  }
+
+  function openFleetPolicy() {
+    const ref = fleetReferencePolicy();
+    setFleetPolicy(ref ?? { title: '', desc: '' });
+    setFleetSelected(vehicles.map((v) => v.id));
+    setShowFleetPolicy(true);
+  }
+
+  async function saveFleetPolicy() {
+    if (!isValidCancellationText(fleetPolicy.title, fleetPolicy.desc)) {
+      await notice.alert("Conditions d'annulation", 'Renseignez un titre (3 caractères min.) et des conditions détaillées (20 caractères min.).');
+      return;
+    }
+    if (fleetSelected.length === 0) {
+      await notice.alert("Conditions d'annulation", 'Sélectionnez au moins un véhicule.');
+      return;
+    }
+    setIsSavingFleet(true);
+    try {
+      const token = localStorage.getItem('admin_token');
+      const response = await fetch('/api/prestataire/vehicles/cancellation-policy', {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+        body: JSON.stringify({
+          title: fleetPolicy.title.trim(),
+          desc: fleetPolicy.desc.trim(),
+          vehicleIds: fleetSelected.length === vehicles.length ? 'all' : fleetSelected,
+        }),
+      });
+      const data = await response.json().catch(() => ({}));
+      if (!response.ok) {
+        await notice.alert("Conditions d'annulation", data.error || "Impossible d'enregistrer les conditions.");
+        return;
+      }
+      setShowFleetPolicy(false);
+      fetchVehicles();
+      await notice.alert(
+        'Conditions publiées',
+        `Appliquées à ${data.updated} véhicule${data.updated > 1 ? 's' : ''}. Les clients les voient avant de réserver et dans chaque commande.`
+      );
+    } catch (error) {
+      console.error('Error saving fleet cancellation policy:', error);
+    } finally {
+      setIsSavingFleet(false);
+    }
+  }
+
   function openCreateModal() {
     setEditingVehicle(null);
     setAvailabilityBlocks([]);
     setShowContractPreview(false);
     const model = models[0];
+    const refPolicy = fleetReferencePolicy();
+    setApplyCancellationToAll(false);
     setFormData({
       vehicleModelId: model?.id || '',
       plate: '',
       maxRentalDays: 90,
       pricingTiers: defaultTiers(5000, 90),
       availableForRental: true,
-      listingExtras: cloneExtras(DEFAULT_LISTING_EXTRAS, model),
+      listingExtras: {
+        ...cloneExtras(DEFAULT_LISTING_EXTRAS, model),
+        cancellationTitle: refPolicy?.title ?? '',
+        cancellationDesc: refPolicy?.desc ?? '',
+      },
       defaultMeetingPoint: '',
       rentalContractMode: 'app_default',
       customContractText: '',
@@ -360,17 +431,24 @@ export function PrestataireMesVehicules() {
       vehicle.pricingTiers && vehicle.pricingTiers.length > 0
         ? syncTierEdges(vehicle.pricingTiers, maxDays)
         : defaultTiers(vehicle.pricePerDay, maxDays);
+    const editExtras = cloneExtras(vehicle.listingExtras, {
+      seats: vehicle.modelSeats,
+      transmission: vehicle.modelTransmission,
+      fuel: vehicle.modelFuel,
+    });
+    if (!isCancellationConfigured(editExtras)) {
+      const refPolicy = fleetReferencePolicy(vehicle.id);
+      editExtras.cancellationTitle = refPolicy?.title ?? '';
+      editExtras.cancellationDesc = refPolicy?.desc ?? '';
+    }
+    setApplyCancellationToAll(false);
     setFormData({
       vehicleModelId: vehicle.vehicleModelId,
       plate: vehicle.plate || '',
       maxRentalDays: maxDays,
       pricingTiers: tiers,
       availableForRental: vehicle.availableForRental,
-      listingExtras: cloneExtras(vehicle.listingExtras, {
-        seats: vehicle.modelSeats,
-        transmission: vehicle.modelTransmission,
-        fuel: vehicle.modelFuel,
-      }),
+      listingExtras: editExtras,
       defaultMeetingPoint: vehicle.defaultMeetingPoint || '',
       rentalContractMode: vehicle.rentalContractMode === 'custom' ? 'custom' : 'app_default',
       customContractText: vehicle.customContractText || '',
@@ -490,6 +568,13 @@ export function PrestataireMesVehicules() {
       await notice.alert('Véhicule incomplet', 'Chaque palier doit avoir un prix supérieur à 0.');
       return;
     }
+    if (!isValidCancellationText(formData.listingExtras.cancellationTitle, formData.listingExtras.cancellationDesc)) {
+      await notice.alert(
+        "Conditions d'annulation",
+        "Elles sont obligatoires : choisissez un modèle ou rédigez un titre (3 caractères min.) et des conditions détaillées (20 caractères min.)."
+      );
+      return;
+    }
     if (formData.rentalContractMode === 'custom' && !formData.customContractText.trim()) {
       await notice.alert(
         'Contrat',
@@ -514,7 +599,12 @@ export function PrestataireMesVehicules() {
         availableForRental: formData.availableForRental,
         availableForDelivery: false,
         availableForLongTerm: false,
-        listingExtras: formData.listingExtras,
+        listingExtras: {
+          ...formData.listingExtras,
+          cancellationTitle: formData.listingExtras.cancellationTitle.trim(),
+          cancellationDesc: formData.listingExtras.cancellationDesc.trim(),
+          cancellationConfigured: true,
+        },
         defaultMeetingPoint: formData.defaultMeetingPoint.trim() || null,
         rentalContractMode: formData.rentalContractMode,
         customContractText:
@@ -536,6 +626,17 @@ export function PrestataireMesVehicules() {
       });
 
       if (response.ok) {
+        if (applyCancellationToAll) {
+          await fetch('/api/prestataire/vehicles/cancellation-policy', {
+            method: 'PUT',
+            headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+            body: JSON.stringify({
+              title: formData.listingExtras.cancellationTitle.trim(),
+              desc: formData.listingExtras.cancellationDesc.trim(),
+              vehicleIds: 'all',
+            }),
+          }).catch(() => {});
+        }
         setShowModal(false);
         fetchVehicles();
       } else {
@@ -662,6 +763,44 @@ export function PrestataireMesVehicules() {
         </div>
       </div>
 
+      {vehicles.length > 0 && (() => {
+        const missing = vehicles.filter((v) => !vehicleHasPolicy(v)).length;
+        return missing > 0 ? (
+          <div className="flex flex-col sm:flex-row sm:items-center gap-3 rounded-xl border border-red-200 bg-red-50 p-4">
+            <AlertTriangle className="w-5 h-5 text-red-600 shrink-0" />
+            <div className="flex-1">
+              <p className="text-sm font-semibold text-red-900">
+                {missing} véhicule{missing > 1 ? 's sont masqués' : ' est masqué'} aux clients
+              </p>
+              <p className="text-xs text-red-800/80">
+                Les conditions d’annulation sont obligatoires. Préparez-les une fois et appliquez-les à toute votre flotte.
+              </p>
+            </div>
+            <button
+              type="button"
+              onClick={openFleetPolicy}
+              className="px-4 py-2 rounded-lg bg-red-600 text-white text-sm font-semibold hover:bg-red-700"
+            >
+              Configurer maintenant
+            </button>
+          </div>
+        ) : (
+          <div className="flex flex-col sm:flex-row sm:items-center gap-3 rounded-xl border border-emerald-200 bg-emerald-50/60 p-4">
+            <ShieldCheck className="w-5 h-5 text-emerald-600 shrink-0" />
+            <p className="flex-1 text-sm text-emerald-900">
+              Tous vos véhicules ont des conditions d’annulation.
+            </p>
+            <button
+              type="button"
+              onClick={openFleetPolicy}
+              className="px-4 py-2 rounded-lg border border-emerald-300 bg-white text-emerald-800 text-sm font-semibold hover:bg-emerald-50"
+            >
+              Modifier pour plusieurs véhicules
+            </button>
+          </div>
+        );
+      })()}
+
       <div className="relative">
         <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400" />
         <input
@@ -750,6 +889,19 @@ export function PrestataireMesVehicules() {
                     >
                       {vehicle.rentalContractMode === 'custom' ? 'Contrat perso' : 'Contrat RAVE'}
                     </span>
+                    {vehicleHasPolicy(vehicle) ? (
+                      <span className="text-xs px-2 py-0.5 rounded-full bg-emerald-50 text-emerald-700">
+                        Annulation : {normalizeListingExtras(vehicle.listingExtras).cancellationTitle}
+                      </span>
+                    ) : (
+                      <button
+                        type="button"
+                        onClick={() => openEditModal(vehicle)}
+                        className="text-xs px-2 py-0.5 rounded-full bg-red-50 text-red-700 font-semibold hover:bg-red-100"
+                      >
+                        Conditions d’annulation manquantes · masqué
+                      </button>
+                    )}
                   </div>
                 </div>
 
@@ -775,6 +927,90 @@ export function PrestataireMesVehicules() {
               </div>
             );
           })}
+        </div>
+      )}
+
+      {showFleetPolicy && (
+        <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4">
+          <div className="bg-white rounded-2xl w-full max-w-xl max-h-[90vh] overflow-y-auto">
+            <div className="flex items-center justify-between p-5 border-b sticky top-0 bg-white z-10">
+              <h2 className="text-lg font-bold">Conditions d’annulation</h2>
+              <button onClick={() => setShowFleetPolicy(false)} className="p-1 hover:bg-gray-100 rounded-lg">
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+            <div className="p-5 space-y-5">
+              <CancellationPolicyEditor
+                title={fleetPolicy.title}
+                desc={fleetPolicy.desc}
+                onChange={setFleetPolicy}
+              />
+              <div>
+                <div className="flex items-center justify-between mb-2">
+                  <p className="text-xs font-medium text-gray-700">Appliquer à</p>
+                  <button
+                    type="button"
+                    onClick={() =>
+                      setFleetSelected(fleetSelected.length === vehicles.length ? [] : vehicles.map((v) => v.id))
+                    }
+                    className="text-xs font-semibold text-emerald-700 hover:underline"
+                  >
+                    {fleetSelected.length === vehicles.length ? 'Tout désélectionner' : 'Tout sélectionner'}
+                  </button>
+                </div>
+                <div className="rounded-xl border divide-y">
+                  {vehicles.map((v) => {
+                    const checked = fleetSelected.includes(v.id);
+                    const ok = vehicleHasPolicy(v);
+                    return (
+                      <label key={v.id} className="flex items-center gap-3 px-3 py-2.5 cursor-pointer hover:bg-gray-50">
+                        <input
+                          type="checkbox"
+                          checked={checked}
+                          onChange={() =>
+                            setFleetSelected((prev) =>
+                              prev.includes(v.id) ? prev.filter((x) => x !== v.id) : [...prev, v.id]
+                            )
+                          }
+                          className="h-4 w-4 accent-emerald-600"
+                        />
+                        <span className="flex-1 min-w-0">
+                          <span className="block text-sm font-medium text-gray-900 truncate">{v.modelName}</span>
+                          {v.plate ? <span className="block text-xs text-gray-500">{v.plate}</span> : null}
+                        </span>
+                        <span
+                          className={`text-xs font-semibold px-2 py-0.5 rounded-full ${
+                            ok ? 'bg-emerald-50 text-emerald-700' : 'bg-red-50 text-red-700'
+                          }`}
+                        >
+                          {ok ? 'Prêt' : 'À faire'}
+                        </span>
+                      </label>
+                    );
+                  })}
+                </div>
+              </div>
+            </div>
+            <div className="p-5 border-t flex justify-end gap-2 sticky bottom-0 bg-white">
+              <button
+                type="button"
+                onClick={() => setShowFleetPolicy(false)}
+                className="px-4 py-2 rounded-lg border text-sm font-medium hover:bg-gray-50"
+              >
+                Annuler
+              </button>
+              <button
+                type="button"
+                onClick={saveFleetPolicy}
+                disabled={isSavingFleet}
+                className="px-4 py-2 rounded-lg bg-black text-white text-sm font-semibold hover:bg-gray-800 disabled:opacity-50"
+              >
+                {isSavingFleet
+                  ? 'Enregistrement…'
+                  : `Appliquer à ${fleetSelected.length} véhicule${fleetSelected.length > 1 ? 's' : ''}`}
+              </button>
+            </div>
+          </div>
         </div>
       )}
 
@@ -988,6 +1224,47 @@ export function PrestataireMesVehicules() {
                 />
               </div>
 
+              {/* Conditions d'annulation — obligatoires */}
+              <div className="rounded-xl border border-emerald-200 bg-emerald-50/40 p-4 space-y-3">
+                <div className="flex items-start gap-2">
+                  <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-emerald-100">
+                    <ShieldCheck className="h-4 w-4 text-emerald-700" />
+                  </div>
+                  <div className="flex-1">
+                    <div className="flex items-center gap-2">
+                      <h3 className="text-sm font-semibold text-gray-900">Conditions d’annulation</h3>
+                      <span className="text-[10px] uppercase tracking-wide font-bold px-1.5 py-0.5 rounded bg-red-100 text-red-700">
+                        Obligatoire
+                      </span>
+                    </div>
+                    <p className="text-xs text-gray-600">
+                      Affichées au client avant le paiement et jointes à chaque commande. Sans elles, le véhicule n’est pas visible.
+                    </p>
+                  </div>
+                </div>
+
+                <CancellationPolicyEditor
+                  title={extras.cancellationTitle}
+                  desc={extras.cancellationDesc}
+                  onChange={({ title, desc }) => updateExtras({ cancellationTitle: title, cancellationDesc: desc })}
+                />
+
+                {vehicles.length > (editingVehicle ? 1 : 0) && (
+                  <label className="flex items-start gap-2 rounded-lg border border-emerald-200 bg-white p-3 cursor-pointer">
+                    <input
+                      type="checkbox"
+                      checked={applyCancellationToAll}
+                      onChange={(e) => setApplyCancellationToAll(e.target.checked)}
+                      className="mt-0.5 h-4 w-4 accent-emerald-600"
+                    />
+                    <span>
+                      <span className="block text-sm font-semibold text-gray-900">Utiliser les mêmes pour tous mes véhicules</span>
+                      <span className="block text-xs text-gray-500">Remplace les conditions d’annulation de toute votre flotte à l’enregistrement.</span>
+                    </span>
+                  </label>
+                )}
+              </div>
+
               {editingVehicle && (
                 <div className="rounded-xl border border-orange-200 bg-orange-50/60 p-4 space-y-3">
                   <div className="flex items-center gap-2">
@@ -1155,29 +1432,11 @@ export function PrestataireMesVehicules() {
                 <div>
                   <h3 className="text-sm font-semibold text-gray-900">Conditions fiche client</h3>
                   <p className="text-xs text-gray-600">
-                    Visible dans l’app client. Configurable ici seulement (pas dans l’app loueur mobile).
+                    Visible dans l’app client.
                   </p>
                 </div>
 
                 <div className="grid md:grid-cols-2 gap-3">
-                  <div>
-                    <label className="block text-xs font-medium text-gray-700 mb-1">Annulation — titre</label>
-                    <input
-                      type="text"
-                      value={extras.cancellationTitle}
-                      onChange={(e) => updateExtras({ cancellationTitle: e.target.value })}
-                      className="w-full px-3 py-2 border rounded-lg text-sm"
-                    />
-                  </div>
-                  <div className="md:col-span-2">
-                    <label className="block text-xs font-medium text-gray-700 mb-1">Annulation — détail</label>
-                    <textarea
-                      value={extras.cancellationDesc}
-                      onChange={(e) => updateExtras({ cancellationDesc: e.target.value })}
-                      rows={2}
-                      className="w-full px-3 py-2 border rounded-lg text-sm"
-                    />
-                  </div>
                   <div>
                     <label className="block text-xs font-medium text-gray-700 mb-1">Paiement — titre</label>
                     <input

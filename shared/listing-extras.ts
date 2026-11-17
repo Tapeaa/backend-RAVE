@@ -318,6 +318,52 @@ export function normalizeListingExtras(raw: unknown): VehicleListingExtras {
   };
 }
 
+export const CANCELLATION_TITLE_MIN = 3;
+export const CANCELLATION_TITLE_MAX = 80;
+export const CANCELLATION_DESC_MIN = 20;
+export const CANCELLATION_DESC_MAX = 2000;
+
+export const CANCELLATION_PRESETS: { id: 'flexible' | 'moderee' | 'stricte'; label: string; title: string; desc: string }[] = [
+  {
+    id: 'flexible',
+    label: 'Flexible',
+    title: 'Annulation flexible',
+    desc:
+      "Annulation gratuite jusqu'à 24 h avant le début de la location : remboursement intégral.\n" +
+      "Moins de 24 h avant le début : 50 % du montant est conservé.\n" +
+      'Non-présentation le jour du départ : aucun remboursement.',
+  },
+  {
+    id: 'moderee',
+    label: 'Modérée',
+    title: 'Annulation modérée',
+    desc:
+      "Annulation gratuite jusqu'à 72 h avant le début de la location : remboursement intégral.\n" +
+      'Entre 72 h et 24 h avant le début : remboursement de 50 %.\n' +
+      'Moins de 24 h avant le début ou non-présentation : aucun remboursement.',
+  },
+  {
+    id: 'stricte',
+    label: 'Stricte',
+    title: 'Annulation stricte',
+    desc:
+      "Annulation gratuite jusqu'à 7 jours avant le début de la location : remboursement intégral.\n" +
+      'Entre 7 jours et 72 h avant le début : remboursement de 50 %.\n' +
+      'Moins de 72 h avant le début ou non-présentation : aucun remboursement.',
+  },
+];
+
+export function isValidCancellationText(title: string, desc: string): boolean {
+  const t = title.trim();
+  const d = desc.trim();
+  return (
+    t.length >= CANCELLATION_TITLE_MIN &&
+    t.length <= CANCELLATION_TITLE_MAX &&
+    d.length >= CANCELLATION_DESC_MIN &&
+    d.length <= CANCELLATION_DESC_MAX
+  );
+}
+
 /** Conditions préparées par le loueur (drapeau, ou texte déjà personnalisé avant l'existence du drapeau). */
 export function isCancellationConfigured(extras: VehicleListingExtras): boolean {
   if (extras.cancellationConfigured) return true;

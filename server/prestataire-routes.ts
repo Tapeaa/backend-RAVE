@@ -2254,6 +2254,60 @@ export function registerPrestataireRoutes(app: Express) {
   });
 
   // DELETE /api/prestataire/vehicles/:id - Supprimer un véhicule
+  app.put("/api/prestataire/vehicles/cancellation-policy", requirePrestataireAuth, async (req: AuthenticatedRequest, res) => {
+    try {
+      if (!req.prestataire) {
+        return res.status(401).json({ error: "Non authentifié" });
+      }
+
+      const title = typeof req.body?.title === "string" ? req.body.title.trim() : "";
+      const desc = typeof req.body?.desc === "string" ? req.body.desc.trim() : "";
+      if (title.length < 3 || title.length > 80) {
+        return res.status(400).json({ error: "Le titre doit faire entre 3 et 80 caractères" });
+      }
+      if (desc.length < 20 || desc.length > 2000) {
+        return res.status(400).json({ error: "Les conditions doivent faire entre 20 et 2000 caractères" });
+      }
+
+      const applyToAll = req.body?.vehicleIds === "all";
+      const requestedIds: string[] = Array.isArray(req.body?.vehicleIds)
+        ? req.body.vehicleIds.map((x: unknown) => String(x)).filter(Boolean)
+        : [];
+      if (!applyToAll && requestedIds.length === 0) {
+        return res.status(400).json({ error: "Aucun véhicule sélectionné" });
+      }
+
+      const owned = await db
+        .select({ id: loueurVehicles.id, listingExtras: loueurVehicles.listingExtras })
+        .from(loueurVehicles)
+        .where(eq(loueurVehicles.prestataireId, req.prestataire.id));
+      const targets = applyToAll ? owned : owned.filter((v) => requestedIds.includes(v.id));
+      if (targets.length === 0) {
+        return res.status(404).json({ error: "Véhicule introuvable" });
+      }
+
+      for (const v of targets) {
+        const extras = normalizeListingExtras(v.listingExtras);
+        await db
+          .update(loueurVehicles)
+          .set({
+            listingExtras: {
+              ...extras,
+              cancellationTitle: title,
+              cancellationDesc: desc,
+              cancellationConfigured: true,
+            },
+          })
+          .where(eq(loueurVehicles.id, v.id));
+      }
+
+      return res.json({ success: true, updated: targets.length });
+    } catch (error) {
+      console.error("Error updating cancellation policy (dashboard):", error);
+      return res.status(500).json({ error: "Erreur serveur" });
+    }
+  });
+
   app.delete("/api/prestataire/vehicles/:id", requirePrestataireAuth, async (req: AuthenticatedRequest, res) => {
     try {
       if (!req.prestataire) {
