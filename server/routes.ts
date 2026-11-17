@@ -2046,6 +2046,8 @@ app.post("/api/rental-orders", async (req, res) => {
         customContractText: loueurVehicles.customContractText,
         contractSettings: loueurVehicles.contractSettings,
         listingExtras: loueurVehicles.listingExtras,
+        customImageUrl: loueurVehicles.customImageUrl,
+        customImageUrls: loueurVehicles.customImageUrls,
         prestataireNom: prestataires.nom,
         prestataireNumeroTahiti: prestataires.numeroTahiti,
         prestatairePhone: prestataires.phone,
@@ -2057,6 +2059,7 @@ app.post("/api/rental-orders", async (req, res) => {
         modelId: vehicleModels.id,
         modelName: vehicleModels.name,
         modelCategory: vehicleModels.category,
+        modelImageUrl: vehicleModels.imageUrl,
         modelActive: vehicleModels.isActive,
         transmission: vehicleModels.transmission,
         fuel: vehicleModels.fuel,
@@ -2220,6 +2223,11 @@ app.post("/api/rental-orders", async (req, res) => {
     const modelName = vehicleRow.modelName || body.vehicle?.model || "Véhicule";
     const category = vehicleRow.modelCategory || body.vehicle?.category || "autre";
     const categoryLabel = body.vehicle?.categoryLabel || category;
+    const vehicleImageUrls = resolveVehicleDisplayImages(
+      (vehicleRow as any).customImageUrls,
+      (vehicleRow as any).customImageUrl,
+      (vehicleRow as any).modelImageUrl,
+    );
 
     // Documents : uniquement des URLs durables (Cloudinary). Refuse file:// ImagePicker.
     let licenseFront: string | null = null;
@@ -2411,6 +2419,8 @@ app.post("/api/rental-orders", async (req, res) => {
         transmission: vehicleRow.transmission,
         fuel: vehicleRow.fuel,
         seats: vehicleRow.seats,
+        imageUrl: vehicleImageUrls[0] || null,
+        imageUrls: vehicleImageUrls,
         supplementsTotal,
         isRentalOrder: true,
         pricingBreakdown: (priced.breakdown || []).map((line: any) => ({
@@ -4104,8 +4114,33 @@ app.post("/api/live-activities/end", async (req, res) => {
       }
     }
     
+    let rideOptionOut: any = order.rideOption || {};
+    if (isRental && !rideOptionOut.imageUrl && rideOptionOut.loueurVehicleId) {
+      try {
+        const [vRow] = await db
+          .select({
+            customImageUrl: loueurVehicles.customImageUrl,
+            customImageUrls: loueurVehicles.customImageUrls,
+            modelImageUrl: vehicleModels.imageUrl,
+          })
+          .from(loueurVehicles)
+          .innerJoin(vehicleModels, eq(loueurVehicles.vehicleModelId, vehicleModels.id))
+          .where(eq(loueurVehicles.id, String(rideOptionOut.loueurVehicleId)))
+          .limit(1);
+        const urls = vRow
+          ? resolveVehicleDisplayImages(vRow.customImageUrls, vRow.customImageUrl, vRow.modelImageUrl)
+          : [];
+        if (urls[0]) {
+          rideOptionOut = { ...rideOptionOut, imageUrl: urls[0], imageUrls: urls };
+        }
+      } catch (e) {
+        console.warn("[ORDERS] vehicle image enrich skipped:", (e as any)?.message || e);
+      }
+    }
+
     res.json({
       ...order,
+      rideOption: rideOptionOut,
       // Afficher le nom du compte (pas un ancien snapshot erroné)
       clientName: clientInfo?.name || order.clientName,
       clientPhone: clientInfo?.phone || order.clientPhone,
