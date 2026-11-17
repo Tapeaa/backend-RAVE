@@ -290,11 +290,23 @@ export const clientNotifications = {
       orderId,
     }),
 
-  rentalExpired: (clientId: string, orderId: string) =>
-    notifyClient(clientId, 'Demande expirée', 'Le loueur n\'a pas répondu à temps. Votre demande de location a expiré.', {
-      type: 'rental_expired',
-      orderId,
-    }),
+  rentalExpired: (clientId: string, orderId: string, refundPending = false) =>
+    notifyClient(
+      clientId,
+      'Demande expirée',
+      refundPending
+        ? 'Le loueur n\'a pas répondu à temps. Votre demande a expiré et le loueur va vous rembourser.'
+        : 'Le loueur n\'a pas répondu à temps. Votre demande de location a expiré.',
+      { type: 'rental_expired', orderId }
+    ),
+
+  rentalRefunded: (clientId: string, orderId: string, amount: number) =>
+    notifyClient(
+      clientId,
+      'Remboursement effectué',
+      `Le loueur a confirmé votre remboursement de ${amount.toLocaleString('fr-FR')} XPF.`,
+      { type: 'rental_refunded', orderId }
+    ),
 };
 
 /**

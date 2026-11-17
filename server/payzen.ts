@@ -239,8 +239,9 @@ export async function markOrderPayzenPaid(
       status: nextStatus,
       paymentMethod: "card",
       rideOption: sql`coalesce(${orders.rideOption}, '{}'::jsonb) || ${JSON.stringify(ridePatch)}::jsonb`,
-      ...(nextStatus === "pending" && order.status !== "pending"
-        ? { expiresAt: new Date(Date.now() + 3 * 24 * 60 * 60 * 1000) }
+      // Location payée : le loueur a 4 jours pour répondre (la date de début reste une limite, cf. sweeper)
+      ...(nextStatus === "pending"
+        ? { expiresAt: new Date(Date.now() + (isRental ? 4 : 3) * 24 * 60 * 60 * 1000) }
         : {}),
     } as any)
     .where(eq(orders.id, orderId))
