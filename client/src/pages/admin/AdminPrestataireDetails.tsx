@@ -15,7 +15,7 @@ import html2pdf from 'html2pdf.js';
 interface Prestataire {
   id: string;
   nom: string;
-  type: 'societe_taxi' | 'societe_tourisme' | 'patente_taxi' | 'patente_tourisme';
+  type: 'societe_taxi' | 'societe_tourisme' | 'patente_taxi' | 'patente_tourisme' | 'agence_location' | 'loueur_individuel';
   numeroTahiti: string | null;
   email: string | null;
   phone: string | null;
@@ -45,6 +45,8 @@ interface Chauffeur {
 }
 
 const typeLabels: Record<string, string> = {
+  agence_location: 'Agence de location',
+  loueur_individuel: 'Loueur individuel',
   societe_taxi: 'Société Taxi',
   societe_tourisme: 'Société Transport Touristique',
   patente_taxi: 'Taxi Patenté',
@@ -52,6 +54,8 @@ const typeLabels: Record<string, string> = {
 };
 
 const typeColors: Record<string, string> = {
+  agence_location: 'bg-teal-100 text-teal-800',
+  loueur_individuel: 'bg-cyan-100 text-cyan-800',
   societe_taxi: 'bg-blue-100 text-blue-800',
   societe_tourisme: 'bg-green-100 text-green-800',
   patente_taxi: 'bg-orange-100 text-orange-800',
@@ -284,7 +288,7 @@ export function AdminPrestataireDetails() {
     }
   }
 
-  const isSociete = prestataire?.type === 'societe_taxi' || prestataire?.type === 'societe_tourisme';
+  const isSociete = prestataire?.type === 'societe_taxi' || prestataire?.type === 'societe_tourisme' || prestataire?.type === 'agence_location';
 
   if (isLoading) {
     return (

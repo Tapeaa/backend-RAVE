@@ -128,7 +128,11 @@ export function AdminFleet() {
                   <td className="px-4 py-3 font-mono">{v.plate || "—"}</td>
                   <td className="px-4 py-3">{v.prestataireNom || "—"}</td>
                   <td className="px-4 py-3">{v.pricePerDay?.toLocaleString("fr-FR")} XPF</td>
-                  <td className="px-4 py-3 text-xs">{v.rentalContractMode}</td>
+                  <td className="px-4 py-3 text-xs">
+                    <span className={`rounded-full px-2 py-0.5 font-medium ${v.rentalContractMode === "custom" ? "bg-violet-50 text-violet-700" : "bg-slate-100 text-slate-600"}`}>
+                      {v.rentalContractMode === "custom" ? "Contrat perso" : "Contrat RAVE"}
+                    </span>
+                  </td>
                   <td className="px-4 py-3">
                     <button onClick={() => toggleRental(v)} className="text-amber-600 hover:text-amber-800">
                       {v.availableForRental ? <ToggleRight className="h-6 w-6" /> : <ToggleLeft className="h-6 w-6 text-slate-400" />}
@@ -143,7 +147,7 @@ export function AdminFleet() {
               ))}
               {filtered.length === 0 && (
                 <tr>
-                  <td colSpan={7} className="px-4 py-8 text-center text-slate-500">
+                  <td colSpan={8} className="px-4 py-8 text-center text-slate-500">
                     Aucun véhicule
                   </td>
                 </tr>

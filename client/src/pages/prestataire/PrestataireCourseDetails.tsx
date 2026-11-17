@@ -603,14 +603,20 @@ export function PrestataireCourseDetails() {
                     </span>
                   </div>
                   {Array.isArray(course.supplements) &&
-                    course.supplements.map((s: any, i: number) => (
-                      <div key={i} className="flex justify-between text-sm">
-                        <span className="text-gray-600">{s.name || s.label || 'Supplément'}</span>
-                        <span className="font-medium">
-                          {Number(s.total || 0).toLocaleString()} XPF
-                        </span>
-                      </div>
-                    ))}
+                    course.supplements.map((s: any, i: number) => {
+                      const days = Math.max(1, Number((course.rideOption as any)?.days) || 1);
+                      const qty = Number(s.days || s.quantity || days) || 1;
+                      const unit = Number(s.pricePerDay ?? s.unitPrice ?? s.price ?? s.amount ?? 0);
+                      const lineTotal = Number(s.total) || unit * qty;
+                      return (
+                        <div key={i} className="flex justify-between text-sm">
+                          <span className="text-gray-600">{s.name || s.label || 'Supplément'}</span>
+                          <span className="font-medium">
+                            {Math.round(lineTotal).toLocaleString('fr-FR')} XPF
+                          </span>
+                        </div>
+                      );
+                    })}
                 </>
               ) : (
                 <>
@@ -648,8 +654,8 @@ export function PrestataireCourseDetails() {
                 </>
               )}
 
-              {/* Suppléments */}
-              {course.supplements && course.supplements.length > 0 && (
+              {/* Suppléments (hors location, déjà affichés ci-dessus) */}
+              {!isRental && course.supplements && course.supplements.length > 0 && (
                 <>
                   {course.supplements.map((supp: any, i: number) => (
                     <div key={i} className="flex justify-between text-sm">

@@ -78,11 +78,13 @@ export function aggregateRentalEarnings(
   const weekStart = getWeekStartMonday(now);
   const monthStart = getMonthStart(now);
 
-  const pipelineOrders = orders.filter(
-    (o) =>
-      isRentalOrderLike(o) &&
-      (RENTAL_PIPELINE_STATUSES as readonly string[]).includes(o.status)
-  );
+  const pipelineOrders = orders.filter((o) => {
+    if (!isRentalOrderLike(o)) return false;
+    if (!(RENTAL_PIPELINE_STATUSES as readonly string[]).includes(o.status)) return false;
+    const refund = (o.rideOption as any)?.refund;
+    if (refund?.status === "done" || refund?.status === "pending") return false;
+    return true;
+  });
 
   let today = 0;
   let week = 0;

@@ -11,6 +11,7 @@ import { requireAdminAuth, requirePrestataireAuth, requireDashboardAuth, Authent
 import { db } from "./db";
 import { dbErrorMessage } from "./db-error";
 import { getIO } from "./routes";
+import { buildRentalCancelPayload, emitRentalOrderRealtime, getRealtimeIo } from "./realtime";
 import { notifyClient, notifyDriver } from "./onesignal";
 import { clients, drivers, orders, invoices, tarifs, supplements, carouselImages, homeCategories, messages, prestataires, collecteFrais, vehicleModels, loueurVehicles, driverSessions } from "@shared/schema";
 import { eq, desc, asc, count, sql, and, gte, inArray, isNotNull, or } from "drizzle-orm";
@@ -147,31 +148,36 @@ export function registerAdminRoutes(app: Express) {
   
   app.get("/api/admin/dashboard/stats", requireAdminAuth, async (_req: AuthenticatedRequest, res) => {
     try {
-      // Utiliser les tables existantes
-      const [totalClientsResult, totalDriversResult, totalOrdersResult] = await Promise.all([
+      const [totalClientsResult, totalDriversResult] = await Promise.all([
         db.select({ count: count() }).from(clients),
         db.select({ count: count() }).from(drivers),
-        db.select({ count: count() }).from(orders),
       ]);
 
-      const allOrders = await db.select().from(orders);
+      const allOrdersRaw = await db.select().from(orders);
+      // Exclure les paniers carte non aboutis (jamais transmis au loueur)
+      const allOrders = allOrdersRaw.filter(
+        (o) => o.status !== "awaiting_payment" && o.status !== "payment_failed"
+      );
       const allDrivers = await db.select().from(drivers);
       const allClients = await db.select().from(clients);
 
       const today = new Date();
       today.setHours(0, 0, 0, 0);
 
-      const ordersToday = allOrders.filter(
-        (o) => new Date(o.createdAt) >= today
-      );
+      const ordersToday = allOrders.filter((o) => new Date(o.createdAt) >= today);
+
+      const isRefundedOrPendingRefund = (o: typeof allOrders[number]) => {
+        const st = (o.rideOption as any)?.refund?.status;
+        return st === "done" || st === "pending";
+      };
 
       const completedOrders = allOrders.filter(
-        (o) => o.status === "completed" || o.status === "payment_confirmed"
+        (o) => (o.status === "completed" || o.status === "payment_confirmed") && !isRefundedOrPendingRefund(o)
       );
 
       const totalRevenue = completedOrders.reduce((sum, o) => sum + Number(o.totalPrice), 0);
       const revenueToday = ordersToday
-        .filter((o) => o.status === "completed" || o.status === "payment_confirmed")
+        .filter((o) => (o.status === "completed" || o.status === "payment_confirmed") && !isRefundedOrPendingRefund(o))
         .reduce((sum, o) => sum + Number(o.totalPrice), 0);
 
       const [onlineResult] = await db
@@ -179,17 +185,20 @@ export function registerAdminRoutes(app: Express) {
         .from(driverSessions)
         .where(and(eq(driverSessions.isOnline, true), gte(driverSessions.expiresAt, new Date())));
 
+      const activeStatuses = new Set(["accepted", "booked", "in_progress"]);
+      const cancelledStatuses = new Set(["cancelled", "declined", "expired"]);
+
       return res.json({
         totalClients: totalClientsResult[0]?.count || 0,
         totalChauffeurs: totalDriversResult[0]?.count || 0,
-        totalCommandes: totalOrdersResult[0]?.count || 0,
+        totalCommandes: allOrders.length,
         chauffeursActifs: allDrivers.filter((d) => d.isActive).length,
         chauffeursEnLigne: onlineResult?.count || 0,
         clientsActifs: allClients.filter((c) => c.isVerified).length,
         commandesTerminees: completedOrders.length,
-        commandesEnCours: allOrders.filter((o) => o.status === "in_progress").length,
+        commandesEnCours: allOrders.filter((o) => activeStatuses.has(o.status)).length,
         commandesEnAttente: allOrders.filter((o) => o.status === "pending").length,
-        commandesAnnulees: allOrders.filter((o) => o.status === "cancelled").length,
+        commandesAnnulees: allOrders.filter((o) => cancelledStatuses.has(o.status)).length,
         revenusTotaux: totalRevenue,
         commandesAujourdhui: ordersToday.length,
         revenusAujourdhui: revenueToday,
@@ -202,28 +211,40 @@ export function registerAdminRoutes(app: Express) {
 
   app.get("/api/admin/dashboard/activities", requireAdminAuth, async (_req: AuthenticatedRequest, res) => {
     try {
-      const inProgressStatuses = ["accepted", "driver_enroute", "driver_arrived", "in_progress"];
-      const statusCandidates = ["pending", ...inProgressStatuses];
+      const statusCandidates = ["pending", "accepted", "booked", "completed", "cancelled", "declined", "expired"];
 
       const ordersList = await db
         .select()
         .from(orders)
         .where(inArray(orders.status, statusCandidates))
-        .orderBy(desc(orders.createdAt));
+        .orderBy(desc(orders.createdAt))
+        .limit(20);
 
-      const activities = ordersList
-        .filter((order) => order.isAdvanceBooking || inProgressStatuses.includes(order.status))
-        .map((order) => ({
+      const activities = ordersList.map((order) => {
+        const ro = (order.rideOption || {}) as any;
+        const vehicleTitle = ro?.title || "Location";
+        const eventType =
+          order.status === "pending"
+            ? "order_pending"
+            : order.status === "accepted" || order.status === "booked"
+              ? "order_accepted"
+              : order.status === "completed"
+                ? "order_completed"
+                : order.status === "expired"
+                  ? "order_expired"
+                  : order.status === "declined"
+                    ? "order_declined"
+                    : "order_cancelled";
+        return {
           id: order.id,
-          eventType: order.isAdvanceBooking ? "advance_booking" : "order_in_progress",
+          eventType,
           customerName: order.clientName,
           amount: order.totalPrice,
           currency: "XPF",
-          created: new Date(order.scheduledTime || order.createdAt).getTime() / 1000,
-          description: order.isAdvanceBooking
-            ? "Réservation à l'avance"
-            : "Commande en cours",
-        }));
+          created: new Date(order.createdAt).getTime() / 1000,
+          description: `${vehicleTitle}${ro?.days ? ` · ${ro.days} j` : ""}`,
+        };
+      });
 
       return res.json({ activities });
     } catch (error) {
@@ -1369,26 +1390,99 @@ export function registerAdminRoutes(app: Express) {
       const validStatuses = [
         "pending",
         "accepted",
-        "driver_enroute",
-        "driver_arrived",
-        "in_progress",
+        "booked",
         "completed",
-        "payment_pending",
         "payment_confirmed",
         "cancelled",
         "declined",
         "expired",
-        "booked",
-        "contract_signed",
+        "payment_failed",
       ];
 
       if (!validStatuses.includes(status)) {
         return res.status(400).json({ error: "Statut invalide", code: "INVALID_STATUS" });
       }
 
-      const updatedOrder = await dbStorage.updateOrderStatus(req.params.id, status);
+      const existing = await dbStorage.getOrder(req.params.id);
+      if (!existing) {
+        return res.status(404).json({ error: "Commande non trouvée", code: "NOT_FOUND" });
+      }
+
+      const now = new Date().toISOString();
+      const ro = { ...((existing.rideOption || {}) as Record<string, any>) };
+      let rideOptionChanged = false;
+
+      if (status === "completed" || status === "payment_confirmed") {
+        ro.rentalLifecyclePhase = "returned";
+        ro.rentalPhase = "returned";
+        if (!ro.returnedAt) ro.returnedAt = now;
+        rideOptionChanged = true;
+      } else if (status === "accepted" || status === "booked") {
+        if (!ro.rentalLifecyclePhase || ro.rentalLifecyclePhase === "awaiting_validation" || ro.rentalLifecyclePhase === "returned") {
+          ro.rentalLifecyclePhase = "vehicle_ready";
+          ro.rentalPhase = "vehicle_ready";
+          rideOptionChanged = true;
+        }
+      } else if (status === "cancelled" || status === "declined" || status === "expired") {
+        if (status === "cancelled" && !ro.cancellation) {
+          ro.cancellation = { by: "admin", at: now };
+          rideOptionChanged = true;
+        }
+        if (ro.payzenStatus === "paid" && !ro.refund) {
+          ro.refund = {
+            status: "pending",
+            amount: Math.round(Number(existing.totalPrice) || 0),
+            reason: status === "expired" ? "expired" : status === "declined" ? "declined" : "cancelled_by_admin",
+            createdAt: now,
+          };
+          rideOptionChanged = true;
+        }
+      }
+
+      const [updatedOrder] = await db
+        .update(orders)
+        .set({
+          status,
+          ...(rideOptionChanged ? { rideOption: ro } : {}),
+        } as any)
+        .where(eq(orders.id, req.params.id))
+        .returning();
+
       if (!updatedOrder) {
         return res.status(404).json({ error: "Commande non trouvée", code: "NOT_FOUND" });
+      }
+
+      if ((status === "completed" || status === "payment_confirmed") && existing.status !== "completed" && existing.status !== "payment_confirmed" && updatedOrder.assignedDriverId) {
+        try {
+          await dbStorage.incrementDriverTotalRides(updatedOrder.assignedDriverId);
+        } catch (e) {
+          console.warn("[ADMIN STATUT] incrementDriverTotalRides failed:", e);
+        }
+      }
+
+      if (status === "cancelled" || status === "expired") {
+        emitRentalOrderRealtime(
+          updatedOrder,
+          "rental-order:cancelled",
+          buildRentalCancelPayload(updatedOrder, {
+            cancelledBy: status === "expired" ? "system" : "admin",
+            expired: status === "expired",
+            refund: ro.refund || null,
+          })
+        );
+      } else if (status === "declined") {
+        emitRentalOrderRealtime(
+          updatedOrder,
+          "rental-order:declined",
+          buildRentalCancelPayload(updatedOrder, { refund: ro.refund || null })
+        );
+      } else if (status === "completed" || status === "payment_confirmed") {
+        getRealtimeIo()?.to(`order:${updatedOrder.id}`).emit("rental-order:lifecycle-changed", {
+          orderId: updatedOrder.id,
+          phase: "returned",
+          updatedBy: "admin",
+          order: updatedOrder,
+        });
       }
 
       return res.json(updatedOrder);
@@ -1582,7 +1676,13 @@ export function registerAdminRoutes(app: Express) {
         : [];
       const invoiceMap = new Map(invoicesList.map((inv) => [inv.orderId, inv]));
 
-      const totalRevenue = completedOrders.reduce(
+      const isRefunded = (o: typeof completedOrders[number]) => {
+        const st = (o.rideOption as any)?.refund?.status;
+        return st === "done" || st === "pending";
+      };
+
+      const nonRefundedOrders = completedOrders.filter((o) => !isRefunded(o));
+      const totalRevenue = nonRefundedOrders.reduce(
         (sum, order) => sum + Number(order.totalPrice),
         0
       );
@@ -1590,11 +1690,12 @@ export function registerAdminRoutes(app: Express) {
       return res.json({
         payments: completedOrders.map((order) => {
           const invoice = invoiceMap.get(order.id);
+          const refund = (order.rideOption as any)?.refund || null;
           return {
             id: order.id,
             amount: order.totalPrice,
             currency: invoice?.currency || "XPF",
-            status: order.status,
+            status: refund?.status === "done" ? "refunded" : refund?.status === "pending" ? "refund_pending" : order.status,
             createdAt: order.createdAt,
             pdfUrl: invoice?.pdfUrl || null,
             clientName: order.clientName,
@@ -1603,7 +1704,7 @@ export function registerAdminRoutes(app: Express) {
           };
         }),
         totalRevenue,
-        successfulPayments: completedOrders.length,
+        successfulPayments: nonRefundedOrders.length,
       });
     } catch (error) {
       console.error("Get stripe payments error:", error);

@@ -99,15 +99,27 @@ function todayYmd(): string {
 }
 
 const categoryLabels: Record<string, string> = {
+  classique: 'Classique',
   citadine: 'Citadine',
   berline: 'Berline',
   suv: 'SUV',
+  pickup: 'Pick-up',
+  utilitaire: 'Utilitaire',
+  premium: 'Premium',
+  xl: 'Modèle XL',
+  autre: 'Autre',
 };
 
 const categoryColors: Record<string, string> = {
+  classique: 'bg-slate-100 text-slate-800',
   citadine: 'bg-blue-100 text-blue-800',
   berline: 'bg-purple-100 text-purple-800',
   suv: 'bg-amber-100 text-amber-800',
+  pickup: 'bg-orange-100 text-orange-800',
+  utilitaire: 'bg-slate-100 text-slate-800',
+  premium: 'bg-yellow-100 text-yellow-800',
+  xl: 'bg-indigo-100 text-indigo-800',
+  autre: 'bg-gray-100 text-gray-700',
 };
 
 function defaultTiers(price = 5000, maxDays = 90): PricingTier[] {
@@ -775,8 +787,8 @@ export function PrestataireMesVehicules() {
                 <div className="flex-1 min-w-0">
                   <div className="flex items-center gap-2">
                     <h3 className="font-semibold text-gray-900 truncate">{vehicle.modelName}</h3>
-                    <span className={`text-xs px-2 py-0.5 rounded-full ${categoryColors[vehicle.modelCategory]}`}>
-                      {categoryLabels[vehicle.modelCategory]}
+                    <span className={`text-xs px-2 py-0.5 rounded-full ${categoryColors[vehicle.modelCategory] || categoryColors.autre}`}>
+                      {categoryLabels[vehicle.modelCategory] || vehicle.modelCategory || 'Véhicule'}
                     </span>
                   </div>
                   <div className="flex flex-wrap items-center gap-3 mt-1 text-sm text-gray-500">
@@ -865,7 +877,7 @@ export function PrestataireMesVehicules() {
                   >
                     {models.map((model) => (
                       <option key={model.id} value={model.id}>
-                        {model.name} ({categoryLabels[model.category]})
+                        {model.name} ({categoryLabels[model.category] || model.category})
                       </option>
                     ))}
                   </select>

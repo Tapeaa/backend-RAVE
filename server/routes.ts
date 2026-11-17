@@ -9,6 +9,7 @@ import { storage } from "./storage";
 import { verifyPassword, hashPassword, dbStorage } from "./db-storage";
 import { db } from "./db";
 import { dbErrorMessage } from "./db-error";
+import { setRealtimeIo } from "./realtime";
 import { insertOrderSchema, pushSubscriptionSchema, insertClientSchema, orders, driverSessions, drivers, collecteFrais, vehicleModels, loueurVehicles, prestataires, ratings, clients, type Order, type OrderStatus, type DriverSession } from "@shared/schema";
 import { eq, and, sql as dsql, count, inArray } from "drizzle-orm";
 import cookieParser from "cookie-parser";
@@ -372,6 +373,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
     // Désactiver les déconnexions automatiques pour les connexions inactives
     // (Render gère déjà les timeouts)
   });
+  setRealtimeIo(io);
 
   // Socket.IO connection handling
   io.on("connection", (socket) => {
@@ -10098,12 +10100,12 @@ setTimeout(notify, 400);
 
   // Route admin pour mettre à jour la configuration des versions (JWT admin ou secret)
   app.post("/api/admin/app-version", async (req: any, res) => {
-    const adminSecret = req.headers["x-admin-secret"] as string;
-    const expectedSecret = process.env.ADMIN_SECRET || (process.env.NODE_ENV === "production" ? "" : "rave-admin-dev-only");
+    const adminSecret = typeof req.headers["x-admin-secret"] === "string" ? req.headers["x-admin-secret"].trim() : "";
+    const expectedSecret = (process.env.ADMIN_SECRET || (process.env.NODE_ENV === "production" ? "" : "rave-admin-dev-only")).trim();
     const authHeader = req.headers.authorization;
     const token = authHeader?.replace("Bearer ", "") || req.cookies?.admin_token;
 
-    let authorized = adminSecret === expectedSecret;
+    let authorized = Boolean(expectedSecret && adminSecret && adminSecret === expectedSecret);
     if (!authorized && token) {
       const { verifyToken } = await import("./admin-auth");
       const payload = verifyToken<{ type: string }>(token);

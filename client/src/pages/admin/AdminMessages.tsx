@@ -4,6 +4,7 @@
 
 import { useEffect, useMemo, useRef, useState } from "react";
 import { MessageCircle, Search, Send, Plus, User } from "lucide-react";
+import { getRentalStatusDisplay } from "@/lib/rental-status";
 
 interface Conversation {
   id: string;
@@ -1358,7 +1359,7 @@ export function AdminMessages() {
                             {order.createdAt
                               ? new Date(order.createdAt).toLocaleString("fr-FR")
                               : "Date inconnue"}{" "}
-                            • {order.status || "statut"}
+                            • {order.status ? getRentalStatusDisplay({ status: order.status }).label : "—"}
                           </div>
                         </div>
                         {selectedOrderId === order.orderId && (

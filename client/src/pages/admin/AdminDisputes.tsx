@@ -6,6 +6,20 @@ import { useEffect, useState } from "react";
 import { Scale } from "lucide-react";
 import { adminAuthHeaders } from "@/lib/adminApi";
 
+const DISPUTE_STATUS_LABELS: Record<string, { label: string; className: string }> = {
+  open: { label: "Ouvert", className: "bg-amber-100 text-amber-800" },
+  in_review: { label: "En cours d'examen", className: "bg-blue-100 text-blue-800" },
+  resolved: { label: "Résolu", className: "bg-emerald-100 text-emerald-800" },
+  rejected: { label: "Rejeté", className: "bg-slate-100 text-slate-700" },
+};
+
+const DISPUTE_ROLE_LABELS: Record<string, string> = {
+  admin: "Admin",
+  client: "Client",
+  driver: "Loueur",
+  prestataire: "Loueur",
+};
+
 export function AdminDisputes() {
   const [disputes, setDisputes] = useState<any[]>([]);
   const [form, setForm] = useState({ orderId: "", reason: "" });
@@ -70,7 +84,15 @@ export function AdminDisputes() {
             <div key={d.id} className="rounded-xl border bg-white p-4 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
               <div>
                 <div className="font-medium text-slate-900">{d.reason}</div>
-                <div className="text-xs text-slate-500">Commande {String(d.orderId).slice(0, 8)}… · {d.openedBy} · <span className="uppercase">{d.status}</span></div>
+                <div className="text-xs text-slate-500 flex items-center gap-1.5 flex-wrap mt-0.5">
+                  <span>Commande {String(d.orderId).slice(0, 8)}…</span>
+                  <span>·</span>
+                  <span>{DISPUTE_ROLE_LABELS[d.openedBy] || d.openedBy}</span>
+                  <span>·</span>
+                  <span className={`rounded-full px-2 py-0.5 text-[11px] font-medium ${(DISPUTE_STATUS_LABELS[d.status] || { className: "bg-slate-100 text-slate-700" }).className}`}>
+                    {(DISPUTE_STATUS_LABELS[d.status] || { label: d.status }).label}
+                  </span>
+                </div>
                 {d.resolution && <div className="text-sm text-slate-600 mt-1">{d.resolution}</div>}
               </div>
               {d.status === "open" || d.status === "in_review" ? (

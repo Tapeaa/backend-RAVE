@@ -3,8 +3,21 @@
  */
 
 import { useEffect, useState } from "react";
+import { Link } from "wouter";
 import { CalendarDays, Plus, Trash2 } from "lucide-react";
 import { adminAuthHeaders } from "@/lib/adminApi";
+import { getRentalStatusDisplay, TONE_BADGE_CLASSES } from "@/lib/rental-status";
+
+function formatBlockRange(startIso: string, endIso: string): string {
+  const start = String(startIso).slice(0, 10);
+  const endDate = new Date(endIso);
+  // Fin stockée exclusive (lendemain 00:00 UTC) → revenir au dernier jour inclusif
+  if (!Number.isNaN(endDate.getTime()) && endDate.getTime() > new Date(startIso).getTime()) {
+    endDate.setUTCDate(endDate.getUTCDate() - 1);
+  }
+  const end = Number.isNaN(endDate.getTime()) ? String(endIso).slice(0, 10) : endDate.toISOString().slice(0, 10);
+  return start === end ? start : `${start} → ${end}`;
+}
 
 export function AdminCalendar() {
   const [blocks, setBlocks] = useState<any[]>([]);
@@ -44,6 +57,10 @@ export function AdminCalendar() {
 
   async function addBlock(e: React.FormEvent) {
     e.preventDefault();
+    if (form.endDate < form.startDate) {
+      alert("La date de fin doit être après ou égale à la date de début.");
+      return;
+    }
     const res = await fetch("/api/admin/calendar/blocks", {
       method: "POST",
       headers: adminAuthHeaders(),
@@ -53,7 +70,8 @@ export function AdminCalendar() {
       setForm({ loueurVehicleId: "", startDate: "", endDate: "", reason: "" });
       load();
     } else {
-      alert("Erreur création bloc");
+      const err = await res.json().catch(() => ({}));
+      alert(err.error || "Erreur lors de la création du blocage");
     }
   }
 
@@ -75,8 +93,20 @@ export function AdminCalendar() {
             <option key={v.id} value={v.id}>{v.modelName} — {v.plate || "sans plaque"}</option>
           ))}
         </select>
-        <input required type="date" className="rounded-lg border px-3 py-2 text-sm" value={form.startDate} onChange={(e) => setForm({ ...form, startDate: e.target.value })} />
-        <input required type="date" className="rounded-lg border px-3 py-2 text-sm" value={form.endDate} onChange={(e) => setForm({ ...form, endDate: e.target.value })} />
+        <input
+          required
+          type="date"
+          className="rounded-lg border px-3 py-2 text-sm"
+          value={form.startDate}
+          onChange={(e) =>
+            setForm((prev) => ({
+              ...prev,
+              startDate: e.target.value,
+              endDate: prev.endDate && prev.endDate < e.target.value ? e.target.value : prev.endDate,
+            }))
+          }
+        />
+        <input required type="date" min={form.startDate || undefined} className="rounded-lg border px-3 py-2 text-sm" value={form.endDate} onChange={(e) => setForm({ ...form, endDate: e.target.value })} />
         <input placeholder="Raison" className="rounded-lg border px-3 py-2 text-sm" value={form.reason} onChange={(e) => setForm({ ...form, reason: e.target.value })} />
         <button type="submit" className="inline-flex items-center justify-center gap-1 rounded-lg bg-amber-500 px-3 py-2 text-sm font-medium"><Plus className="h-4 w-4" /> Bloquer</button>
       </form>
@@ -86,14 +116,24 @@ export function AdminCalendar() {
       ) : (
         <div className="grid gap-4 lg:grid-cols-2">
           <section className="rounded-xl border bg-white p-4">
-            <h2 className="font-semibold mb-3">Réservations (période)</h2>
+            <h2 className="font-semibold mb-3">Réservations actives (période)</h2>
             <div className="max-h-96 overflow-auto space-y-2 text-sm">
-              {bookings.map((b) => (
-                <div key={b.orderId} className="border-b border-slate-100 py-2">
-                  <div className="font-medium">{b.title} — {b.clientName}</div>
-                  <div className="text-xs text-slate-500">{b.startDate?.slice?.(0, 10)} → {b.endDate?.slice?.(0, 10)} · {b.status}</div>
-                </div>
-              ))}
+              {bookings.map((b) => {
+                const st = getRentalStatusDisplay({ status: b.status, rideOption: b.rideOption });
+                return (
+                  <Link key={b.orderId} href={`/admin/commandes/${b.orderId}`}>
+                    <div className="border-b border-slate-100 py-2 hover:bg-slate-50 cursor-pointer rounded px-1">
+                      <div className="flex items-center justify-between gap-2">
+                        <span className="font-medium truncate">{b.title} — {b.clientName}</span>
+                        <span className={`shrink-0 rounded-full px-2 py-0.5 text-[11px] font-medium ${TONE_BADGE_CLASSES[st.tone]}`}>
+                          {st.label}
+                        </span>
+                      </div>
+                      <div className="text-xs text-slate-500 mt-0.5">{b.startDate?.slice?.(0, 10)} → {b.endDate?.slice?.(0, 10)}</div>
+                    </div>
+                  </Link>
+                );
+              })}
               {bookings.length === 0 && <p className="text-slate-500">Aucune réservation</p>}
             </div>
           </section>
@@ -104,7 +144,7 @@ export function AdminCalendar() {
                 <div key={b.id} className="flex justify-between border-b border-slate-100 py-2">
                   <div>
                     <div className="font-medium">{b.modelName} {b.plate}</div>
-                    <div className="text-xs text-slate-500">{String(b.startDate).slice(0, 10)} → {String(b.endDate).slice(0, 10)} · {b.reason || "—"}</div>
+                    <div className="text-xs text-slate-500">{formatBlockRange(b.startDate, b.endDate)} · {b.reason || "—"}</div>
                   </div>
                   <button onClick={() => removeBlock(b.id)} className="text-red-500"><Trash2 className="h-4 w-4" /></button>
                 </div>

@@ -24,6 +24,8 @@ import {
   invoices,
 } from "@shared/schema";
 import { eq, desc, and, gte, lte, or } from "drizzle-orm";
+import { createAvailabilityBlock } from "./availability-blocks";
+import { buildRentalCancelPayload, emitRentalOrderRealtime, getRealtimeIo } from "./realtime";
 
 const stripe = process.env.STRIPE_SECRET_KEY ? new Stripe(process.env.STRIPE_SECRET_KEY) : null;
 
@@ -152,13 +154,17 @@ export function registerAdminBoExtensions(app: Express) {
         return res.status(409).json({ error: "Réservation non active : étape impossible" });
       }
 
+      const now = new Date().toISOString();
       const rideOption: Record<string, unknown> = {
         ...(order.rideOption || {}),
         rentalLifecyclePhase: phase,
         rentalPhase: phase, // legacy alias (read fallback)
       };
-      if (phase === "with_client") rideOption.handedOverAt = new Date().toISOString();
-      if (phase === "returned") rideOption.returnedAt = new Date().toISOString();
+      if (phase === "with_client") {
+        rideOption.handoverAt = now;
+        rideOption.handedOverAt = now;
+      }
+      if (phase === "returned") rideOption.returnedAt = now;
 
       const [updated] = await db
         .update(orders)
@@ -168,6 +174,23 @@ export function registerAdminBoExtensions(app: Express) {
         } as any)
         .where(eq(orders.id, req.params.id))
         .returning();
+
+      if (phase === "returned" && updated?.assignedDriverId) {
+        try {
+          await dbStorage.incrementDriverTotalRides(updated.assignedDriverId);
+        } catch (e) {
+          console.warn("[ADMIN LIFECYCLE] incrementDriverTotalRides failed:", e);
+        }
+      }
+
+      if (updated) {
+        getRealtimeIo()?.to(`order:${req.params.id}`).emit("rental-order:lifecycle-changed", {
+          orderId: req.params.id,
+          phase,
+          updatedBy: "admin",
+          order: updated,
+        });
+      }
 
       await audit(req, "rental.lifecycle", "order", req.params.id, { phase });
       return res.json({ success: true, commande: updated });
@@ -210,6 +233,18 @@ export function registerAdminBoExtensions(app: Express) {
         .set({ status: "cancelled", rideOption } as any)
         .where(eq(orders.id, req.params.id))
         .returning();
+      if (updated) {
+        emitRentalOrderRealtime(
+          updated,
+          "rental-order:cancelled",
+          buildRentalCancelPayload(updated, {
+            cancelledBy: "client",
+            approvedByDriver: true,
+            approvedBy: "admin",
+            refund: (rideOption as any).refund || null,
+          })
+        );
+      }
       await audit(req, "rental.cancel_approve", "order", req.params.id);
       return res.json({ success: true, commande: updated });
     } catch (error) {
@@ -225,6 +260,7 @@ export function registerAdminBoExtensions(app: Express) {
       if ((order.rideOption as any)?.cancelRequest?.status !== "pending" || ADMIN_CLOSED_STATUSES.includes(order.status)) {
         return res.status(409).json({ error: "Aucune demande d'annulation en attente" });
       }
+      const rejectReason = req.body.reason || "Demande d'annulation refusée";
       const rideOption = {
         ...(order.rideOption || {}),
         cancelRequest: {
@@ -232,7 +268,8 @@ export function registerAdminBoExtensions(app: Express) {
           status: "rejected",
           resolvedAt: new Date().toISOString(),
           resolvedBy: "admin",
-          reason: req.body.reason || null,
+          reason: rejectReason,
+          rejectReason,
         },
       };
       const [updated] = await db
@@ -240,6 +277,13 @@ export function registerAdminBoExtensions(app: Express) {
         .set({ rideOption } as any)
         .where(eq(orders.id, req.params.id))
         .returning();
+      if (updated) {
+        emitRentalOrderRealtime(
+          updated,
+          "rental-order:cancel-rejected",
+          buildRentalCancelPayload(updated, { reason: rejectReason })
+        );
+      }
       await audit(req, "rental.cancel_reject", "order", req.params.id);
       return res.json({ success: true, commande: updated });
     } catch (error) {
@@ -518,21 +562,33 @@ export function registerAdminBoExtensions(app: Express) {
 
       const now = new Date().toISOString();
       const previousRefund = (order.rideOption as any)?.refund || {};
+      const refundObj = {
+        ...previousRefund,
+        status: "done",
+        amount,
+        reason: previousRefund.reason || reason,
+        adminReason: reason,
+        stripeRefundId: stripeRefund?.id || null,
+        createdAt: previousRefund.createdAt || now,
+        doneAt: now,
+        doneBy: "admin",
+      };
       const rideOption = {
         ...(order.rideOption || {}),
-        refund: {
-          ...previousRefund,
-          status: "done",
-          amount,
-          reason: previousRefund.reason || reason,
-          adminReason: reason,
-          stripeRefundId: stripeRefund?.id || null,
-          createdAt: previousRefund.createdAt || now,
-          doneAt: now,
-          doneBy: "admin",
-        },
+        refund: refundObj,
       };
-      await db.update(orders).set({ rideOption } as any).where(eq(orders.id, req.params.id));
+      const [updated] = await db
+        .update(orders)
+        .set({ rideOption } as any)
+        .where(eq(orders.id, req.params.id))
+        .returning();
+      if (updated) {
+        emitRentalOrderRealtime(updated, "rental-order:refunded", {
+          orderId: req.params.id,
+          refund: refundObj,
+          vehicleTitle: (order.rideOption as any)?.title || "Véhicule",
+        });
+      }
       await audit(req, "order.refund", "order", req.params.id, { amount, reason, stripeRefundId: stripeRefund?.id });
       return res.json({ success: true, stripeRefund, amount });
     } catch (error: any) {
@@ -613,11 +669,12 @@ export function registerAdminBoExtensions(app: Express) {
         );
 
       const allOrders = await db.select().from(orders).orderBy(desc(orders.createdAt)).limit(500);
+      const CALENDAR_IGNORED_STATUSES = ["cancelled", "declined", "expired", "payment_failed", "awaiting_payment"];
       const rentalBookings = allOrders
         .filter((o) => {
           const ro = o.rideOption as any;
-          if (!(ro?.type === "rental" || String(ro?.id || "").startsWith("rental-"))) return false;
-          if (["cancelled"].includes(o.status)) return false;
+          if (!(ro?.type === "rental" || ro?.isRentalOrder === true || String(ro?.id || "").startsWith("rental-"))) return false;
+          if (CALENDAR_IGNORED_STATUSES.includes(o.status)) return false;
           const start = ro?.startDate ? new Date(ro.startDate) : null;
           const end = ro?.endDate ? new Date(ro.endDate) : null;
           if (!start || !end) return false;
@@ -631,6 +688,7 @@ export function registerAdminBoExtensions(app: Express) {
             startDate: ro.startDate,
             endDate: ro.endDate,
             status: o.status,
+            rideOption: o.rideOption,
             clientName: o.clientName,
             title: ro?.title || "Location",
           };
@@ -646,21 +704,23 @@ export function registerAdminBoExtensions(app: Express) {
   app.post("/api/admin/calendar/blocks", requireAdminAuth, async (req: AuthenticatedRequest, res) => {
     try {
       const { loueurVehicleId, startDate, endDate, reason } = req.body;
-      if (!loueurVehicleId || !startDate || !endDate) {
+      const startYmd = String(startDate || "").slice(0, 10);
+      const endYmd = String(endDate || "").slice(0, 10);
+      if (!loueurVehicleId || !startYmd || !endYmd) {
         return res.status(400).json({ error: "loueurVehicleId, startDate, endDate requis" });
       }
-      const [created] = await db
-        .insert(vehicleAvailabilityBlocks)
-        .values({
-          loueurVehicleId,
-          startDate: new Date(startDate),
-          endDate: new Date(endDate),
-          reason: reason || null,
-          createdBy: "admin",
-        })
-        .returning();
-      await audit(req, "calendar.block_create", "vehicle_block", created.id);
-      return res.status(201).json(created);
+      const result = await createAvailabilityBlock({
+        loueurVehicleId,
+        startYmd,
+        endYmd,
+        reason,
+        createdBy: "admin",
+      });
+      if (!result.ok) {
+        return res.status(result.status).json({ error: result.error });
+      }
+      await audit(req, "calendar.block_create", "vehicle_block", result.block.id);
+      return res.status(201).json(result.block);
     } catch (error) {
       console.error("Admin calendar block error:", error);
       return res.status(500).json({ error: "Erreur serveur" });

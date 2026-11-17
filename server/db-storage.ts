@@ -1,4 +1,4 @@
-import { eq, and, gt, isNull, isNotNull, sql, desc } from "drizzle-orm";
+import { eq, and, or, gt, isNull, isNotNull, sql, desc } from "drizzle-orm";
 import { db } from "./db";
 import { dbErrorMessage } from "./db-error";
 import { 
@@ -1710,23 +1710,34 @@ export class DbStorage {
       const lastMessage = orderMessages[orderMessages.length - 1];
       const unreadCount = await this.getUnreadMessageCount(order.id, "client");
       
-      // Get driver info
-      let driverName = "Chauffeur";
-      if (order.assignedDriverId) {
-        const driver = await this.getDriver(order.assignedDriverId);
+      const ro = (order.rideOption || {}) as any;
+      const resolvedDriverId =
+        order.assignedDriverId ||
+        ro?.targetDriverId ||
+        ro?.rentalDispatch?.targetDriverId ||
+        ro?.rentalDispatch?.driverId ||
+        null;
+
+      let driverName = ro?.owner || "Loueur";
+      if (resolvedDriverId) {
+        const driver = await this.getDriver(resolvedDriverId);
         if (driver) {
-          driverName = `${driver.firstName} ${driver.lastName}`;
+          driverName = `${driver.firstName} ${driver.lastName}`.trim() || driverName;
         }
       }
 
-      const addresses = order.addresses as AddressField[];
-      const pickup = addresses.find(a => a.type === "pickup")?.value || "Départ";
-      const destination = addresses.find(a => a.type === "destination")?.value || "Destination";
+      const addresses = Array.isArray(order.addresses) ? (order.addresses as AddressField[]) : [];
+      const pickup = addresses.find(a => a.type === "pickup")?.value || ro?.pickupLocation || "Lieu de prise en charge";
+      const destination = addresses.find(a => a.type === "destination")?.value || "";
 
       conversations.push({
         orderId: order.id,
+        otherPartyId: resolvedDriverId,
         otherPartyName: driverName,
         otherPartyType: "driver",
+        vehicleTitle: ro?.title || null,
+        startDate: ro?.startDate || null,
+        endDate: ro?.endDate || null,
         lastMessage: lastMessage.content,
         lastMessageAt: lastMessage.createdAt,
         unreadCount,
@@ -1742,10 +1753,15 @@ export class DbStorage {
   }
 
   async getConversationsForDriver(driverId: string): Promise<any[]> {
-    // Get all orders for this driver that have messages
+    // Inclure aussi les demandes de location en attente ciblant ce loueur (assignedDriverId pas encore posé)
     const driverOrders = await db.select()
       .from(orders)
-      .where(eq(orders.assignedDriverId, driverId));
+      .where(
+        or(
+          eq(orders.assignedDriverId, driverId),
+          sql`(${orders.rideOption}->>'targetDriverId') = ${driverId}`
+        )
+      );
 
     const conversations = [];
     for (const order of driverOrders) {
@@ -1755,14 +1771,19 @@ export class DbStorage {
       const lastMessage = orderMessages[orderMessages.length - 1];
       const unreadCount = await this.getUnreadMessageCount(order.id, "driver");
 
-      const addresses = order.addresses as AddressField[];
-      const pickup = addresses.find(a => a.type === "pickup")?.value || "Départ";
-      const destination = addresses.find(a => a.type === "destination")?.value || "Destination";
+      const ro = (order.rideOption || {}) as any;
+      const addresses = Array.isArray(order.addresses) ? (order.addresses as AddressField[]) : [];
+      const pickup = addresses.find(a => a.type === "pickup")?.value || ro?.pickupLocation || "Lieu de prise en charge";
+      const destination = addresses.find(a => a.type === "destination")?.value || "";
 
       conversations.push({
         orderId: order.id,
+        otherPartyId: order.clientId,
         otherPartyName: order.clientName,
         otherPartyType: "client",
+        vehicleTitle: ro?.title || null,
+        startDate: ro?.startDate || null,
+        endDate: ro?.endDate || null,
         lastMessage: lastMessage.content,
         lastMessageAt: lastMessage.createdAt,
         unreadCount,

@@ -86,6 +86,8 @@ const DOC_FIELDS = [
 ] as const;
 
 const typeLabels: Record<string, string> = {
+  agence_location: 'Agence de location',
+  loueur_individuel: 'Loueur individuel',
   societe_taxi: 'Société Taxi',
   societe_tourisme: 'Société Transport Touristique',
   patente_taxi: 'Taxi Patenté',

@@ -56,7 +56,10 @@ export function AdminRatings() {
               {ratings.map((r) => (
                 <tr key={r.id} className="border-t">
                   <td className="px-4 py-3 font-semibold">{r.score}/5</td>
-                  <td className="px-4 py-3 text-xs">{r.raterType} → {r.ratedType}</td>
+                  <td className="px-4 py-3 text-xs">
+                    {r.raterType === "client" ? "Client" : r.raterType === "driver" ? "Loueur" : r.raterType} →{" "}
+                    {r.ratedType === "client" ? "Client" : r.ratedType === "driver" ? "Loueur" : r.ratedType}
+                  </td>
                   <td className="px-4 py-3 max-w-xs truncate">{r.comment || "—"}</td>
                   <td className="px-4 py-3 font-mono text-xs">{String(r.orderId).slice(0, 8)}…</td>
                   <td className="px-4 py-3 text-right">

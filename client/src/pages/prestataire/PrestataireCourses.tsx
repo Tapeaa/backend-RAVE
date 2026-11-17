@@ -7,6 +7,7 @@ import { Link } from 'wouter';
 import { Car, Eye, Calendar } from 'lucide-react';
 import { PaymentStatusBadge } from '@/components/rental/PaymentStatusBadge';
 import {
+  getRefundState,
   getRentalStatusDisplay,
   isCompletedOrderStatus,
   TONE_BADGE_CLASSES,
@@ -67,15 +68,15 @@ export function PrestataireCourses() {
     }
   }
 
-  const completedCourses = courses.filter((c) => isCompletedOrderStatus(c.status));
-  const pipelineCourses = courses.filter(
-    (c) =>
-      c.status === 'accepted' ||
-      c.status === 'booked' ||
-      c.status === 'completed' ||
-      c.status === 'payment_confirmed'
+  const isCourseDone = (c: Course) =>
+    (isCompletedOrderStatus(c.status) || c.rideOption?.rentalLifecyclePhase === 'returned') &&
+    !getRefundState(c);
+  const completedCourses = courses.filter(isCourseDone);
+  const activeCourses = courses.filter(
+    (c) => (c.status === 'accepted' || c.status === 'booked') && !isCourseDone(c) && !getRefundState(c)
   );
-  const totalRevenu = pipelineCourses.reduce((sum, c) => sum + (c.totalPrice || 0), 0);
+  const totalRevenu = completedCourses.reduce((sum, c) => sum + (c.totalPrice || 0), 0);
+  const upcomingRevenu = activeCourses.reduce((sum, c) => sum + (c.totalPrice || 0), 0);
 
   return (
     <div className="space-y-6">
@@ -89,7 +90,9 @@ export function PrestataireCourses() {
       <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3">
         <div className="rounded-2xl bg-white p-5 shadow-sm">
           <div className="text-3xl font-bold text-gray-900">{courses.length}</div>
-          <div className="text-sm text-gray-500">Total réservations</div>
+          <div className="text-sm text-gray-500">
+            Demandes &amp; réservations{activeCourses.length > 0 ? ` · ${activeCourses.length} en cours` : ''}
+          </div>
         </div>
         <div className="rounded-2xl bg-white p-5 shadow-sm">
           <div className="text-3xl font-bold text-green-600">{completedCourses.length}</div>
@@ -97,9 +100,12 @@ export function PrestataireCourses() {
         </div>
         <div className="rounded-2xl bg-white p-5 shadow-sm">
           <div className="text-3xl font-bold text-gray-900">
-            {totalRevenu.toLocaleString()} XPF
+            {totalRevenu.toLocaleString('fr-FR')} XPF
           </div>
-          <div className="text-sm text-gray-500">Revenus locations</div>
+          <div className="text-sm text-gray-500">
+            Revenus acquis
+            {upcomingRevenu > 0 ? ` · +${upcomingRevenu.toLocaleString('fr-FR')} XPF à venir` : ''}
+          </div>
         </div>
       </div>
 

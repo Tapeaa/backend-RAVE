@@ -57,6 +57,18 @@ function getStatusBadge(status: string) {
           <Clock className="h-3 w-3" /> En cours
         </span>
       );
+    case 'refund_pending':
+      return (
+        <span className="inline-flex items-center gap-1 rounded-full bg-amber-100 px-2 py-1 text-xs font-medium text-amber-800">
+          <Clock className="h-3 w-3" /> Remboursement à faire
+        </span>
+      );
+    case 'refunded':
+      return (
+        <span className="inline-flex items-center gap-1 rounded-full bg-gray-100 px-2 py-1 text-xs font-medium text-gray-700">
+          Remboursée
+        </span>
+      );
     case 'failed':
       return (
         <span className="inline-flex items-center gap-1 rounded-full bg-red-100 px-2 py-1 text-xs font-medium text-red-700">

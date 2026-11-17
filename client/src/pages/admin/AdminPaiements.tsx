@@ -136,10 +136,11 @@ export function AdminPaiements() {
             currency: p.currency,
             status: p.status,
             created: new Date(p.createdAt).getTime() / 1000,
-            description: p.paymentMethod === 'card' ? 'Paiement carte' : 'Paiement espèces',
+            description: p.paymentMethod === 'card' ? 'Paiement carte' : 'Paiement chez le loueur',
             receiptUrl: p.pdfUrl || undefined,
           }))} 
-          isLoading={isLoading} 
+          isLoading={isLoading}
+          onRowClick={(paymentId) => { window.location.href = `/admin/commandes/${paymentId}`; }}
         />
       </div>
     </div>

@@ -5,6 +5,7 @@
 import { useEffect, useState } from "react";
 import { CreditCard } from "lucide-react";
 import { adminAuthHeaders } from "@/lib/adminApi";
+import { getRentalStatusDisplay } from "@/lib/rental-status";
 
 export function AdminReconciliation() {
   const [data, setData] = useState<any>(null);
@@ -40,16 +41,23 @@ export function AdminReconciliation() {
         <section className="rounded-xl border bg-white p-4">
           <h2 className="font-semibold mb-3">Ledger commandes (100 dernières)</h2>
           <div className="max-h-96 overflow-auto text-sm space-y-2">
-            {(data?.ordersLedger || []).map((o: any) => (
+            {(data?.ordersLedger || []).map((o: any) => {
+              const st = getRentalStatusDisplay({ status: o.status, rideOption: { refund: o.refund } });
+              return (
               <div key={o.id} className="flex justify-between border-b border-slate-100 py-2">
                 <div>
                   <div className="font-mono text-xs text-slate-500">{o.id.slice(0, 8)}…</div>
-                  <div>{o.status} · {o.paymentMethod}</div>
-                  {o.refund && <div className="text-xs text-red-600">Remboursé: {o.refund.amount} XPF</div>}
+                  <div>{st.label} · {o.paymentMethod === "card" ? "Carte" : "Chez le loueur"}</div>
+                  {o.refund && (
+                    <div className={`text-xs ${o.refund.status === "done" ? "text-emerald-700" : "text-amber-700"}`}>
+                      {o.refund.status === "done" ? "Remboursée" : "Remboursement à faire"} : {Number(o.refund.amount || 0).toLocaleString("fr-FR")} XPF
+                    </div>
+                  )}
                 </div>
                 <div className="font-semibold">{Number(o.totalPrice).toLocaleString("fr-FR")} XPF</div>
               </div>
-            ))}
+              );
+            })}
           </div>
         </section>
 

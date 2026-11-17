@@ -53,20 +53,27 @@ interface StripePayment {
   isNew?: boolean;
 }
 
+const ORDER_ACTIVITY_EVENTS = new Set([
+  'order_in_progress',
+  'advance_booking',
+  'order_pending',
+  'order_accepted',
+  'order_completed',
+  'order_cancelled',
+  'order_declined',
+  'order_expired',
+]);
+
 function isRentalActivity(activity: StripeActivity): boolean {
   const desc = (activity.description || '').toLowerCase();
   const type = (activity.eventType || '').toLowerCase();
   return (
+    ORDER_ACTIVITY_EVENTS.has(type) ||
     desc.includes('location') ||
     desc.includes('rental') ||
     desc.includes('réservation') ||
     desc.includes('reservation') ||
-    type.includes('rental') ||
-    type === 'order_in_progress' ||
-    type === 'advance_booking' ||
-    type === 'order_pending' ||
-    type === 'order_accepted' ||
-    type === 'order_completed'
+    type.includes('rental')
   );
 }
 
@@ -83,14 +90,8 @@ export function AdminDashboard() {
   };
 
   const handleActivityClick = (activity: StripeActivity) => {
-    if (
-      activity.eventType === 'order_in_progress' ||
-      activity.eventType === 'advance_booking' ||
-      activity.eventType === 'order_pending' ||
-      activity.eventType === 'order_accepted'
-    ) {
-      setSelectedOrderId(activity.id);
-      setIsModalOpen(true);
+    if (ORDER_ACTIVITY_EVENTS.has(activity.eventType)) {
+      window.location.href = `/admin/commandes/${activity.id}`;
     }
   };
 
@@ -265,7 +266,7 @@ export function AdminDashboard() {
           gradient="orange"
         />
         <StatsCard
-          title="Annulées"
+          title="Clôturées / annulées"
           value={stats.commandesAnnulees}
           icon={<XCircle className="h-6 w-6" />}
           gradient="pink"

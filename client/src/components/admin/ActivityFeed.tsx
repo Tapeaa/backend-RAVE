@@ -39,8 +39,14 @@ function getStripeEventLabel(eventType: string): string {
     payment_canceled: 'Paiement annulé',
     customer_created: 'Client créé',
     card_added: 'Carte ajoutée',
-    order_in_progress: 'Commande en cours',
-    advance_booking: "Réservation à l'avance",
+    order_in_progress: 'Location en cours',
+    advance_booking: 'Réservation',
+    order_pending: 'Demande à valider',
+    order_accepted: 'Location confirmée',
+    order_completed: 'Location terminée',
+    order_cancelled: 'Réservation annulée',
+    order_declined: 'Demande refusée',
+    order_expired: 'Demande expirée',
   };
   return labels[eventType] || eventType;
 }
@@ -57,6 +63,12 @@ function getStripeEventColor(eventType: string): string {
     card_added: 'info',
     order_in_progress: 'info',
     advance_booking: 'primary',
+    order_pending: 'warning',
+    order_accepted: 'info',
+    order_completed: 'success',
+    order_cancelled: 'danger',
+    order_declined: 'danger',
+    order_expired: 'secondary',
   };
   return colors[eventType] || 'primary';
 }
@@ -78,6 +90,12 @@ const iconMap: Record<string, React.ReactNode> = {
   card_added: <CreditCard className="h-4 w-4" />,
   order_in_progress: <Car className="h-4 w-4" />,
   advance_booking: <CalendarClock className="h-4 w-4" />,
+  order_pending: <CalendarClock className="h-4 w-4" />,
+  order_accepted: <Car className="h-4 w-4" />,
+  order_completed: <CheckCircle className="h-4 w-4" />,
+  order_cancelled: <XCircle className="h-4 w-4" />,
+  order_declined: <Ban className="h-4 w-4" />,
+  order_expired: <AlertTriangle className="h-4 w-4" />,
 };
 
 const colorClasses: Record<string, string> = {
@@ -134,7 +152,7 @@ export function ActivityFeed({ activities, isLoading, onActivityClick }: Activit
         const color = getStripeEventColor(activity.eventType);
         const icon = iconMap[activity.eventType] || <Bell className="h-4 w-4" />;
         
-        const isClickable = (activity.eventType === 'order_in_progress' || activity.eventType === 'advance_booking') && onActivityClick;
+        const isClickable = Boolean(onActivityClick) && activity.eventType.startsWith('order_') || (activity.eventType === 'advance_booking' && Boolean(onActivityClick));
         
         const handleClick = () => {
           if (isClickable && onActivityClick) {
