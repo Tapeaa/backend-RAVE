@@ -2499,6 +2499,8 @@ app.post("/api/rental-orders", async (req, res) => {
               totalPrice: order.totalPrice,
               driverName: ownerName,
               rideOption: baseRideOpt,
+              supplements: (order as any).supplements,
+              status: order.status,
             }),
           };
         }
@@ -2508,6 +2510,8 @@ app.post("/api/rental-orders", async (req, res) => {
           totalPrice: order.totalPrice,
           driverName: ownerName,
           rideOption: baseRideOpt,
+          supplements: (order as any).supplements,
+          status: order.status,
         });
         const contractUrl = await persistContractHtml(html, order.id);
         const rideOpt: any = {
@@ -2913,6 +2917,8 @@ app.post("/api/rental-orders/:id/accept", async (req, res) => {
           totalPrice: updatedOrder.totalPrice,
           driverName: rideOptionPatch.owner || session.driverName,
           rideOption: { ...((updatedOrder.rideOption as any) || {}), ...rideOptionPatch },
+          supplements: (updatedOrder as any).supplements,
+          status: updatedOrder.status,
         });
       } catch (e) {
         console.warn("[RENTAL] Contract snapshot refresh failed:", e);
@@ -3611,6 +3617,8 @@ app.patch("/api/orders/:id/loueur-signature", async (req, res) => {
         totalPrice: order.totalPrice,
         driverName: newRideOption.owner || session.driverName,
         rideOption: newRideOption,
+        supplements: (order as any).supplements,
+        status: order.status,
       });
     } catch (e) {
       console.warn("[RENTAL] Contract snapshot refresh failed:", e);
@@ -4865,6 +4873,8 @@ app.post("/api/live-activities/end", async (req, res) => {
           totalPrice: order.totalPrice,
           driverName: (order as any).driverName || (order.rideOption as any)?.owner,
           rideOption: updatedRideOption,
+          supplements: (order as any).supplements,
+          status: order.status,
         }),
       };
 
@@ -4876,6 +4886,8 @@ app.post("/api/live-activities/end", async (req, res) => {
           totalPrice: order.totalPrice,
           driverName: (order as any).driverName || (order.rideOption as any)?.owner,
           rideOption: updatedRideOption,
+          supplements: (order as any).supplements,
+          status: order.status,
         });
         updatedRideOption.contractHtmlSnapshot = html;
         const contractUrl = await persistContractHtml(html, orderId);
@@ -4960,13 +4972,15 @@ app.post("/api/live-activities/end", async (req, res) => {
       let html = rideOpt.contractHtmlSnapshot as string | undefined;
       let contractUrl = rideOpt.contractUrl as string | undefined;
 
-      if (!html || isSnapshotStale(html, rideOpt)) {
+      if (!html || isSnapshotStale(html, rideOpt, order.status)) {
         html = buildRentalContractHtml({
           id: order.id,
           clientName: order.clientName,
           totalPrice: order.totalPrice,
           driverName: (order as any).driverName || rideOpt.owner,
           rideOption: rideOpt,
+          supplements: (order as any).supplements,
+          status: order.status,
         });
         const url = await persistContractHtml(html, order.id);
         const snapPatch = {

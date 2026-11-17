@@ -20,7 +20,63 @@ type ContractOrder = {
   totalPrice?: number | null;
   driverName?: string | null;
   rideOption?: any;
+  /** Colonne orders.supplements : suppléments + assurances optionnelles */
+  supplements?: any[] | null;
+  status?: string | null;
 };
+
+/** Toute version de snapshot sans ce marqueur est régénérée (détail des prix, bloc loueur). */
+const CONTRACT_VERSION_MARKER = "<!--rave-contract-v2-->";
+
+const NOT_ACCEPTED_STATUSES = new Set([
+  "pending",
+  "cancelled",
+  "expired",
+  "payment_failed",
+  "declined",
+  "rejected",
+]);
+
+function isAcceptedByLoueur(status?: string | null): boolean {
+  return !!status && !NOT_ACCEPTED_STATUSES.has(status);
+}
+
+function fmtXpf(n: number): string {
+  return `${Math.round(Number(n) || 0).toLocaleString("fr-FR")} XPF`;
+}
+
+function buildPriceRows(order: ContractOrder, rideOpt: any, days: number): string {
+  const rows: string[] = [];
+  const breakdown: any[] = Array.isArray(rideOpt.pricingBreakdown) ? rideOpt.pricingBreakdown : [];
+  if (breakdown.length > 1) {
+    for (const l of breakdown) {
+      rows.push(
+        `<tr><td>Jours ${escapeHtml(l.fromDay)}–${escapeHtml(l.toDay)} (${escapeHtml(l.days)} j × ${fmtXpf(l.pricePerDay)})</td><td class="r">${fmtXpf(l.subtotal)}</td></tr>`
+      );
+    }
+  } else {
+    const subtotal =
+      Number(rideOpt.pricingSubtotal) || (Number(rideOpt.price) || 0) * Math.max(1, days);
+    rows.push(
+      `<tr><td>Location (${days} jour${days > 1 ? "s" : ""})</td><td class="r">${fmtXpf(subtotal)}</td></tr>`
+    );
+  }
+
+  const supplements = Array.isArray(order.supplements) ? order.supplements : [];
+  for (const s of supplements) {
+    const qty = Number(s.quantity ?? s.days ?? days) || days;
+    const unit = Number(s.price ?? s.pricePerDay ?? s.unitPrice ?? 0);
+    const total = Number(s.total) || unit * qty;
+    rows.push(
+      `<tr><td>${escapeHtml(s.name || s.label || "Supplément")} (${qty} j × ${fmtXpf(unit)})</td><td class="r">${fmtXpf(total)}</td></tr>`
+    );
+  }
+
+  if (rideOpt.deposit) {
+    rows.push(`<tr><td>Caution (restituée au retour)</td><td class="r">${escapeHtml(rideOpt.deposit)}</td></tr>`);
+  }
+  return rows.join("");
+}
 
 const MAX_SIGNATURE_BYTES = 400 * 1024;
 
@@ -93,13 +149,14 @@ export function buildRentalContractHtml(
     vehicleName: rideOpt.title || "Véhicule",
     vehicleCategory: rideOpt.categoryLabel || rideOpt.category || "",
     days: rideOpt.days || 0,
-    pricePerDay: (rideOpt.price || 0) / Math.max(1, rideOpt.days || 1),
+    pricePerDay: rideOpt.price || 0,
     startDate: rideOpt.startDate,
     endDate: rideOpt.endDate,
     pickupAddress: rideOpt.pickupLocation,
   };
   const clientName = order.clientName || "Client";
-  const loueurName = order.driverName || rideOpt.owner || "Loueur";
+  const loueurName = rideOpt.owner || order.driverName || "Loueur";
+  const loueurTahiti = String(rideOpt.ownerNumeroTahiti || rideOpt.numeroTahiti || "").trim();
   const signatureImg = rideOpt.clientSignatureSvg || "";
   const loueurSigImg = rideOpt.loueurSignatureSvg || "";
   const signedAt = rideOpt.clientSignedAt;
@@ -127,7 +184,8 @@ export function buildRentalContractHtml(
       })
     : "";
   const totalPrice = order.totalPrice || 0;
-  const pricePerDay = rd.pricePerDay || rideOpt.price || 0;
+  const firstTier = Array.isArray(rideOpt.pricingBreakdown) ? rideOpt.pricingBreakdown[0] : null;
+  const pricePerDay = Number(firstTier?.pricePerDay) || rd.pricePerDay || rideOpt.price || 0;
   const days = rd.days || rideOpt.days || 0;
   const ref = order.id.substring(0, 8).toUpperCase();
 
@@ -147,12 +205,11 @@ export function buildRentalContractHtml(
     Number.isFinite(priceTva) &&
     priceHt >= 0;
 
-  let priceRowsHtml: string | undefined;
+  let priceRowsHtml = buildPriceRows(order, rideOpt, Number(days) || 1);
   if (hasTvaSplit) {
-    priceRowsHtml = [
+    priceRowsHtml += [
       `<tr><td>Montant HT</td><td class="r">${Math.round(priceHt).toLocaleString("fr-FR")} XPF</td></tr>`,
       `<tr><td>TVA (${tvaRate} %${tvaMode === "extra" ? ", en sus" : ", incluse"})</td><td class="r">${Math.round(priceTva).toLocaleString("fr-FR")} XPF</td></tr>`,
-      `<tr><td>Total TTC</td><td class="r">${Number(totalPrice).toLocaleString("fr-FR")} XPF</td></tr>`,
     ].join("");
   }
 
@@ -167,34 +224,42 @@ export function buildRentalContractHtml(
   <div class="sig-date" style="color:#166534;margin-top:6px">✓ Signé électroniquement${viaYousign ? " via Yousign" : ""} le ${signedDate}${signedTime ? " à " + signedTime : ""}</div>
 </div>`;
 
-  const signatureHtml = opts?.unsignedForHash
-    ? `<div class="signature-box"><div class="sig-label">Le locataire</div><div class="sig-name">${sigName}</div></div>
-<div class="signature-box"><div class="sig-label">Le loueur</div><div class="sig-name">${loueurName}</div></div>`
-    : `<div class="signature-box">
-  <div class="sig-label">Le locataire</div>
-  <div class="sig-name">${sigName}</div>
-  ${clientSigBlock}
-</div>
-<div class="signature-box">
-  <div class="sig-label">Le loueur</div>
-  <div class="sig-name">${loueurName}</div>
-  ${
-    loueurSigImg
+  const loueurTahitiLine = loueurTahiti
+    ? `<div class="sig-date">N° Tahiti : ${escapeHtml(loueurTahiti)}</div>`
+    : "";
+  const loueurState = loueurSigImg ? "signed" : isAcceptedByLoueur(order.status) ? "accepted" : "pending";
+  const loueurSigBlock =
+    loueurState === "signed"
       ? `<img class="sig-img" src="${loueurSigImg}" alt="Signature loueur"/>
   <div class="sig-date">✓ Signé${
     rideOpt.loueurSignedAt
       ? ` le ${new Date(rideOpt.loueurSignedAt).toLocaleDateString("fr-FR", { timeZone: "Pacific/Tahiti" })}`
       : ""
   }</div>`
-      : `<div class="sig-date">En attente</div>`
-  }
+      : loueurState === "accepted"
+        ? `<div class="sig-date" style="color:#166534;font-weight:700">✓ Réservation acceptée électroniquement par le loueur</div>`
+        : `<div class="sig-date">En attente de validation du loueur</div>`;
+
+  const signatureHtml = opts?.unsignedForHash
+    ? `<div class="signature-box"><div class="sig-label">Le locataire</div><div class="sig-name">${escapeHtml(sigName)}</div></div>
+<div class="signature-box"><div class="sig-label">Le loueur</div><div class="sig-name">${escapeHtml(loueurName)}</div></div>`
+    : `${CONTRACT_VERSION_MARKER}<div class="signature-box">
+  <div class="sig-label">Le locataire</div>
+  <div class="sig-name">${escapeHtml(sigName)}</div>
+  ${clientSigBlock}
+</div>
+<div class="signature-box" data-loueur-state="${loueurState}">
+  <div class="sig-label">Le loueur</div>
+  <div class="sig-name">${escapeHtml(loueurName)}</div>
+  ${loueurTahitiLine}
+  ${loueurSigBlock}
 </div>`;
 
   const params = {
     ref,
     contractDate: signedDate,
     loueurName,
-    loueurNumeroTahiti: rideOpt.ownerNumeroTahiti || rideOpt.numeroTahiti || null,
+    loueurNumeroTahiti: loueurTahiti || null,
     clientName,
     vehicleName: String(rd.vehicleName || rideOpt.title || "Véhicule"),
     vehicleMeta: String(rd.vehicleCategory || rideOpt.categoryLabel || ""),
@@ -202,12 +267,8 @@ export function buildRentalContractHtml(
     endLabel,
     days: Number(days) || 0,
     pickupLocation: String(rd.pickupAddress || rideOpt.pickupLocation || ""),
-    pricePerDayLabel: `${Number(pricePerDay).toLocaleString("fr-FR")} XPF${
-      tvaRegime === "assujetti"
-        ? tvaMode === "extra"
-          ? " (base HT + TVA)"
-          : " TTC"
-        : ""
+    pricePerDayLabel: `${Math.round(Number(pricePerDay)).toLocaleString("fr-FR")} XPF${
+      tvaRegime === "assujetti" ? " TTC" : ""
     }`,
     priceRowsHtml,
     totalLabel: `${Number(totalPrice).toLocaleString("fr-FR")} XPF${
@@ -232,7 +293,9 @@ export function buildRentalContractHtml(
     : buildDefaultRentalContractHtml(params);
 }
 
-export function isSnapshotStale(html: string, rideOpt: any): boolean {
+export function isSnapshotStale(html: string, rideOpt: any, status?: string | null): boolean {
+  if (!html.includes(CONTRACT_VERSION_MARKER)) return true;
+  if (isAcceptedByLoueur(status) && /data-loueur-state="pending"/.test(html)) return true;
   if (isClientContractSigned(rideOpt) && /Non signé/i.test(html)) return true;
   if (rideOpt.loueurSignatureSvg && /<div class="sig-date">En attente<\/div>/.test(html)) return true;
   if (rideOpt.clientSignatureAudit && !/Certificat de signature électronique RAVE/.test(html)) return true;
@@ -285,6 +348,8 @@ export async function resolveOrderContract(order: {
   totalPrice?: number | null;
   driverName?: string | null;
   rideOption?: any;
+  supplements?: any[] | null;
+  status?: string | null;
 }): Promise<ResolvedContract> {
   const rideOpt = { ...((order.rideOption || {}) as any) };
   const signed = isClientContractSigned(rideOpt);
@@ -300,7 +365,7 @@ export async function resolveOrderContract(order: {
   let error: string | null = null;
 
   const cachePatch: Record<string, unknown> = {};
-  if (!html || isSnapshotStale(html, rideOpt)) {
+  if (!html || isSnapshotStale(html, rideOpt, order.status)) {
     html = buildRentalContractHtml({ ...order, rideOption: rideOpt });
     try {
       const url = await persistContractHtml(html, order.id);

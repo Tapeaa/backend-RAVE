@@ -1381,6 +1381,8 @@ export function registerAdminRoutes(app: Express) {
         totalPrice: order.totalPrice,
         driverName: (order as any).driverName,
         rideOption: order.rideOption,
+        supplements: (order as any).supplements,
+        status: order.status,
       });
       return res.json(payload);
     } catch (error) {

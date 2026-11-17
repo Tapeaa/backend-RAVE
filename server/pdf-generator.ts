@@ -25,14 +25,19 @@ export async function generateInvoicePDF(
       doc.on('error', reject);
 
       const rideOpt = (order as any).rideOption || {};
-      const isRental = rideOpt.type === 'rental';
+      const isRental =
+        rideOpt.type === 'rental' || rideOpt.isRentalOrder === true || (order as any).orderSource === 'rental';
       const tvaRegime = rideOpt.tvaRegime === 'assujetti' ? 'assujetti' : 'franchise';
       const tvaRate = Number(rideOpt.tvaRate) || 16;
       const tvaMode = rideOpt.tvaMode === 'extra' ? 'extra' : 'included';
       const priceHt = Number(rideOpt.priceHt);
       const priceTva = Number(rideOpt.priceTva);
-      const priceTtc = Number(rideOpt.priceTtc) || Number(invoice.amount) || Number(order.totalPrice) || 0;
+      // invoice.amount est figé à la création de la facture : pour une location, la commande fait foi
+      const totalAmount = isRental
+        ? Number(order.totalPrice) || Number(rideOpt.priceTtc) || Number(invoice.amount) || 0
+        : Number(invoice.amount) || Number(order.totalPrice) || 0;
       const showTva = isRental && tvaRegime === 'assujetti' && Number.isFinite(priceHt) && Number.isFinite(priceTva);
+      const fmt = (n: number) => `${Math.round(Number(n) || 0).toLocaleString('fr-FR')} XPF`;
 
       // === EN-TÊTE ===
       doc.fontSize(36)
@@ -73,6 +78,22 @@ export async function generateInvoicePDF(
         doc.fontSize(10)
           .fillColor('#666666')
           .text(`Téléphone: ${client.phone}`, 50, startY + 35);
+      }
+
+      if (isRental && rideOpt.owner) {
+        doc.fontSize(11)
+          .fillColor('#666666')
+          .font('Helvetica-Bold')
+          .text('Loueur:', 300, startY, { width: 250, align: 'right' });
+        doc.fontSize(11)
+          .fillColor('#000000')
+          .font('Helvetica')
+          .text(String(rideOpt.owner), 300, startY + 18, { width: 250, align: 'right' });
+        if (rideOpt.ownerNumeroTahiti) {
+          doc.fontSize(10)
+            .fillColor('#666666')
+            .text(`N° Tahiti : ${rideOpt.ownerNumeroTahiti}`, 300, startY + 35, { width: 250, align: 'right' });
+        }
       }
 
       // === INFORMATIONS DE LA COMMANDE ===
@@ -157,14 +178,53 @@ export async function generateInvoicePDF(
         paymentCurrentY += 15;
       }
 
-      // === MONTANT CENTRÉ AU MILIEU DE LA PAGE ===
-      // Définir footerY avant de l'utiliser
       const footerY = 750;
-      
-      // Calculer la position verticale au milieu (entre le contenu et le footer)
-      const pageHeight = 842; // Hauteur A4 en points
-      const availableHeight = pageHeight - footerY - 50; // Espace disponible avant le footer
-      const amountY = paymentCurrentY + (footerY - paymentCurrentY - 100) / 2; // Centré verticalement
+
+      if (isRental) {
+        const days = Math.max(1, Number(rideOpt.days) || 1);
+        const lines: { label: string; amount: number }[] = [];
+        const breakdown: any[] = Array.isArray(rideOpt.pricingBreakdown) ? rideOpt.pricingBreakdown : [];
+        const vehicle = String(rideOpt.title || rideOpt.label || 'Location véhicule');
+        if (breakdown.length > 1) {
+          for (const l of breakdown) {
+            lines.push({
+              label: `${vehicle} — jours ${l.fromDay}-${l.toDay} (${l.days} j × ${fmt(l.pricePerDay)})`,
+              amount: Number(l.subtotal) || 0,
+            });
+          }
+        } else {
+          const unit = Number(breakdown[0]?.pricePerDay) || Number(rideOpt.price) || 0;
+          lines.push({
+            label: `${vehicle} (${days} j × ${fmt(unit)})`,
+            amount: Number(rideOpt.pricingSubtotal) || unit * days,
+          });
+        }
+        const supplements: any[] = Array.isArray((order as any).supplements) ? (order as any).supplements : [];
+        for (const s of supplements) {
+          const qty = Number(s.quantity ?? s.days ?? days) || days;
+          const unit = Number(s.price ?? s.pricePerDay ?? s.unitPrice ?? 0);
+          lines.push({
+            label: `${s.name || s.label || 'Supplément'} (${qty} j × ${fmt(unit)})`,
+            amount: Number(s.total) || unit * qty,
+          });
+        }
+
+        let y = paymentCurrentY + 20;
+        doc.fontSize(11).fillColor('#666666').font('Helvetica-Bold').text('Détail:', 50, y);
+        y += 20;
+        doc.fontSize(10).fillColor('#333333').font('Helvetica');
+        for (const line of lines) {
+          doc.text(line.label, 50, y, { width: 360 });
+          doc.text(fmt(line.amount), 410, y, { width: 140, align: 'right' });
+          y += Math.max(15, doc.heightOfString(line.label, { width: 360 }) + 3);
+        }
+        paymentCurrentY = y;
+      }
+
+      const amountY = Math.min(
+        footerY - 90,
+        Math.max(paymentCurrentY + 70, paymentCurrentY + (footerY - paymentCurrentY - 100) / 2)
+      );
       
       if (showTva) {
         doc.fontSize(11)
@@ -193,7 +253,7 @@ export async function generateInvoicePDF(
         .fillColor('#1a1a1a')
         .font('Helvetica-Bold')
         .text(
-          `${Math.round(showTva ? priceTtc : invoice.amount).toLocaleString('fr-FR')} ${invoice.currency || 'XPF'}${showTva ? ' TTC' : ''}`,
+          `${Math.round(totalAmount).toLocaleString('fr-FR')} ${invoice.currency || 'XPF'}${showTva ? ' TTC' : ''}`,
           50,
           amountY + 30,
           { align: 'center', width: 500 }

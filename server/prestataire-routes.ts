@@ -1519,6 +1519,8 @@ export function registerPrestataireRoutes(app: Express) {
         totalPrice: order.totalPrice,
         driverName: roAuth?.owner,
         rideOption: order.rideOption,
+        supplements: (order as any).supplements,
+        status: order.status,
       });
       return res.json(payload);
     } catch (error) {

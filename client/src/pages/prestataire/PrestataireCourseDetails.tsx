@@ -850,15 +850,28 @@ export function PrestataireCourseDetails() {
                       </tr>
                     </thead>
                     <tbody>
-                      <tr>
-                        <td>{ro?.label || ro?.title || 'Location véhicule'}</td>
-                        <td className="num">{days} j</td>
-                        <td className="num">{unitPrice.toLocaleString('fr-FR')} XPF</td>
-                        <td className="num">{lineRental.toLocaleString('fr-FR')} XPF</td>
-                      </tr>
+                      {Array.isArray(ro?.pricingBreakdown) && ro.pricingBreakdown.length > 1 ? (
+                        ro.pricingBreakdown.map((l: any, i: number) => (
+                          <tr key={`tier-${i}`}>
+                            <td>
+                              {ro?.label || ro?.title || 'Location véhicule'} — jours {l.fromDay}–{l.toDay}
+                            </td>
+                            <td className="num">{l.days} j</td>
+                            <td className="num">{Math.round(Number(l.pricePerDay) || 0).toLocaleString('fr-FR')} XPF</td>
+                            <td className="num">{Math.round(Number(l.subtotal) || 0).toLocaleString('fr-FR')} XPF</td>
+                          </tr>
+                        ))
+                      ) : (
+                        <tr>
+                          <td>{ro?.label || ro?.title || 'Location véhicule'}</td>
+                          <td className="num">{days} j</td>
+                          <td className="num">{Math.round(Number(ro?.pricingBreakdown?.[0]?.pricePerDay) || unitPrice).toLocaleString('fr-FR')} XPF</td>
+                          <td className="num">{Math.round(lineRental).toLocaleString('fr-FR')} XPF</td>
+                        </tr>
+                      )}
                       {supplements.map((s: any, i: number) => {
-                        const qty = Number(s.days || s.quantity || days) || days;
-                        const pu = Number(s.pricePerDay || s.unitPrice || 0);
+                        const qty = Number(s.quantity ?? s.days ?? days) || days;
+                        const pu = Number(s.price ?? s.pricePerDay ?? s.unitPrice ?? 0);
                         const amt = Number(s.total) || pu * qty;
                         return (
                           <tr key={i}>
