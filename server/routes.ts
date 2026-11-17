@@ -2051,6 +2051,7 @@ app.post("/api/rental-orders", async (req, res) => {
         maxRentalDays: loueurVehicles.maxRentalDays,
         rentalContractMode: loueurVehicles.rentalContractMode,
         customContractText: loueurVehicles.customContractText,
+        listingExtras: loueurVehicles.listingExtras,
         prestataireNom: prestataires.nom,
         prestataireNumeroTahiti: prestataires.numeroTahiti,
         prestatairePhone: prestataires.phone,
@@ -2062,6 +2063,7 @@ app.post("/api/rental-orders", async (req, res) => {
         modelId: vehicleModels.id,
         modelName: vehicleModels.name,
         modelCategory: vehicleModels.category,
+        modelActive: vehicleModels.isActive,
         transmission: vehicleModels.transmission,
         fuel: vehicleModels.fuel,
         seats: vehicleModels.seats,
@@ -2080,6 +2082,34 @@ app.post("/api/rental-orders", async (req, res) => {
     }
     if (!vehicleRow.driverId) {
       return res.status(409).json({ success: false, error: "Aucun loueur associé à ce véhicule" });
+    }
+    if (vehicleRow.modelActive === false) {
+      return res.status(409).json({ success: false, error: "Ce véhicule n'est plus disponible à la location" });
+    }
+    {
+      const [ownerRow] = await db
+        .select({
+          isActive: drivers.isActive,
+          subscriptionStatus: drivers.subscriptionStatus,
+          subscriptionEndsAt: drivers.subscriptionEndsAt,
+        })
+        .from(drivers)
+        .where(eq(drivers.id, vehicleRow.driverId))
+        .limit(1);
+      if (
+        !ownerRow ||
+        ownerRow.isActive === false ||
+        !resolveSubscriptionStatus({
+          subscriptionStatus: ownerRow.subscriptionStatus,
+          subscriptionEndsAt: ownerRow.subscriptionEndsAt,
+        }).catalogVisible
+      ) {
+        return res.status(409).json({
+          success: false,
+          error: "Ce loueur n'est plus disponible. Choisissez un autre véhicule.",
+          code: "OWNER_UNAVAILABLE",
+        });
+      }
     }
     if (vehicleRow.prestataireId) {
       const billingGate = await assertPrestataireBillingComplete(vehicleRow.prestataireId);
@@ -2141,31 +2171,33 @@ app.post("/api/rental-orders", async (req, res) => {
       const extras = normalizeListingExtras((vehicleRow as any).listingExtras);
       return [...extras.insuranceOptions, ...extras.supplementOptions];
     })();
-    const rentalSupplementsListed = Array.isArray(body.supplements)
-      ? body.supplements.map((s: any) => {
+    // Seules les options publiées sur l'annonce sont acceptées, au prix serveur
+    type ListedSupplement = { id: string; name: string; priceListed: number; price: number; quantity: number };
+    const rentalSupplementsListed: ListedSupplement[] = Array.isArray(body.supplements)
+      ? body.supplements.flatMap((s: any): ListedSupplement[] => {
           const match = listingCatalog.find(
             (o) =>
               (s.id && o.id === s.id) ||
               (s.name && o.label === s.name) ||
               (s.label && o.label === s.label)
           );
-          const listedUnit = match
-            ? Number(match.pricePerDay) || 0
-            : Number(s.pricePerDay || s.price || s.total || 0) || 0;
-          return {
-            id: s.id || match?.id,
-            name: s.name || s.label || match?.label || "Supplément",
+          if (!match) return [];
+          const listedUnit = Number(match.pricePerDay) || 0;
+          return [{
+            id: match.id,
+            name: match.label || s.name || s.label || "Supplément",
             priceListed: listedUnit,
             price: listedToClientPayable(listedUnit, tvaOpts),
             quantity: days,
-          };
+          }];
         })
       : [];
     const supplementsListed = rentalSupplementsListed.reduce(
       (sum: number, s: any) => sum + (Number(s.priceListed) || 0) * days,
       0
     );
-    const discountAmount = Number(body.pricing?.discountAmount) || 0;
+    // Aucune remise n'est acceptée depuis le client tant que les codes promo ne sont pas validés côté serveur
+    const discountAmount = 0;
     const grandListed = Math.max(0, subtotalListed + supplementsListed - discountAmount);
     const grandTotal = listedToClientPayable(grandListed, tvaOpts);
     const tvaBreakdown = splitFromPayableTtc(grandTotal, tvaOpts);
@@ -5155,6 +5187,71 @@ app.post("/api/live-activities/end", async (req, res) => {
   // GET /api/vehicles/available — 1 fiche = 1 véhicule loueur (pas d'agrégation par modèle)
   // ?service=rental|delivery|longterm|all (défaut: all = au moins un service actif)
   // ?startDate=&endDate= — optionnel : ne garder que les véhicules libres sur la plage
+  // Statut public d'une liste d'annonces (favoris, liens partagés) : même règles que le catalogue
+  app.post("/api/vehicles/status", async (req, res) => {
+    try {
+      const ids: string[] = Array.isArray(req.body?.ids)
+        ? Array.from(new Set(req.body.ids.map((x: unknown) => String(x || "").trim()).filter(Boolean))).slice(0, 100) as string[]
+        : [];
+      if (ids.length === 0) return res.json({ statuses: {} });
+      const rows = await db
+        .select({
+          id: loueurVehicles.id,
+          driverId: loueurVehicles.driverId,
+          isActive: loueurVehicles.isActive,
+          availableForRental: loueurVehicles.availableForRental,
+          pricePerDay: loueurVehicles.pricePerDay,
+          prestataireActive: prestataires.isActive,
+          prestataireNom: prestataires.nom,
+          prestataireTvaRegime: prestataires.tvaRegime,
+          prestataireTvaRate: prestataires.tvaRate,
+          prestataireTvaMode: prestataires.tvaMode,
+          modelActive: vehicleModels.isActive,
+          modelName: vehicleModels.name,
+        })
+        .from(loueurVehicles)
+        .leftJoin(prestataires, eq(loueurVehicles.prestataireId, prestataires.id))
+        .leftJoin(vehicleModels, eq(loueurVehicles.vehicleModelId, vehicleModels.id))
+        .where(inArray(loueurVehicles.id, ids));
+      const driverIds = Array.from(new Set(rows.map((r) => r.driverId).filter(Boolean))) as string[];
+      const driverRows = driverIds.length
+        ? await db
+            .select({
+              id: drivers.id,
+              isActive: drivers.isActive,
+              subscriptionStatus: drivers.subscriptionStatus,
+              subscriptionEndsAt: drivers.subscriptionEndsAt,
+            })
+            .from(drivers)
+            .where(inArray(drivers.id, driverIds))
+        : [];
+      const driverById = new Map(driverRows.map((d) => [d.id, d]));
+      const statuses: Record<string, { available: boolean; reason?: string; pricePerDay?: number; ownerName?: string; name?: string }> = {};
+      for (const id of ids) statuses[id] = { available: false, reason: "deleted" };
+      for (const r of rows) {
+        const d = r.driverId ? driverById.get(r.driverId) : undefined;
+        let reason: string | undefined;
+        if (!r.driverId || !d) reason = "owner_deleted";
+        else if (d.isActive === false || r.prestataireActive === false) reason = "owner_inactive";
+        else if (!resolveSubscriptionStatus({ subscriptionStatus: d.subscriptionStatus, subscriptionEndsAt: d.subscriptionEndsAt }).catalogVisible) reason = "owner_inactive";
+        else if (!r.isActive || !r.availableForRental || r.modelActive === false) reason = "unlisted";
+        const tvaOpts = { regime: r.prestataireTvaRegime, mode: r.prestataireTvaMode, rate: r.prestataireTvaRate };
+        statuses[r.id] = reason
+          ? { available: false, reason }
+          : {
+              available: true,
+              pricePerDay: listedToClientPayable(Number(r.pricePerDay) || 0, tvaOpts),
+              ownerName: (r.prestataireNom || "").trim() || undefined,
+              name: r.modelName || undefined,
+            };
+      }
+      return res.json({ statuses });
+    } catch (error) {
+      console.error("[VEHICLES] status error:", error);
+      return res.status(500).json({ error: "Erreur serveur" });
+    }
+  });
+
   app.get("/api/vehicles/available", async (req, res) => {
     try {
       const serviceType = (req.query.service as string) || 'all';
@@ -5276,8 +5373,10 @@ app.post("/api/live-activities/end", async (req, res) => {
       for (const row of rows) {
         if (!row.modelId || row.modelActive === false) continue;
         if (row.prestataireActive === false) continue;
+        // Sans loueur existant, l'annonce n'est pas réservable
+        if (!row.driverId || !driverActiveById.has(row.driverId)) continue;
         // Loueur désactivé côté admin → hors catalogue (même si org encore active)
-        if (row.driverId && driverActiveById.get(row.driverId) === false) continue;
+        if (driverActiveById.get(row.driverId) === false) continue;
         if (row.driverId && driverCatalogById.get(row.driverId) === false) continue;
 
         const matchesService =
@@ -5447,7 +5546,8 @@ app.post("/api/live-activities/end", async (req, res) => {
         let ownerName = (row.prestataireNom || "").trim() || "Loueur";
         let ownerAverageRating: number | null = null;
         let ownerRatingsCount = 0;
-        if (row.driverId) {
+        if (!row.driverId) continue;
+        {
           const [driver] = await db
             .select({
               firstName: drivers.firstName,
@@ -5459,7 +5559,8 @@ app.post("/api/live-activities/end", async (req, res) => {
             })
             .from(drivers)
             .where(eq(drivers.id, row.driverId));
-          if (driver) {
+          if (!driver) continue;
+          {
             if (driver.isActive === false) continue;
             if (
               !resolveSubscriptionStatus({
