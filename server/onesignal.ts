@@ -3,8 +3,8 @@
  * Notifications push pour les apps RAVE Client et RAVE Loueur (SDK OneSignal v5).
  */
 
-const DEFAULT_CLIENT_APP_ID = 'e5e23506-2176-47ce-9861-cae3b49ed002';
-const DEFAULT_DRIVER_APP_ID = 'a36c17b6-38b3-48a4-bc95-72503a18aa2b';
+const DEFAULT_CLIENT_APP_ID = 'eecb391d-782e-4717-9d77-9c95a790c5ea';
+const DEFAULT_DRIVER_APP_ID = 'e36c17b6-38b3-48a4-bc95-72502a18aa2b';
 
 function getClientAppId(): string {
   return (process.env.ONESIGNAL_CLIENT_APP_ID || DEFAULT_CLIENT_APP_ID).trim();
