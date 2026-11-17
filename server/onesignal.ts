@@ -529,6 +529,12 @@ export const driverNotifications = {
 /**
  * Fonction générique d'envoi de notification OneSignal (compatible SDK v5 / User Model v2)
  */
+const lastPushResult: Record<'client' | 'driver', unknown> = { client: null, driver: null };
+
+export function getLastPushResult(channel: 'client' | 'driver'): unknown {
+  return lastPushResult[channel];
+}
+
 async function sendNotification(
   channelLabel: 'client' | 'driver',
   appId: string,
@@ -589,6 +595,13 @@ async function sendNotification(
     });
 
     const result = await response.json().catch(() => ({}));
+    lastPushResult[channelLabel] = {
+      httpStatus: response.status,
+      appId,
+      authScheme: buildAuthHeader(apiKey).split(' ')[0],
+      target: body.include_aliases || body.filters || body.included_segments,
+      response: result,
+    };
 
     if (response.ok && !result?.errors?.invalid_aliases) {
       console.log(`[OneSignal:${channelLabel}] ✅ Notification envoyée: "${payload.title}"`, {

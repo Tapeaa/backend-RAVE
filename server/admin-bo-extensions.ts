@@ -35,6 +35,7 @@ import {
   clientNotifications,
   driverNotifications,
   getOneSignalConfigStatus,
+  getLastPushResult,
   notifyClient,
   notifyDriver,
 } from "./onesignal";
@@ -361,11 +362,13 @@ export function registerAdminBoExtensions(app: Express) {
           : await notifyClient(externalId, title, message, { type: "push_test" });
 
       await audit(req, "push.test", target, externalId, { sent });
+      const oneSignal = getLastPushResult(target);
       return res.json({
         ok: sent,
+        oneSignal,
         error: sent
           ? null
-          : "OneSignal n'a trouvé aucun appareil abonné pour cet ID (l'utilisateur doit avoir ouvert l'app et autorisé les notifications).",
+          : `Échec OneSignal : ${JSON.stringify(oneSignal)}`,
       });
     } catch (error: any) {
       return res.status(500).json({ ok: false, error: error?.message || "Erreur serveur" });
