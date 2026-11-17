@@ -9,6 +9,7 @@ import { z } from "zod";
 import { dbStorage } from "./db-storage";
 import { requireAdminAuth, requirePrestataireAuth, requireDashboardAuth, AuthenticatedRequest, generatePrestataireToken, isSociete } from "./admin-auth";
 import { db } from "./db";
+import { dbErrorMessage } from "./db-error";
 import { getIO } from "./routes";
 import { notifyClient, notifyDriver } from "./onesignal";
 import { clients, drivers, orders, invoices, tarifs, supplements, carouselImages, homeCategories, messages, prestataires, collecteFrais, vehicleModels, loueurVehicles, driverSessions } from "@shared/schema";
@@ -1404,7 +1405,7 @@ export function registerAdminRoutes(app: Express) {
     } catch (error) {
       console.error("Get tarifs error:", error);
       // Si la table n'existe pas encore, retourner un tableau vide
-      if (error instanceof Error && error.message.includes('does not exist')) {
+      if (dbErrorMessage(error).includes('does not exist')) {
         return res.json([]);
       }
       return res.status(500).json({ error: "Erreur serveur", code: "SERVER_ERROR" });
@@ -1487,7 +1488,7 @@ export function registerAdminRoutes(app: Express) {
       return res.json(allSupplements);
     } catch (error) {
       console.error("Get supplements error:", error);
-      if (error instanceof Error && error.message.includes('does not exist')) {
+      if (dbErrorMessage(error).includes('does not exist')) {
         return res.json([]);
       }
       return res.status(500).json({ error: "Erreur serveur", code: "SERVER_ERROR" });

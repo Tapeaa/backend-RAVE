@@ -1,5 +1,6 @@
 import { eq, and, gt, isNull, isNotNull, sql, desc } from "drizzle-orm";
 import { db } from "./db";
+import { dbErrorMessage } from "./db-error";
 import { 
   clients, 
   clientSessions, 
@@ -1312,7 +1313,7 @@ export class DbStorage {
       }));
     } catch (error) {
       // Si la table n'existe pas encore, retourner un tableau vide
-      if (error instanceof Error && error.message.includes('does not exist')) {
+      if (dbErrorMessage(error).includes('does not exist')) {
         return [];
       }
       throw error;
@@ -1419,7 +1420,7 @@ export class DbStorage {
         updatedAt: s.updatedAt.toISOString(),
       }));
     } catch (error) {
-      if (error instanceof Error && error.message.includes('does not exist')) {
+      if (dbErrorMessage(error).includes('does not exist')) {
         return [];
       }
       throw error;

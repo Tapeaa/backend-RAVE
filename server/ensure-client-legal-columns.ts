@@ -5,6 +5,7 @@
 
 import { db } from "./db";
 import { sql } from "drizzle-orm";
+import { dbErrorMessage } from "./db-error";
 
 export async function ensureClientLegalColumns() {
   try {
@@ -41,7 +42,7 @@ export async function ensureClientLegalColumns() {
           console.log(`[DB] ✅ Colonne ${col.name} ajoutée ou existe déjà`);
         } catch (colError: any) {
           // Ignorer si la colonne existe déjà
-          if (!colError.message?.includes('already exists')) {
+          if (!dbErrorMessage(colError).includes('already exists')) {
             console.error(`[DB] ⚠️ Erreur pour la colonne ${col.name}:`, colError.message);
           }
         }

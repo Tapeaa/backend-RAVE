@@ -8,6 +8,7 @@ import Stripe from "stripe";
 import { storage } from "./storage";
 import { verifyPassword, hashPassword, dbStorage } from "./db-storage";
 import { db } from "./db";
+import { dbErrorMessage } from "./db-error";
 import { insertOrderSchema, pushSubscriptionSchema, insertClientSchema, orders, driverSessions, drivers, collecteFrais, vehicleModels, loueurVehicles, prestataires, ratings, clients, type Order, type OrderStatus, type DriverSession } from "@shared/schema";
 import { eq, and, sql as dsql, count, inArray } from "drizzle-orm";
 import cookieParser from "cookie-parser";
@@ -5235,7 +5236,7 @@ app.post("/api/live-activities/end", async (req, res) => {
     } catch (error) {
       console.error("Get public tarifs error:", error);
       // Si la table n'existe pas encore, retourner un tableau vide
-      if (error instanceof Error && error.message.includes('does not exist')) {
+      if (dbErrorMessage(error).includes('does not exist')) {
         return res.json([]);
       }
       return res.status(500).json({ error: "Erreur serveur" });
@@ -5249,7 +5250,7 @@ app.post("/api/live-activities/end", async (req, res) => {
       return res.json(allSupplements.filter(s => s.actif));
     } catch (error) {
       console.error("Get public supplements error:", error);
-      if (error instanceof Error && error.message.includes('does not exist')) {
+      if (dbErrorMessage(error).includes('does not exist')) {
         return res.json([]);
       }
       return res.status(500).json({ error: "Erreur serveur" });
@@ -5378,7 +5379,7 @@ app.post("/api/live-activities/end", async (req, res) => {
           .leftJoin(prestataires, eq(loueurVehicles.prestataireId, prestataires.id))
           .where(eq(loueurVehicles.isActive, true));
       } catch (selectErr: any) {
-        const msg = String(selectErr?.message || selectErr || '');
+        const msg = dbErrorMessage(selectErr);
         if (!msg.includes('custom_image_urls') && !msg.includes('does not exist')) throw selectErr;
         console.warn('[AVAILABLE] custom_image_urls missing — fallback select without gallery');
         rows = await db
@@ -5597,7 +5598,7 @@ app.post("/api/live-activities/end", async (req, res) => {
             )
           );
       } catch (selectErr: any) {
-        const msg = String(selectErr?.message || selectErr || '');
+        const msg = dbErrorMessage(selectErr);
         if (!msg.includes('custom_image_urls') && !msg.includes('does not exist')) throw selectErr;
         rows = await db
           .select(loueurSelectBase)
@@ -5734,7 +5735,7 @@ app.post("/api/live-activities/end", async (req, res) => {
       })));
     } catch (error) {
       console.error("Get vehicle categories error:", error);
-      if (error instanceof Error && error.message.includes('does not exist')) {
+      if (dbErrorMessage(error).includes('does not exist')) {
         return res.json([]);
       }
       return res.status(500).json({ error: "Erreur serveur" });
@@ -5887,7 +5888,7 @@ app.post("/api/live-activities/end", async (req, res) => {
           .leftJoin(vehicleModels, eq(loueurVehicles.vehicleModelId, vehicleModels.id))
           .where(eq(loueurVehicles.prestataireId, driver.prestataireId));
       } catch (selectErr: any) {
-        const msg = String(selectErr?.message || selectErr || '');
+        const msg = dbErrorMessage(selectErr);
         if (!msg.includes('custom_image_urls')) throw selectErr;
         vehicles = await db
           .select({
@@ -6093,7 +6094,7 @@ app.post("/api/live-activities/end", async (req, res) => {
         newVehicle = created;
       } catch (insertErr: any) {
         // Compat prod : colonne custom_image_urls absente → retry sans galerie JSON
-        const msg = String(insertErr?.message || insertErr || '');
+        const msg = dbErrorMessage(insertErr);
         if (!msg.includes('custom_image_urls') && !msg.includes('customImageUrls')) {
           throw insertErr;
         }
@@ -6378,7 +6379,7 @@ app.post("/api/live-activities/end", async (req, res) => {
       });
     } catch (error) {
       console.error("Get commissions error:", error);
-      if (error instanceof Error && error.message.includes('does not exist')) {
+      if (dbErrorMessage(error).includes('does not exist')) {
         // Return default commissions if table doesn't exist
         // Note: Ces valeurs doivent correspondre à la configuration du dashboard
         return res.json({
@@ -8334,7 +8335,7 @@ const sessionId = headerSessionId || cookieSessionId;
         }
       });
       
-      const errorMessage = error?.message || error?.detail || String(error);
+      const errorMessage = dbErrorMessage(error) || error?.detail || String(error);
       const errorStr = errorMessage.toLowerCase();
       
       if (errorStr.includes('column') && (errorStr.includes('does not exist') || errorStr.includes('n\'existe pas') || errorStr.includes('doesn\'t exist'))) {

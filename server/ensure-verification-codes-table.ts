@@ -5,6 +5,7 @@
 
 import { db } from "./db";
 import { sql } from "drizzle-orm";
+import { dbErrorMessage } from "./db-error";
 
 export async function ensureVerificationCodesTable() {
   try {
@@ -56,7 +57,7 @@ export async function ensureVerificationCodesTable() {
   } catch (error) {
     console.error("[DB] ❌ Erreur lors de la création de la table verification_codes:", error);
     // Ne pas bloquer le démarrage du serveur si la table existe déjà
-    if (error instanceof Error && !error.message.includes("already exists")) {
+    if (error instanceof Error && !dbErrorMessage(error).includes("already exists")) {
       throw error;
     }
   }
