@@ -54,6 +54,20 @@ export const authLimiter = rateLimit({
 });
 
 /**
+ * Envoi de messages chat : large pour une vraie conversation, bloque le spam.
+ */
+export const messageLimiter = rateLimit({
+  windowMs: 60 * 1000,
+  max: 30,
+  message: {
+    error: 'Vous envoyez trop de messages. Patientez quelques secondes.',
+    retryAfter: '1 minute'
+  },
+  standardHeaders: true,
+  legacyHeaders: false,
+});
+
+/**
  * Codes de connexion (loueur 6 chiffres, OTP, admin) : seuls les échecs comptent.
  */
 export const loginLimiter = rateLimit({

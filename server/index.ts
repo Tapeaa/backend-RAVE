@@ -6,7 +6,7 @@ import path from "path";
 import { registerRoutes } from "./routes";
 import { registerStripeLoueurWebhook } from "./stripe-loueur-webhook";
 import { setupVite, serveStatic, log } from "./vite";
-import { apiLimiter, loginLimiter, validateHeaders, validateUrlParams } from "./security";
+import { apiLimiter, loginLimiter, messageLimiter, validateHeaders, validateUrlParams } from "./security";
 import { logger } from "./logger";
 import { healthCheck, metricsEndpoint, performanceMonitor } from "./monitoring";
 import { ensureVerificationCodesTable } from "./ensure-verification-codes-table";
@@ -97,6 +97,15 @@ app.post(
     "/api/auth/admin/login-user",
   ],
   loginLimiter,
+);
+app.post(
+  [
+    "/api/messages/send/client",
+    "/api/messages/send/driver",
+    "/api/messages/direct/send",
+    "/api/messages/direct/driver/send",
+  ],
+  messageLimiter,
 );
 
 // Health check amélioré - enregistré en premier pour les probes de déploiement

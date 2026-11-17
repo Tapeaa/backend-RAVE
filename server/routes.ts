@@ -375,6 +375,20 @@ export async function registerRoutes(app: Express): Promise<Server> {
   // Socket.IO connection handling
   io.on("connection", (socket) => {
     console.log(`Socket connected: ${socket.id}`);
+
+    // Anti-spam chat : 15 messages max par fenêtre glissante de 20 s pour cette connexion
+    const chatSendTimes: number[] = [];
+    const allowChatMessage = (content: unknown): boolean => {
+      if (typeof content !== "string" || !content.trim()) return false;
+      const now = Date.now();
+      while (chatSendTimes.length && now - chatSendTimes[0] > 20_000) chatSendTimes.shift();
+      if (chatSendTimes.length >= 15) {
+        socket.emit("chat:error", { message: "Vous envoyez trop de messages. Patientez quelques secondes." });
+        return false;
+      }
+      chatSendTimes.push(now);
+      return true;
+    };
     
     // Driver joins their session room
     socket.on("driver:join", async (data: { sessionId: string }, callback?: (ack: { success: boolean }) => void) => {
@@ -1499,6 +1513,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
     // Client sends a chat message via socket (real-time)
     socket.on("chat:send:client", async (data: { orderId: string; clientToken: string; clientSessionId?: string; content: string }) => {
       console.log(`[CHAT] Client sending message for order ${data.orderId}`);
+      if (!allowChatMessage(data?.content)) return;
       
       // First, try to get the order to validate
       let order;
@@ -1592,6 +1607,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
     // Driver sends a chat message via socket (real-time)
     socket.on("chat:send:driver", async (data: { orderId: string; sessionId: string; content: string }) => {
       console.log(`[CHAT] Driver sending message for order ${data.orderId}`);
+      if (!allowChatMessage(data?.content)) return;
       
       // Validate driver session
       let driverId: string | undefined;
@@ -3886,34 +3902,6 @@ app.post("/api/live-activities/end", async (req, res) => {
     });
   });
   
-  // Get driver location for an order (HTTP polling backup for WebSocket)
-  app.get("/api/orders/:id/driver-location", async (req, res) => {
-    const orderId = req.params.id;
-    const order = await dbStorage.getOrder(orderId);
-    
-    if (!order) {
-      return res.status(404).json({ error: "Order not found" });
-    }
-    const locClientId = await getAuthenticatedClient(req as any);
-    if (!locClientId || order.clientId !== locClientId) {
-      return res.status(403).json({ error: "Accès non autorisé" });
-    }
-    
-    const location = driverLocations.get(orderId);
-    if (!location) {
-      return res.json({ hasLocation: false });
-    }
-    
-    res.json({
-      hasLocation: true,
-      lat: location.lat,
-      lng: location.lng,
-      heading: location.heading,
-      speed: location.speed,
-      timestamp: location.timestamp
-    });
-  });
-  
   // Get order by ID
   app.get("/api/orders/:id", async (req, res) => {
     const clientId = await getAuthenticatedClient(req);
@@ -4702,88 +4690,6 @@ app.post("/api/live-activities/end", async (req, res) => {
     } catch (error) {
       console.error("Error starting booking:", error);
       return res.status(500).json({ error: "Erreur interne du serveur" });
-    }
-  });
-
-  // Check if rating exists for an order
-  app.get("/api/orders/:id/rating-status", async (req, res) => {
-    try {
-      const orderId = req.params.id;
-      const { role } = req.query;
-
-      if (!role || !['client', 'driver'].includes(role as string)) {
-        return res.status(400).json({ error: "Role requis (client ou driver)" });
-      }
-
-      const existingRating = await dbStorage.getRatingByOrderAndRater(orderId, role as 'client' | 'driver');
-
-      return res.json({
-        hasRated: !!existingRating,
-        rating: existingRating ? { score: existingRating.score, comment: existingRating.comment } : null,
-      });
-    } catch (error) {
-      console.error("Error checking rating status:", error);
-      return res.status(500).json({ error: "Erreur interne du serveur" });
-    }
-  });
-
-  // HTTP endpoint to force cleanup orphan orders (admin only)
-  app.post("/api/orders/cleanup-orphans", async (req, res) => {
-    try {
-      const { requireAdminAuth } = await import("./admin-auth");
-      let authorized = false;
-      requireAdminAuth(req as any, res, () => {
-        authorized = true;
-      });
-      if (!authorized) return;
-
-      const allOrders = await dbStorage.getAllOrders();
-      const now = new Date();
-      const ORPHAN_TIMEOUT_MS = 10 * 60 * 1000; // 10 minutes
-      
-      let cleanedCount = 0;
-      
-      for (const order of allOrders) {
-        // Commandes en attente sans chauffeur depuis plus de 10 minutes
-        if (order.status === 'pending' && !order.assignedDriverId) {
-          const orderAge = now.getTime() - new Date(order.createdAt).getTime();
-          if (orderAge > ORPHAN_TIMEOUT_MS) {
-            await dbStorage.updateOrderStatus(order.id, 'expired');
-            io.to(`order:${order.id}`).emit("ride:cancelled", {
-              orderId: order.id,
-              cancelledBy: 'system',
-              reason: 'Aucun chauffeur disponible - commande expirée',
-            });
-            cleanedCount++;
-            console.log(`[CLEANUP] Order ${order.id} expired (no driver for ${Math.round(orderAge / 60000)} minutes)`);
-          }
-        }
-        
-        // Commandes "orphelines" avec chauffeur assigné mais inactif depuis longtemps
-        if (['accepted', 'driver_enroute', 'driver_arrived', 'in_progress'].includes(order.status)) {
-          const orderAge = now.getTime() - new Date(order.updatedAt || order.createdAt).getTime();
-          // 1 heure d'inactivité = probablement abandonnée
-          if (orderAge > 60 * 60 * 1000) {
-            await dbStorage.updateOrderStatus(order.id, 'expired');
-            io.to(`order:${order.id}`).emit("ride:cancelled", {
-              orderId: order.id,
-              cancelledBy: 'system',
-              reason: 'Course expirée - trop longue inactivité',
-            });
-            cleanedCount++;
-            console.log(`[CLEANUP] Order ${order.id} expired (inactive for ${Math.round(orderAge / 3600000)} hours)`);
-          }
-        }
-      }
-      
-      return res.json({ 
-        success: true, 
-        message: `${cleanedCount} commande(s) nettoyée(s)`,
-        cleanedCount 
-      });
-    } catch (error) {
-      console.error("Error cleaning up orders:", error);
-      return res.status(500).json({ error: "Erreur lors du nettoyage" });
     }
   });
 
