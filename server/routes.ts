@@ -5815,10 +5815,12 @@ app.post("/api/live-activities/end", async (req, res) => {
           modelName: row.modelName,
           modelCategory: row.modelCategory,
           ...publicTvaMeta(tvaOpts),
-          paymentOnlineAvailable: prestataireHasOsbCredentials({
-            osbShopId: row.osbShopId,
-            osbCertificateEncrypted: row.osbCertificateEncrypted,
-          }),
+          paymentOnlineAvailable:
+            listingExtras.cardPaymentEnabled &&
+            prestataireHasOsbCredentials({
+              osbShopId: row.osbShopId,
+              osbCertificateEncrypted: row.osbCertificateEncrypted,
+            }),
         });
       }
 
@@ -6030,6 +6032,14 @@ app.post("/api/live-activities/end", async (req, res) => {
           .where(eq(loueurVehicles.prestataireId, driver.prestataireId));
       }
 
+      const [payRow] = await db
+        .select({ osbShopId: prestataires.osbShopId, osbCertificateEncrypted: prestataires.osbCertificateEncrypted })
+        .from(prestataires)
+        .where(eq(prestataires.id, driver.prestataireId))
+        .limit(1);
+      const { prestataireHasOsbCredentials: hasOsb } = await import("./osb-crypto");
+      const paymentOnlineConfigured = !!payRow && hasOsb(payRow);
+
       const normalized = vehicles.map((v) => {
         const customUrls = normalizeVehicleImageUrls(v.customImageUrls, v.customImageUrl);
         const displayUrls = resolveVehicleDisplayImages(
@@ -6053,6 +6063,8 @@ app.post("/api/live-activities/end", async (req, res) => {
               configured: isCancellationConfigured(extras),
             };
           })(),
+          cardPaymentEnabled: normalizeListingExtras(v.listingExtras).cardPaymentEnabled,
+          paymentOnlineConfigured,
         };
       });
 
@@ -6386,6 +6398,13 @@ app.post("/api/live-activities/end", async (req, res) => {
         );
         updates.customImageUrls = imageUrls;
         updates.customImageUrl = imageUrls[0] || null;
+      }
+
+      if (typeof req.body.cardPaymentEnabled === "boolean") {
+        updates.listingExtras = {
+          ...normalizeListingExtras(existing.listingExtras),
+          cardPaymentEnabled: req.body.cardPaymentEnabled,
+        };
       }
 
       if (Object.keys(updates).length === 0) {

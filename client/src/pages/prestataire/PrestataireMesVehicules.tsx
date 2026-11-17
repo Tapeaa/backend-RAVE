@@ -4,7 +4,8 @@
  */
 
 import { useEffect, useState } from 'react';
-import { CarFront, Plus, X, Check, Edit, Trash2, Eye, EyeOff, Search, CalendarOff, FileText, Pencil, ShieldCheck, AlertTriangle } from 'lucide-react';
+import { CarFront, Plus, X, Check, Edit, Trash2, Eye, EyeOff, Search, CalendarOff, FileText, Pencil, ShieldCheck, AlertTriangle, CreditCard, Banknote } from 'lucide-react';
+import { Link } from 'wouter';
 import { CancellationPolicyEditor } from '@/components/loueur/CancellationPolicyEditor';
 import { ContractStudio, parseContractSections } from '@/components/loueur/ContractStudio';
 import { useLoueurNotice } from '@/components/loueur/LoueurNotice';
@@ -195,6 +196,7 @@ export function PrestataireMesVehicules() {
   const [fleetPolicy, setFleetPolicy] = useState({ title: '', desc: '' });
   const [fleetSelected, setFleetSelected] = useState<string[]>([]);
   const [isSavingFleet, setIsSavingFleet] = useState(false);
+  const [osbConfigured, setOsbConfigured] = useState<boolean | null>(null);
 
   const [formData, setFormData] = useState<FormState>({
     vehicleModelId: '',
@@ -219,7 +221,23 @@ export function PrestataireMesVehicules() {
   useEffect(() => {
     fetchVehicles();
     fetchModels();
+    fetchPaymentSetup();
   }, []);
+
+  async function fetchPaymentSetup() {
+    try {
+      const token = localStorage.getItem('admin_token');
+      const response = await fetch('/api/prestataire/me', {
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      if (response.ok) {
+        const data = await response.json();
+        setOsbConfigured(!!data?.prestataire?.osbConfigured);
+      }
+    } catch {
+      setOsbConfigured(null);
+    }
+  }
 
   async function fetchVehicles() {
     setIsLoading(true);
@@ -889,6 +907,17 @@ export function PrestataireMesVehicules() {
                     >
                       {vehicle.rentalContractMode === 'custom' ? 'Contrat perso' : 'Contrat RAVE'}
                     </span>
+                    {osbConfigured ? (
+                      normalizeListingExtras(vehicle.listingExtras).cardPaymentEnabled ? (
+                        <span className="text-xs px-2 py-0.5 rounded-full bg-emerald-50 text-emerald-700 inline-flex items-center gap-1">
+                          <CreditCard className="w-3 h-3" /> Carte acceptée
+                        </span>
+                      ) : (
+                        <span className="text-xs px-2 py-0.5 rounded-full bg-amber-50 text-amber-700 inline-flex items-center gap-1">
+                          <Banknote className="w-3 h-3" /> Paiement sur place
+                        </span>
+                      )
+                    ) : null}
                     {vehicleHasPolicy(vehicle) ? (
                       <span className="text-xs px-2 py-0.5 rounded-full bg-emerald-50 text-emerald-700">
                         Annulation : {normalizeListingExtras(vehicle.listingExtras).cancellationTitle}
@@ -1263,6 +1292,59 @@ export function PrestataireMesVehicules() {
                     </span>
                   </label>
                 )}
+              </div>
+
+              {/* Paiement par carte — par véhicule */}
+              <div className="rounded-xl border border-sky-200 bg-sky-50/40 p-4 space-y-3">
+                <div className="flex items-start gap-2">
+                  <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-sky-100">
+                    <CreditCard className="h-4 w-4 text-sky-700" />
+                  </div>
+                  <div className="flex-1">
+                    <h3 className="text-sm font-semibold text-gray-900">Paiement par carte</h3>
+                    <p className="text-xs text-gray-600">
+                      Choisissez si le client paie ce véhicule en ligne par carte à la réservation, ou directement chez vous.
+                    </p>
+                  </div>
+                </div>
+
+                {osbConfigured === false ? (
+                  <div className="rounded-lg border border-amber-200 bg-amber-50 p-3 text-xs text-amber-900">
+                    Le paiement en ligne n’est pas encore configuré sur votre compte : vos clients paient sur place.{' '}
+                    <Link href="/prestataire/profil" className="font-semibold underline">
+                      Configurer ma banque
+                    </Link>
+                  </div>
+                ) : null}
+
+                <div className="grid gap-2 sm:grid-cols-2">
+                  {([
+                    { value: true, title: 'Carte en ligne', sub: 'Le client paie à la réservation, la demande vous arrive déjà payée.', Icon: CreditCard },
+                    { value: false, title: 'Sur place uniquement', sub: 'Le client règle chez vous à la prise du véhicule.', Icon: Banknote },
+                  ] as const).map((opt) => {
+                    const active = extras.cardPaymentEnabled === opt.value;
+                    const disabled = opt.value && osbConfigured === false;
+                    return (
+                      <button
+                        key={String(opt.value)}
+                        type="button"
+                        disabled={disabled}
+                        onClick={() => updateExtras({ cardPaymentEnabled: opt.value })}
+                        className={`rounded-xl border p-3 text-left transition disabled:opacity-50 disabled:cursor-not-allowed ${
+                          active && !disabled
+                            ? 'border-sky-500 bg-white ring-1 ring-sky-200'
+                            : 'border-gray-200 bg-white hover:border-gray-300'
+                        }`}
+                      >
+                        <span className="flex items-center gap-2">
+                          <opt.Icon className={`h-4 w-4 ${active && !disabled ? 'text-sky-700' : 'text-gray-400'}`} />
+                          <span className="text-sm font-semibold text-gray-900">{opt.title}</span>
+                        </span>
+                        <span className="mt-1 block text-xs text-gray-500">{opt.sub}</span>
+                      </button>
+                    );
+                  })}
+                </div>
               </div>
 
               {editingVehicle && (

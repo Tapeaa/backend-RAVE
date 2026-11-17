@@ -6,6 +6,7 @@ import { db } from "./db";
 import { loueurVehicles, orders, prestataires } from "@shared/schema";
 import { eq, sql } from "drizzle-orm";
 import { decryptOsbCertificate, prestataireHasOsbCredentials } from "./osb-crypto";
+import { normalizeListingExtras } from "@shared/listing-extras";
 
 export type PaymentProvider = "payzen" | "systempay";
 
@@ -448,6 +449,7 @@ export async function getPrestataireOsbForVehicle(loueurVehicleId: string): Prom
   const [row] = await db
     .select({
       prestataireId: loueurVehicles.prestataireId,
+      listingExtras: loueurVehicles.listingExtras,
       osbShopId: prestataires.osbShopId,
       osbCertificateEncrypted: prestataires.osbCertificateEncrypted,
     })
@@ -459,10 +461,12 @@ export async function getPrestataireOsbForVehicle(loueurVehicleId: string): Prom
   if (!row) return { paymentOnlineAvailable: false, prestataireId: null };
   return {
     prestataireId: row.prestataireId,
-    paymentOnlineAvailable: prestataireHasOsbCredentials({
-      osbShopId: row.osbShopId,
-      osbCertificateEncrypted: row.osbCertificateEncrypted,
-    }),
+    paymentOnlineAvailable:
+      normalizeListingExtras(row.listingExtras).cardPaymentEnabled &&
+      prestataireHasOsbCredentials({
+        osbShopId: row.osbShopId,
+        osbCertificateEncrypted: row.osbCertificateEncrypted,
+      }),
   };
 }
 

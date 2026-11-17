@@ -54,6 +54,8 @@ export type VehicleListingExtras = {
   depositRequired: boolean;
   depositAmount: number | null;
   depositNote: string;
+  /** Le loueur propose le paiement par carte pour ce véhicule (si son paiement en ligne est configuré). */
+  cardPaymentEnabled: boolean;
 };
 
 export const TRANSMISSION_OPTIONS: { value: TransmissionCode; label: string }[] = [
@@ -153,6 +155,7 @@ export const DEFAULT_LISTING_EXTRAS: VehicleListingExtras = {
   depositRequired: false,
   depositAmount: null,
   depositNote: "À convenir avec le loueur",
+  cardPaymentEnabled: true,
 };
 
 function asString(v: unknown, fallback: string): string {
@@ -315,6 +318,7 @@ export function normalizeListingExtras(raw: unknown): VehicleListingExtras {
     depositRequired: o.depositRequired === true,
     depositAmount: asNullableNumber(o.depositAmount),
     depositNote: asString(o.depositNote, d.depositNote),
+    cardPaymentEnabled: o.cardPaymentEnabled !== false,
   };
 }
 
