@@ -82,9 +82,8 @@ export function getRentalStatusDisplay(order: OrderLike): RentalStatusDisplay {
   if (s === 'pending') return make('À valider', 'amber', 'Demande à valider');
   if (s === 'accepted' || s === 'booked') {
     const phase = ro.rentalLifecyclePhase;
-    if (phase === 'with_client') return make('Chez le client', 'blue', 'Véhicule chez le client');
     if (phase === 'returned') return make('Véhicule rendu', 'green');
-    return make('À remettre au client', 'blue', 'Réservation confirmée — véhicule à remettre');
+    return make('Location en cours', 'blue', 'Réservation acceptée — location en cours');
   }
   const base = BASE[s] || { label: s, tone: 'gray' as StatusTone };
   return make(base.label, base.tone);

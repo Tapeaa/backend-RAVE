@@ -264,23 +264,7 @@ export function AdminCommandeDetails() {
             )}
           </div>
           <div className="flex flex-wrap gap-2">
-            {canLifecycle && rentalPhase !== 'with_client' && (
-            <button
-              className="rounded-lg bg-blue-600 px-3 py-1.5 text-xs text-white"
-              onClick={async () => {
-                const token = localStorage.getItem('admin_token');
-                await fetch(`/api/admin/commandes/${commandeId}/lifecycle`, {
-                  method: 'POST',
-                  headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
-                  body: JSON.stringify({ phase: 'with_client' }),
-                });
-                fetchDetails();
-              }}
-            >
-              Remise client
-            </button>
-            )}
-            {canLifecycle && rentalPhase === 'with_client' && (
+            {canLifecycle && rentalPhase !== 'returned' && (
             <button
               className="rounded-lg bg-green-600 px-3 py-1.5 text-xs text-white"
               onClick={async () => {

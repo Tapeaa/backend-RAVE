@@ -3718,10 +3718,20 @@ app.post("/api/rental-orders/:id/lifecycle", async (req, res) => {
         });
       }
     } else if (phase === "returned") {
-      if (currentPhase !== "with_client") {
+      const inProgress =
+        currentPhase === "with_client" ||
+        (["accepted", "booked"].includes(status) &&
+          (!currentPhase || currentPhase === "vehicle_ready" || currentPhase === "awaiting_validation"));
+      if (!inProgress) {
         return res.status(400).json({
           success: false,
-          error: `Transition invalide: impossible de passer à 'returned' depuis phase='${currentPhase || "none"}'. Le véhicule doit d'abord être remis au client.`,
+          error: `Transition invalide: impossible de passer à 'returned' depuis status='${status}', phase='${currentPhase || "none"}'.`,
+        });
+      }
+      if ((order.rideOption as any)?.cancelRequest?.status === "pending") {
+        return res.status(409).json({
+          success: false,
+          error: "Une demande d'annulation est en attente : acceptez ou refusez-la avant de clôturer la location",
         });
       }
     }
@@ -3746,6 +3756,9 @@ app.post("/api/rental-orders/:id/lifecycle", async (req, res) => {
         ].slice(0, 8);
       }
     } else if (phase === "returned") {
+      if (!updatedRideOption.handoverAt) {
+        updatedRideOption.handoverAt = (currentRideOption as any).startDate || new Date().toISOString();
+      }
       updatedRideOption.returnedAt = new Date().toISOString();
       if (photoUrls.length) {
         updatedRideOption.returnPhotos = [
