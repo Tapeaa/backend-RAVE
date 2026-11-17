@@ -33,9 +33,6 @@ export async function sendVerificationCode(phoneNumber: string): Promise<{ succe
 
     console.log(`[TWILIO] Envoi du code de vérification à ${normalizedPhone}`);
     console.log(`[TWILIO DEBUG] Account SID: ${TWILIO_ACCOUNT_SID ? TWILIO_ACCOUNT_SID.substring(0, 10) + '...' : 'MISSING'}, Auth Token: ${TWILIO_AUTH_TOKEN ? '***' + TWILIO_AUTH_TOKEN.substring(TWILIO_AUTH_TOKEN.length - 4) : 'MISSING'}, Service SID: ${TWILIO_VERIFY_SERVICE_SID || 'MISSING'}`);
-    // #region agent log
-    fetch('http://127.0.0.1:7242/ingest/18c9163f-4b67-4579-b7aa-ab0aff42521f',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'server/twilio.ts:34',message:'Before Twilio API call',data:{normalizedPhone,hasTWILIO_VERIFY_SERVICE_SID:!!TWILIO_VERIFY_SERVICE_SID},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'B'})}).catch(()=>{});
-    // #endregion
 
     const verification = await twilioClient.verify.v2
       .services(TWILIO_VERIFY_SERVICE_SID)
@@ -44,9 +41,6 @@ export async function sendVerificationCode(phoneNumber: string): Promise<{ succe
         to: normalizedPhone,
         channel: 'sms',
       });
-    // #region agent log
-    fetch('http://127.0.0.1:7242/ingest/18c9163f-4b67-4579-b7aa-ab0aff42521f',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'server/twilio.ts:43',message:'Twilio API success',data:{status:verification.status,sid:verification.sid},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'B'})}).catch(()=>{});
-    // #endregion
 
     console.log(`[TWILIO] ✅ Code envoyé - Status: ${verification.status}, SID: ${verification.sid}`);
 
@@ -60,9 +54,6 @@ export async function sendVerificationCode(phoneNumber: string): Promise<{ succe
       moreInfo: error.moreInfo,
       stack: error.stack
     });
-    // #region agent log
-    fetch('http://127.0.0.1:7242/ingest/18c9163f-4b67-4579-b7aa-ab0aff42521f',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'server/twilio.ts:50',message:'Twilio API error',data:{errorMessage:error.message,errorCode:error.code,errorName:error.name,errorString:String(error)},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'B'})}).catch(()=>{});
-    // #endregion
     
     // Gestion des erreurs spécifiques Twilio
     if (error.code === 60200) {

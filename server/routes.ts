@@ -5137,28 +5137,16 @@ app.post("/api/live-activities/end", async (req, res) => {
   // Update driver online status
   app.patch("/api/driver-sessions/:id/status", async (req, res) => {
     try {
-      // #region agent log
-      fetch('http://127.0.0.1:7242/ingest/18c9163f-4b67-4579-b7aa-ab0aff42521f',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'routes.ts:2360',message:'PATCH /api/driver-sessions/:id/status - Entry',data:{sessionId:req.params.id,isOnline:req.body.isOnline},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'A,B'})}).catch(()=>{});
-      // #endregion
       
       const { isOnline } = req.body;
       let session = await storage.updateDriverOnlineStatus(req.params.id, isOnline);
       
-      // #region agent log
-      fetch('http://127.0.0.1:7242/ingest/18c9163f-4b67-4579-b7aa-ab0aff42521f',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'routes.ts:2365',message:'After storage.updateDriverOnlineStatus',data:{sessionFound:!!session,sessionId:req.params.id},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'A,B'})}).catch(()=>{});
-      // #endregion
       
       // Si la session n'existe pas en mémoire, vérifier en base de données (fallback après redémarrage)
       if (!session) {
-        // #region agent log
-        fetch('http://127.0.0.1:7242/ingest/18c9163f-4b67-4579-b7aa-ab0aff42521f',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'routes.ts:2370',message:'Session not in memory, checking database',data:{sessionId:req.params.id},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'B'})}).catch(()=>{});
-        // #endregion
         
         const dbSession = await dbStorage.getDbDriverSession(req.params.id);
         
-        // #region agent log
-        fetch('http://127.0.0.1:7242/ingest/18c9163f-4b67-4579-b7aa-ab0aff42521f',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'routes.ts:2375',message:'Database session check result',data:{dbSessionFound:!!dbSession,sessionId:req.params.id},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'B'})}).catch(()=>{});
-        // #endregion
         
         if (dbSession) {
           // Recréer la session en mémoire avec les données de la base
@@ -5187,9 +5175,6 @@ app.post("/api/live-activities/end", async (req, res) => {
         }
       }
       
-      // #region agent log
-      fetch('http://127.0.0.1:7242/ingest/18c9163f-4b67-4579-b7aa-ab0aff42521f',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'routes.ts:2400',message:'Final session check before response',data:{sessionFound:!!session,sessionId:req.params.id},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'A,B'})}).catch(()=>{});
-      // #endregion
       
       if (!session) {
         return res.status(404).json({ error: "Session not found" });
@@ -5207,9 +5192,6 @@ app.post("/api/live-activities/end", async (req, res) => {
       
       res.json({ success: true, session });
     } catch (error) {
-      // #region agent log
-      fetch('http://127.0.0.1:7242/ingest/18c9163f-4b67-4579-b7aa-ab0aff42521f',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'routes.ts:2415',message:'Error in status update endpoint',data:{error:error instanceof Error ? error.message : 'Unknown',sessionId:req.params.id},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'A,B'})}).catch(()=>{});
-      // #endregion
       console.error("Error updating driver status:", error);
       res.status(500).json({ error: "Failed to update status" });
     }
@@ -6641,26 +6623,14 @@ app.post("/api/live-activities/end", async (req, res) => {
       await dbStorage.updateClientVerified(client.id, false);
       
       // Send verification code via Twilio
-      // #region agent log
-      fetch('http://127.0.0.1:7242/ingest/18c9163f-4b67-4579-b7aa-ab0aff42521f',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'server/routes.ts:1935',message:'Before Twilio check',data:{clientId:client.id,phone:client.phone,NODE_ENV:process.env.NODE_ENV},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'A'})}).catch(()=>{});
-      // #endregion
       const isDev = process.env.NODE_ENV !== "production";
       const twilioConfigured = isTwilioConfigured();
       let shouldUseDevCode = !twilioConfigured || isDev; // Par défaut, utiliser le code dev si Twilio n'est pas configuré ou en dev
       let smsSuccess = false;
-      // #region agent log
-      fetch('http://127.0.0.1:7242/ingest/18c9163f-4b67-4579-b7aa-ab0aff42521f',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'server/routes.ts:1938',message:'Twilio config check',data:{isDev,twilioConfigured,hasTWILIO_ACCOUNT_SID:!!process.env.TWILIO_ACCOUNT_SID,hasTWILIO_AUTH_TOKEN:!!process.env.TWILIO_AUTH_TOKEN,hasTWILIO_VERIFY_SERVICE_SID:!!process.env.TWILIO_VERIFY_SERVICE_SID},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'A'})}).catch(()=>{});
-      // #endregion
       
       if (twilioConfigured) {
-        // #region agent log
-        fetch('http://127.0.0.1:7242/ingest/18c9163f-4b67-4579-b7aa-ab0aff42521f',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'server/routes.ts:1942',message:'Before sendVerificationCode',data:{phone:client.phone},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'B'})}).catch(()=>{});
-        // #endregion
         const smsResult = await sendVerificationCode(client.phone);
         console.log(`[REGISTER] Résultat Twilio SMS:`, { success: smsResult.success, error: smsResult.error });
-        // #region agent log
-        fetch('http://127.0.0.1:7242/ingest/18c9163f-4b67-4579-b7aa-ab0aff42521f',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'server/routes.ts:1944',message:'After sendVerificationCode',data:{success:smsResult.success,error:smsResult.error},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'B'})}).catch(()=>{});
-        // #endregion
         if (!smsResult.success) {
           console.error(`[REGISTER] ❌ Échec envoi SMS Twilio: ${smsResult.error}`);
           
@@ -6672,23 +6642,11 @@ app.post("/api/live-activities/end", async (req, res) => {
             shouldUseDevCode = true; // Forcer l'utilisation du code dev si erreur d'auth
           } else if (!isDev) {
             // En production, on rejette si Twilio échoue (sauf erreur d'auth)
-            // #region agent log
-            fetch('http://127.0.0.1:7242/ingest/18c9163f-4b67-4579-b7aa-ab0aff42521f',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'server/routes.ts:1947',message:'Twilio failed, attempting delete',data:{clientId:client.id,smsError:smsResult.error,isDev},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'C'})}).catch(()=>{});
-            // #endregion
             // Essayer de supprimer le client créé (avec try/catch au cas où la méthode n'existe pas)
             try {
               if (typeof dbStorage.deleteClient === 'function') {
-                // #region agent log
-                fetch('http://127.0.0.1:7242/ingest/18c9163f-4b67-4579-b7aa-ab0aff42521f',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'server/routes.ts:1950',message:'Calling deleteClient',data:{clientId:client.id},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'C'})}).catch(()=>{});
-                // #endregion
                 await dbStorage.deleteClient(client.id);
-                // #region agent log
-                fetch('http://127.0.0.1:7242/ingest/18c9163f-4b67-4579-b7aa-ab0aff42521f',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'server/routes.ts:1953',message:'deleteClient success',data:{clientId:client.id},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'C'})}).catch(()=>{});
-                // #endregion
               } else {
-                // #region agent log
-                fetch('http://127.0.0.1:7242/ingest/18c9163f-4b67-4579-b7aa-ab0aff42521f',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'server/routes.ts:1956',message:'deleteClient not found, using fallback',data:{clientId:client.id},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'C'})}).catch(()=>{});
-                // #endregion
                 // Fallback: supprimer directement via SQL si la méthode n'existe pas
                 const { db } = await import("./db");
                 const { clients } = await import("@shared/schema");
@@ -6697,14 +6655,8 @@ app.post("/api/live-activities/end", async (req, res) => {
               }
             } catch (deleteError) {
               console.error(`[REGISTER] Impossible de supprimer le client créé:`, deleteError);
-              // #region agent log
-              fetch('http://127.0.0.1:7242/ingest/18c9163f-4b67-4579-b7aa-ab0aff42521f',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'server/routes.ts:1961',message:'deleteClient error',data:{clientId:client.id,errorMessage:deleteError instanceof Error?deleteError.message:String(deleteError)},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'C'})}).catch(()=>{});
-              // #endregion
               // On continue quand même - le client restera en base mais non vérifié
             }
-            // #region agent log
-            fetch('http://127.0.0.1:7242/ingest/18c9163f-4b67-4579-b7aa-ab0aff42521f',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'server/routes.ts:1965',message:'Returning 500 error',data:{smsError:smsResult.error},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'D'})}).catch(()=>{});
-            // #endregion
             return res.status(500).json({ error: smsResult.error || "Erreur lors de l'envoi du code SMS" });
           } else {
             // En dev, si Twilio échoue, utiliser le code dev
@@ -6729,15 +6681,9 @@ app.post("/api/live-activities/end", async (req, res) => {
       });
     } catch (error: any) {
       console.error("Error registering client:", error);
-      // #region agent log
-      fetch('http://127.0.0.1:7242/ingest/18c9163f-4b67-4579-b7aa-ab0aff42521f',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'server/routes.ts:1988',message:'Register catch error',data:{errorMessage:error instanceof Error?error.message:String(error),errorName:error instanceof Error?error.name:'unknown',errorCode:error.code,errorStack:error instanceof Error?error.stack:undefined,hasErrors:!!error.errors},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'D'})}).catch(()=>{});
-      // #endregion
       if (error.errors) {
         return res.status(400).json({ error: error.errors[0]?.message || "Données invalides" });
       }
-      // #region agent log
-      fetch('http://127.0.0.1:7242/ingest/18c9163f-4b67-4579-b7aa-ab0aff42521f',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'server/routes.ts:2017',message:'Returning generic 400/500 error',data:{errorMessage:error instanceof Error?error.message:String(error),errorCode:error.code,errorName:error instanceof Error?error.name:'unknown'},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'D'})}).catch(()=>{});
-      // #endregion
       
       // Si l'erreur est "Authenticate" (Twilio credentials invalides), retourner un message plus clair
       const isAuthError = error.message === 'Authenticate' || error.message?.includes('Authenticate');
