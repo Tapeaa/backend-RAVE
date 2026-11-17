@@ -52,7 +52,8 @@ app.use(cors((req, callback) => {
     }
   }
   callback(null, {
-    origin: allowed,
+    // `origin: false` vaut « * » pour la lib cors : une liste vide refuse vraiment
+    origin: allowed ? true : [],
     credentials: true,
     methods: ["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
     allowedHeaders: ["Content-Type", "Cookie", "Authorization", "X-Client-Session-Id", "X-Driver-Session-Id", "X-Driver-Session", "X-Admin-Secret", "X-App-Supports-Menu-Burger", "X-App-Version"],
