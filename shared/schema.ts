@@ -1033,7 +1033,9 @@ export const adminUsers = pgTable("admin_users", {
 export const disputes = pgTable("disputes", {
   id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
   orderId: varchar("order_id").notNull().references(() => orders.id),
-  openedBy: text("opened_by").notNull(), // admin | client | loueur
+  openedBy: text("opened_by").notNull(), // admin | client | driver
+  openedById: varchar("opened_by_id"),
+  category: text("category").default("other").notNull(),
   reason: text("reason").notNull(),
   status: text("status").default("open").notNull(), // open | in_review | resolved | rejected
   resolution: text("resolution"),

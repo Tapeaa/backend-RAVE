@@ -20,10 +20,11 @@ import {
   vehicleAvailabilityBlocks,
   adminUsers,
   disputes,
+  drivers,
   adminAuditLogs,
   invoices,
 } from "@shared/schema";
-import { eq, desc, and, gte, lte, or } from "drizzle-orm";
+import { eq, desc, and, gte, lte, or, inArray } from "drizzle-orm";
 import { createAvailabilityBlock } from "./availability-blocks";
 import {
   buildRentalCancelPayload,
@@ -859,10 +860,52 @@ export function registerAdminBoExtensions(app: Express) {
   });
 
   // ─── LITIGES ────────────────────────────────────────────────────
-  app.get("/api/admin/disputes", requireAdminAuth, async (_req, res) => {
+  app.get("/api/admin/disputes", requireAdminAuth, async (req, res) => {
     try {
-      const list = await db.select().from(disputes).orderBy(desc(disputes.createdAt));
-      return res.json(list);
+      const orderIdFilter = typeof req.query.orderId === "string" ? req.query.orderId : null;
+      const rows = await db
+        .select({ dispute: disputes, order: orders })
+        .from(disputes)
+        .leftJoin(orders, eq(disputes.orderId, orders.id))
+        .where(orderIdFilter ? eq(disputes.orderId, orderIdFilter) : undefined)
+        .orderBy(desc(disputes.createdAt));
+
+      const ownerIds = Array.from(
+        new Set(rows.map((r) => (r.order ? getRentalOwnerDriverIdFromOrder(r.order) : null)).filter(Boolean) as string[]),
+      );
+      const owners = ownerIds.length
+        ? await db
+            .select({ id: drivers.id, firstName: drivers.firstName, lastName: drivers.lastName, phone: drivers.phone })
+            .from(drivers)
+            .where(inArray(drivers.id, ownerIds))
+        : [];
+      const ownerById = new Map(owners.map((o) => [o.id, o]));
+
+      return res.json(
+        rows.map(({ dispute, order }) => {
+          const ro = ((order?.rideOption || {}) as Record<string, any>) || {};
+          const ownerId = order ? getRentalOwnerDriverIdFromOrder(order) : null;
+          const owner = ownerId ? ownerById.get(ownerId) : undefined;
+          return {
+            ...dispute,
+            order: order
+              ? {
+                  id: order.id,
+                  status: order.status,
+                  totalPrice: order.totalPrice,
+                  paymentMethod: order.paymentMethod,
+                  clientName: order.clientName,
+                  clientPhone: order.clientPhone,
+                  vehicleTitle: ro.title || "Location",
+                  startDate: ro.startDate || null,
+                  endDate: ro.endDate || null,
+                  loueurName: owner ? `${owner.firstName} ${owner.lastName}`.trim() : null,
+                  loueurPhone: owner?.phone || null,
+                }
+              : null,
+          };
+        }),
+      );
     } catch (error) {
       console.error("Admin disputes error:", error);
       return res.status(500).json({ error: "Erreur serveur" });
@@ -871,16 +914,16 @@ export function registerAdminBoExtensions(app: Express) {
 
   app.post("/api/admin/disputes", requireAdminAuth, async (req: AuthenticatedRequest, res) => {
     try {
-      const { orderId, reason, openedBy } = req.body;
-      if (!orderId || !reason) return res.status(400).json({ error: "orderId et reason requis" });
+      const { isDisputeCategory } = await import("@shared/disputes");
+      const { orderId, category } = req.body || {};
+      const reason = String(req.body?.reason || "").trim();
+      if (!orderId || !reason) return res.status(400).json({ error: "Commande et description requises" });
+      if (!isDisputeCategory(category)) return res.status(400).json({ error: "Catégorie invalide" });
+      const [order] = await db.select({ id: orders.id }).from(orders).where(eq(orders.id, orderId)).limit(1);
+      if (!order) return res.status(404).json({ error: "Commande introuvable" });
       const [created] = await db
         .insert(disputes)
-        .values({
-          orderId,
-          reason,
-          openedBy: openedBy || "admin",
-          status: "open",
-        })
+        .values({ orderId, category, reason, openedBy: "admin", status: "open" })
         .returning();
       await audit(req, "dispute.create", "dispute", created.id);
       return res.status(201).json(created);
@@ -892,12 +935,18 @@ export function registerAdminBoExtensions(app: Express) {
 
   app.patch("/api/admin/disputes/:id", requireAdminAuth, async (req: AuthenticatedRequest, res) => {
     try {
-      const { status, resolution, refundAmount } = req.body;
+      const { status, resolution } = req.body || {};
+      if (status && !["open", "in_review", "resolved", "rejected"].includes(status)) {
+        return res.status(400).json({ error: "Statut invalide" });
+      }
+      if ((status === "resolved" || status === "rejected") && !String(resolution || "").trim()) {
+        return res.status(400).json({ error: "Expliquez la décision prise" });
+      }
       const updates: Record<string, unknown> = {};
       if (status) updates.status = status;
-      if (resolution !== undefined) updates.resolution = resolution;
-      if (refundAmount !== undefined) updates.refundAmount = refundAmount;
+      if (resolution !== undefined) updates.resolution = String(resolution).trim() || null;
       if (status === "resolved" || status === "rejected") updates.resolvedAt = new Date();
+      if (status === "open" || status === "in_review") updates.resolvedAt = null;
       const [updated] = await db.update(disputes).set(updates).where(eq(disputes.id, req.params.id)).returning();
       if (!updated) return res.status(404).json({ error: "Litige introuvable" });
       await audit(req, "dispute.update", "dispute", req.params.id, updates);

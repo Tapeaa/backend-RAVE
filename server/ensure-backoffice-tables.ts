@@ -83,6 +83,8 @@ export async function ensureBackofficeTables() {
         resolved_at TIMESTAMP
       );
     `);
+    await db.execute(sql`ALTER TABLE disputes ADD COLUMN IF NOT EXISTS opened_by_id VARCHAR;`);
+    await db.execute(sql`ALTER TABLE disputes ADD COLUMN IF NOT EXISTS category TEXT NOT NULL DEFAULT 'other';`);
 
     await db.execute(sql`
       CREATE TABLE IF NOT EXISTS admin_audit_logs (

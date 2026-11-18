@@ -10,7 +10,7 @@ import { verifyPassword, hashPassword, dbStorage } from "./db-storage";
 import { db } from "./db";
 import { dbErrorMessage } from "./db-error";
 import { setRealtimeIo } from "./realtime";
-import { insertOrderSchema, pushSubscriptionSchema, insertClientSchema, orders, driverSessions, drivers, collecteFrais, vehicleModels, loueurVehicles, prestataires, ratings, clients, type Order, type OrderStatus, type DriverSession } from "@shared/schema";
+import { insertOrderSchema, pushSubscriptionSchema, insertClientSchema, orders, driverSessions, drivers, collecteFrais, vehicleModels, loueurVehicles, prestataires, ratings, clients, disputes, type Order, type OrderStatus, type DriverSession } from "@shared/schema";
 import { eq, and, sql as dsql, count, inArray } from "drizzle-orm";
 import cookieParser from "cookie-parser";
 import multer from "multer";
@@ -8726,6 +8726,121 @@ const sessionId = headerSessionId || cookieSessionId;
 
     return session.clientId;
   }
+
+  // ============ LITIGES (signalements client / loueur) ============
+
+  async function resolveDisputeActor(
+    req: Request,
+    order: Order,
+  ): Promise<{ ok: true; role: "client" | "driver"; actorId: string } | { ok: false; status: number; error: string }> {
+    const driverAuth = await requireDriverSessionFromReq(req);
+    if (driverAuth.ok) {
+      if (getRentalOwnerDriverId(order) !== driverAuth.session.driverId) {
+        return { ok: false, status: 403, error: "Vous n'êtes pas le loueur de cette réservation" };
+      }
+      return { ok: true, role: "driver", actorId: driverAuth.session.driverId };
+    }
+    const clientId = await getAuthenticatedClient(req);
+    if (clientId) {
+      if (order.clientId !== clientId) return { ok: false, status: 403, error: "Cette réservation ne vous appartient pas" };
+      return { ok: true, role: "client", actorId: clientId };
+    }
+    return { ok: false, status: 401, error: "Authentification requise" };
+  }
+
+  function serializeDispute(d: typeof disputes.$inferSelect) {
+    return {
+      id: d.id,
+      orderId: d.orderId,
+      openedBy: d.openedBy,
+      category: d.category,
+      reason: d.reason,
+      status: d.status,
+      resolution: d.resolution,
+      createdAt: d.createdAt,
+      resolvedAt: d.resolvedAt,
+    };
+  }
+
+  app.get("/api/orders/:id/disputes", async (req, res) => {
+    try {
+      const order = await dbStorage.getOrder(req.params.id);
+      if (!order) return res.status(404).json({ success: false, error: "Réservation introuvable" });
+      const actor = await resolveDisputeActor(req as unknown as Request, order);
+      if (!actor.ok) return res.status(actor.status).json({ success: false, error: actor.error });
+      const { canOpenDispute, disputeDeadline, OPEN_DISPUTE_STATUSES } = await import("@shared/disputes");
+      const rows = await db
+        .select()
+        .from(disputes)
+        .where(eq(disputes.orderId, order.id))
+        .orderBy(dsql`${disputes.createdAt} desc`);
+      const hasOpenOwn = rows.some(
+        (d) => d.openedBy === actor.role && (OPEN_DISPUTE_STATUSES as readonly string[]).includes(d.status),
+      );
+      const eligibility = canOpenDispute(order);
+      return res.json({
+        success: true,
+        disputes: rows.map(serializeDispute),
+        canOpen: eligibility.ok && !hasOpenOwn,
+        blockedReason: hasOpenOwn
+          ? "Vous avez déjà un signalement en cours pour cette location."
+          : eligibility.ok
+            ? null
+            : eligibility.reason,
+        deadline: disputeDeadline(order),
+      });
+    } catch (error) {
+      console.error("order disputes list error:", error);
+      return res.status(500).json({ success: false, error: "Erreur serveur" });
+    }
+  });
+
+  app.post("/api/orders/:id/disputes", async (req, res) => {
+    try {
+      const order = await dbStorage.getOrder(req.params.id);
+      if (!order) return res.status(404).json({ success: false, error: "Réservation introuvable" });
+      const actor = await resolveDisputeActor(req as unknown as Request, order);
+      if (!actor.ok) return res.status(actor.status).json({ success: false, error: actor.error });
+      const { canOpenDispute, isDisputeCategory, DISPUTE_REASON_MIN, DISPUTE_REASON_MAX, OPEN_DISPUTE_STATUSES } =
+        await import("@shared/disputes");
+
+      const category = req.body?.category;
+      const reason = String(req.body?.reason || "").trim();
+      if (!isDisputeCategory(category)) return res.status(400).json({ success: false, error: "Catégorie invalide" });
+      if (reason.length < DISPUTE_REASON_MIN || reason.length > DISPUTE_REASON_MAX) {
+        return res.status(400).json({
+          success: false,
+          error: `Décrivez le problème en ${DISPUTE_REASON_MIN} à ${DISPUTE_REASON_MAX} caractères.`,
+        });
+      }
+      const eligibility = canOpenDispute(order);
+      if (!eligibility.ok) return res.status(409).json({ success: false, error: eligibility.reason });
+
+      const [existing] = await db
+        .select({ id: disputes.id })
+        .from(disputes)
+        .where(
+          and(
+            eq(disputes.orderId, order.id),
+            eq(disputes.openedBy, actor.role),
+            inArray(disputes.status, [...OPEN_DISPUTE_STATUSES]),
+          ),
+        )
+        .limit(1);
+      if (existing) {
+        return res.status(409).json({ success: false, error: "Vous avez déjà un signalement en cours pour cette location." });
+      }
+
+      const [created] = await db
+        .insert(disputes)
+        .values({ orderId: order.id, openedBy: actor.role, openedById: actor.actorId, category, reason, status: "open" })
+        .returning();
+      return res.status(201).json({ success: true, dispute: serializeDispute(created) });
+    } catch (error) {
+      console.error("order dispute create error:", error);
+      return res.status(500).json({ success: false, error: "Erreur serveur" });
+    }
+  });
 
   // ============ PAYZEN / OSB (paiement multi-tenant loueur) ============
 

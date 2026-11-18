@@ -12,6 +12,12 @@ import {
 import {
   RentalContractSignatures,
 } from '@/components/rental/RentalContractSignatures';
+import { disputeCategoryLabel } from '@shared/disputes';
+import {
+  DISPUTE_ROLE_LABELS,
+  DISPUTE_STATUS_LABELS,
+  OpenDisputeDialog,
+} from '@/components/admin/DisputeDialogs';
 
 const ADMIN_STATUS_OPTIONS = [
   { value: 'pending', label: 'À valider' },
@@ -94,6 +100,8 @@ export function AdminCommandeDetails() {
   const [, setLocation] = useLocation();
   const [details, setDetails] = useState<CommandeDetails | null>(null);
   const [isLoading, setIsLoading] = useState(true);
+  const [orderDisputes, setOrderDisputes] = useState<any[]>([]);
+  const [disputeDialogOpen, setDisputeDialogOpen] = useState(false);
   
   // Récupérer l'ID depuis l'URL
   const pathParts = window.location.pathname.split('/');
@@ -101,7 +109,20 @@ export function AdminCommandeDetails() {
 
   useEffect(() => {
     fetchDetails();
+    fetchDisputes();
   }, [commandeId]);
+
+  async function fetchDisputes() {
+    try {
+      const token = localStorage.getItem('admin_token');
+      const res = await fetch(`/api/admin/disputes?orderId=${encodeURIComponent(commandeId)}`, {
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      if (res.ok) setOrderDisputes(await res.json());
+    } catch {
+      /* non bloquant */
+    }
+  }
 
   async function fetchDetails() {
     setIsLoading(true);
@@ -334,22 +355,50 @@ export function AdminCommandeDetails() {
             )}
             <button
               className="rounded-lg border border-amber-300 bg-white px-3 py-1.5 text-xs text-amber-800"
-              onClick={async () => {
-                const reason = prompt('Motif du litige');
-                if (!reason) return;
-                const token = localStorage.getItem('admin_token');
-                await fetch('/api/admin/disputes', {
-                  method: 'POST',
-                  headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
-                  body: JSON.stringify({ orderId: commandeId, reason }),
-                });
-                alert('Litige ouvert');
-              }}
+              onClick={() => setDisputeDialogOpen(true)}
             >
-              Ouvrir litige
+              Ouvrir un litige
             </button>
           </div>
         </div>
+      )}
+
+      {orderDisputes.length > 0 && (
+        <div className="rounded-xl border border-orange-200 bg-white p-4 space-y-3">
+          <div className="flex items-center justify-between gap-2">
+            <h3 className="font-semibold text-slate-900">Litiges sur cette location</h3>
+            <button onClick={() => setLocation('/admin/disputes')} className="text-xs text-amber-700 underline">
+              Gérer les litiges
+            </button>
+          </div>
+          {orderDisputes.map((d) => {
+            const st = DISPUTE_STATUS_LABELS[d.status] || { label: d.status, className: 'bg-slate-100 text-slate-700' };
+            return (
+              <div key={d.id} className="rounded-lg bg-slate-50 p-3 text-sm space-y-1">
+                <div className="flex flex-wrap items-center gap-2">
+                  <span className={`rounded-full px-2 py-0.5 text-xs font-medium ${st.className}`}>{st.label}</span>
+                  <span className="text-xs font-medium text-orange-700">{disputeCategoryLabel(d.category)}</span>
+                  <span className="text-xs text-slate-500">
+                    par {DISPUTE_ROLE_LABELS[d.openedBy] || d.openedBy} · {new Date(d.createdAt).toLocaleDateString('fr-FR')}
+                  </span>
+                </div>
+                <p className="text-slate-700 whitespace-pre-wrap break-words">{d.reason}</p>
+                {d.resolution && <p className="text-slate-600"><span className="font-medium">Décision :</span> {d.resolution}</p>}
+              </div>
+            );
+          })}
+        </div>
+      )}
+
+      {disputeDialogOpen && (
+        <OpenDisputeDialog
+          orderId={commandeId}
+          onClose={() => setDisputeDialogOpen(false)}
+          onCreated={() => {
+            setDisputeDialogOpen(false);
+            fetchDisputes();
+          }}
+        />
       )}
 
       {/* Bandeau récapitulatif */}
