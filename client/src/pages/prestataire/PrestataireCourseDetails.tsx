@@ -288,16 +288,16 @@ export function PrestataireCourseDetails() {
 
       {/* Bandeau récap */}
       <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
-        <div className="rounded-xl border border-gray-200/80 bg-white p-4 shadow-sm flex items-start gap-3">
+        <div className="rounded-xl border border-gray-200/80 bg-white p-3 shadow-sm flex flex-col items-start gap-2 sm:p-4 sm:flex-row sm:gap-3">
           <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-gray-100">
             <DollarSign className="h-4 w-4 text-gray-600" />
           </div>
           <div className="min-w-0">
             <p className="text-xs font-medium uppercase tracking-wider text-gray-500">Total</p>
-            <p className="mt-1 text-lg font-bold text-gray-900">{course.totalPrice?.toLocaleString()} XPF</p>
+            <p className="mt-1 whitespace-nowrap text-lg font-bold text-gray-900">{course.totalPrice?.toLocaleString()} XPF</p>
           </div>
         </div>
-        <div className="rounded-xl border border-gray-200/80 bg-white p-4 shadow-sm flex items-start gap-3">
+        <div className="rounded-xl border border-gray-200/80 bg-white p-3 shadow-sm flex flex-col items-start gap-2 sm:p-4 sm:flex-row sm:gap-3">
           <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-blue-100">
             <User className="h-4 w-4 text-blue-600" />
           </div>
@@ -306,7 +306,7 @@ export function PrestataireCourseDetails() {
             <p className="mt-1 text-sm font-semibold text-gray-900 truncate">{course.clientName}</p>
           </div>
         </div>
-        <div className="rounded-xl border border-gray-200/80 bg-white p-4 shadow-sm flex items-start gap-3">
+        <div className="rounded-xl border border-gray-200/80 bg-white p-3 shadow-sm flex flex-col items-start gap-2 sm:p-4 sm:flex-row sm:gap-3">
           <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-violet-100">
             <Car className="h-4 w-4 text-violet-600" />
           </div>
@@ -317,7 +317,7 @@ export function PrestataireCourseDetails() {
             </p>
           </div>
         </div>
-        <div className="rounded-xl border border-gray-200/80 bg-white p-4 shadow-sm flex items-start gap-3">
+        <div className="rounded-xl border border-gray-200/80 bg-white p-3 shadow-sm flex flex-col items-start gap-2 sm:p-4 sm:flex-row sm:gap-3">
           <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-emerald-100">
             {course.paymentMethod === 'card' ? (
               <CreditCard className="h-4 w-4 text-emerald-600" />

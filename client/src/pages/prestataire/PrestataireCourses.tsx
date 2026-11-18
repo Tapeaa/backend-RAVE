@@ -87,19 +87,19 @@ export function PrestataireCourses() {
       </div>
 
       {/* Stats */}
-      <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3">
-        <div className="rounded-2xl bg-white p-5 shadow-sm">
-          <div className="text-3xl font-bold text-gray-900">{courses.length}</div>
+      <div className="grid grid-cols-2 gap-3 sm:gap-4 lg:grid-cols-3">
+        <div className="rounded-2xl bg-white p-4 shadow-sm sm:p-5">
+          <div className="text-2xl font-bold text-gray-900 sm:text-3xl">{courses.length}</div>
           <div className="text-sm text-gray-500">
             Demandes &amp; réservations{activeCourses.length > 0 ? ` · ${activeCourses.length} en cours` : ''}
           </div>
         </div>
-        <div className="rounded-2xl bg-white p-5 shadow-sm">
-          <div className="text-3xl font-bold text-green-600">{completedCourses.length}</div>
+        <div className="rounded-2xl bg-white p-4 shadow-sm sm:p-5">
+          <div className="text-2xl font-bold text-green-600 sm:text-3xl">{completedCourses.length}</div>
           <div className="text-sm text-gray-500">Terminées</div>
         </div>
-        <div className="rounded-2xl bg-white p-5 shadow-sm">
-          <div className="text-3xl font-bold text-gray-900">
+        <div className="col-span-2 rounded-2xl bg-white p-4 shadow-sm sm:p-5 lg:col-span-1">
+          <div className="text-2xl font-bold text-gray-900 sm:text-3xl">
             {totalRevenu.toLocaleString('fr-FR')} XPF
           </div>
           <div className="text-sm text-gray-500">
@@ -111,7 +111,7 @@ export function PrestataireCourses() {
 
       {/* Reservations List */}
       <div className="rounded-2xl bg-white shadow-sm">
-        <div className="border-b border-gray-100 px-6 py-4">
+        <div className="border-b border-gray-100 px-4 py-4 sm:px-6">
           <h2 className="font-semibold text-gray-900">Toutes les réservations</h2>
         </div>
 
@@ -133,10 +133,10 @@ export function PrestataireCourses() {
               const ro = course.rideOption || {};
               return (
               <Link key={course.id} href={`/prestataire/courses/${course.id}`}>
-                <div className="flex items-start gap-4 px-6 py-4 transition-colors hover:bg-gray-50 cursor-pointer">
+                <div className="flex items-start gap-3 px-4 py-4 transition-colors hover:bg-gray-50 cursor-pointer sm:gap-4 sm:px-6">
                   {/* Status Icon */}
-                  <div className={`flex h-12 w-12 flex-shrink-0 items-center justify-center rounded-xl ${iconTone.bg}`}>
-                    <Car className={`h-6 w-6 ${iconTone.fg}`} />
+                  <div className={`flex h-10 w-10 flex-shrink-0 items-center justify-center rounded-xl sm:h-12 sm:w-12 ${iconTone.bg}`}>
+                    <Car className={`h-5 w-5 sm:h-6 sm:w-6 ${iconTone.fg}`} />
                   </div>
                   
                   {/* Main Info */}
@@ -182,10 +182,17 @@ export function PrestataireCourses() {
                         })}
                       </span>
                     </div>
+
+                    <div className="mt-3 flex items-center justify-between gap-2 border-t border-gray-100 pt-3 sm:hidden">
+                      <div className="text-base font-bold text-gray-900">
+                        {course.totalPrice?.toLocaleString()} XPF
+                      </div>
+                      <PaymentStatusBadge course={course} />
+                    </div>
                   </div>
 
                   {/* Price & Payment */}
-                    <div className="text-right flex-shrink-0">
+                    <div className="hidden text-right flex-shrink-0 sm:block">
                     <div className="text-lg font-bold text-gray-900">
                       {course.totalPrice?.toLocaleString()} XPF
                     </div>
@@ -195,7 +202,7 @@ export function PrestataireCourses() {
                   </div>
 
                   {/* Action */}
-                  <div className="flex-shrink-0">
+                  <div className="hidden flex-shrink-0 sm:block">
                     <div className="rounded-lg p-2 text-gray-400 hover:bg-gray-100 hover:text-gray-900">
                       <Eye className="h-5 w-5" />
                     </div>

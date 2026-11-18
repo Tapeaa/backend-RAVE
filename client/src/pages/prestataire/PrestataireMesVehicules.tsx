@@ -766,7 +766,7 @@ export function PrestataireMesVehicules() {
         </button>
       </div>
 
-      <div className="grid grid-cols-2 md:grid-cols-3 gap-3">
+      <div className="grid grid-cols-3 gap-2 sm:gap-3">
         <div className="p-3 rounded-xl border bg-white">
           <p className="text-xs text-gray-500">Total</p>
           <p className="text-xl font-bold">{vehicles.length}</p>
@@ -855,7 +855,7 @@ export function PrestataireMesVehicules() {
             return (
               <div
                 key={vehicle.id}
-                className={`bg-white rounded-xl border p-4 flex items-center gap-4 transition-all hover:shadow-sm ${
+                className={`bg-white rounded-xl border p-4 flex flex-wrap items-center gap-3 sm:flex-nowrap sm:gap-4 transition-all hover:shadow-sm ${
                   !vehicle.isActive ? 'opacity-60' : ''
                 }`}
               >
@@ -874,7 +874,7 @@ export function PrestataireMesVehicules() {
                 <div className="flex-1 min-w-0">
                   <div className="flex items-center gap-2">
                     <h3 className="font-semibold text-gray-900 truncate">{vehicle.modelName}</h3>
-                    <span className={`text-xs px-2 py-0.5 rounded-full ${categoryColors[vehicle.modelCategory] || categoryColors.autre}`}>
+                    <span className={`shrink-0 text-xs px-2 py-0.5 rounded-full ${categoryColors[vehicle.modelCategory] || categoryColors.autre}`}>
                       {categoryLabels[vehicle.modelCategory] || vehicle.modelCategory || 'Véhicule'}
                     </span>
                   </div>
@@ -934,7 +934,7 @@ export function PrestataireMesVehicules() {
                   </div>
                 </div>
 
-                <div className="flex items-center gap-1 flex-shrink-0">
+                <div className="flex w-full items-center justify-end gap-1 border-t border-gray-100 pt-2 flex-shrink-0 sm:w-auto sm:border-0 sm:pt-0">
                   <button
                     onClick={() => handleToggle(vehicle)}
                     className="p-2 rounded-lg hover:bg-gray-100"
