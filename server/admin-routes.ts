@@ -18,7 +18,7 @@ import {
   getRentalOwnerDriverIdFromOrder,
 } from "./realtime";
 import { clientNotifications, driverNotifications, notifyClient, notifyDriver } from "./onesignal";
-import { clients, drivers, orders, invoices, tarifs, supplements, carouselImages, homeCategories, messages, prestataires, collecteFrais, vehicleModels, loueurVehicles, driverSessions } from "@shared/schema";
+import { clients, drivers, orders, invoices, tarifs, supplements, carouselImages, homeCategories, messages, prestataires, collecteFrais, vehicleModels, loueurVehicles, driverSessions, supportMessages, disputes } from "@shared/schema";
 import { eq, desc, asc, count, sql, and, gte, inArray, isNotNull, or } from "drizzle-orm";
 import { syncTahitiVehicleCatalog } from "./sync-vehicle-catalog";
 import {
@@ -193,7 +193,105 @@ export function registerAdminRoutes(app: Express) {
       const activeStatuses = new Set(["accepted", "booked", "in_progress"]);
       const cancelledStatuses = new Set(["cancelled", "declined", "expired"]);
 
+      const now = new Date();
+      const monthStart = new Date(now.getFullYear(), now.getMonth(), 1);
+      const prevMonthStart = new Date(now.getFullYear(), now.getMonth() - 1, 1);
+      const isPaid = (o: typeof allOrders[number]) =>
+        (o.status === "completed" || o.status === "payment_confirmed") && !isRefundedOrPendingRefund(o);
+      const inRange = (d: Date | string, from: Date, to?: Date) => {
+        const t = new Date(d);
+        return t >= from && (!to || t < to);
+      };
+      const sumPaid = (list: typeof allOrders) => list.filter(isPaid).reduce((s, o) => s + Number(o.totalPrice), 0);
+
+      const monthOrders = allOrders.filter((o) => inRange(o.createdAt, monthStart));
+      const prevMonthOrders = allOrders.filter((o) => inRange(o.createdAt, prevMonthStart, monthStart));
+
+      const daily: Array<{ date: string; count: number; revenue: number }> = [];
+      for (let i = 13; i >= 0; i--) {
+        const from = new Date(today);
+        from.setDate(from.getDate() - i);
+        const to = new Date(from);
+        to.setDate(to.getDate() + 1);
+        const list = allOrders.filter((o) => inRange(o.createdAt, from, to));
+        daily.push({ date: from.toISOString(), count: list.length, revenue: sumPaid(list) });
+      }
+
+      const driverById = new Map(allDrivers.map((d) => [d.id, d]));
+      const byDriver = new Map<string, { count: number; revenue: number }>();
+      const byVehicle = new Map<string, number>();
+      for (const o of monthOrders) {
+        const ownerId = getRentalOwnerDriverIdFromOrder(o as any);
+        if (ownerId) {
+          const cur = byDriver.get(ownerId) || { count: 0, revenue: 0 };
+          cur.count += 1;
+          if (isPaid(o)) cur.revenue += Number(o.totalPrice);
+          byDriver.set(ownerId, cur);
+        }
+        const title = String((o.rideOption as any)?.title || "").trim();
+        if (title) byVehicle.set(title, (byVehicle.get(title) || 0) + 1);
+      }
+      const topLoueurs = Array.from(byDriver.entries())
+        .map(([id, v]) => {
+          const d = driverById.get(id);
+          return { id, name: d ? `${d.firstName} ${d.lastName}`.trim() : "Loueur", ...v };
+        })
+        .sort((a, b) => b.revenue - a.revenue || b.count - a.count)
+        .slice(0, 5);
+      const topVehicles = Array.from(byVehicle.entries())
+        .map(([title, c]) => ({ title, count: c }))
+        .sort((a, b) => b.count - a.count)
+        .slice(0, 5);
+
+      const in7Days = new Date(now.getTime() + 7 * 24 * 3600 * 1000);
+      const upcomingStarts = allOrders.filter((o) => {
+        const sd = (o.rideOption as any)?.startDate;
+        return activeStatuses.has(o.status) && sd && inRange(sd, now, in7Days);
+      }).length;
+
+      const pendingOrders = allOrders
+        .filter((o) => o.status === "pending")
+        .sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime())
+        .slice(0, 5)
+        .map((o) => ({
+          id: o.id,
+          clientName: o.clientName,
+          title: (o.rideOption as any)?.title || "Location",
+          totalPrice: Number(o.totalPrice),
+          createdAt: o.createdAt,
+        }));
+
+      const [unreadSupportRow] = await db
+        .select({ count: count() })
+        .from(supportMessages)
+        .where(and(eq(supportMessages.isRead, false), sql`${supportMessages.senderType} <> 'admin'`));
+      const [openDisputesRow] = await db
+        .select({ count: count() })
+        .from(disputes)
+        .where(inArray(disputes.status, ["open", "in_review"]));
+
       return res.json({
+        revenusMois: sumPaid(monthOrders),
+        revenusMoisPrecedent: sumPaid(prevMonthOrders),
+        commandesMois: monthOrders.length,
+        commandesMoisPrecedent: prevMonthOrders.length,
+        partCarteMois: monthOrders.length
+          ? Math.round((monthOrders.filter((o) => o.paymentMethod === "card").length / monthOrders.length) * 100)
+          : 0,
+        nouveauxClientsMois: allClients.filter((c) => inRange(c.createdAt, monthStart)).length,
+        daily,
+        topLoueurs,
+        topVehicles,
+        pendingOrders,
+        upcomingStarts,
+        remboursementsEnAttente: allOrdersRaw.filter((o) => (o.rideOption as any)?.refund?.status === "pending").length,
+        supportNonLus: unreadSupportRow?.count || 0,
+        litigesOuverts: openDisputesRow?.count || 0,
+        loueursAbonnementExpire: allDrivers.filter((d) =>
+          ["expired", "grace"].includes(String(d.subscriptionStatus || ""))
+        ).length,
+        loueursEssai: allDrivers.filter((d) => d.subscriptionStatus === "trial").length,
+        loueursAbonnes: allDrivers.filter((d) => d.subscriptionStatus === "active").length,
         totalClients: totalClientsResult[0]?.count || 0,
         totalChauffeurs: totalDriversResult[0]?.count || 0,
         totalCommandes: allOrders.length,

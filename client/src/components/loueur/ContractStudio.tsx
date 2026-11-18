@@ -228,7 +228,7 @@ export function ContractStudio({
   let articleNo = 0;
 
   return (
-    <div className="fixed inset-0 z-[70] flex flex-col bg-white">
+    <div className="fixed inset-0 z-[70] flex flex-col bg-white pt-[env(safe-area-inset-top)] pb-[env(safe-area-inset-bottom)]">
       <div className="flex items-center justify-between gap-3 border-b px-4 py-3 sm:px-6">
         <div className="flex items-center gap-3 min-w-0">
           <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-violet-600">

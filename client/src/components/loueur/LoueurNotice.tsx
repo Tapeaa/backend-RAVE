@@ -75,7 +75,7 @@ export function LoueurNoticeProvider({ children }: { children: ReactNode }) {
     <LoueurNoticeContext.Provider value={{ alert: alertFn, confirm: confirmFn }}>
       {children}
       {notice ? (
-        <div className="fixed inset-0 z-[80] flex items-center justify-center p-4">
+        <div className="fixed inset-0 z-[80] flex items-center justify-center px-4 pt-[max(1rem,env(safe-area-inset-top))] pb-[max(1rem,env(safe-area-inset-bottom))]">
           <button
             type="button"
             aria-label="Fermer"

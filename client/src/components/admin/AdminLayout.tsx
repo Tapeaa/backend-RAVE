@@ -105,7 +105,7 @@ export function AdminLayout({ children }: AdminLayoutProps) {
 
       <aside
         className={`
-          fixed inset-y-0 left-0 z-50 w-72 transform bg-gradient-to-br from-slate-900 via-slate-800 to-slate-900
+          fixed inset-y-0 left-0 z-50 w-72 pt-[env(safe-area-inset-top)] pb-[env(safe-area-inset-bottom)] lg:pt-0 lg:pb-0 transform bg-gradient-to-br from-slate-900 via-slate-800 to-slate-900
           transition-transform duration-300 ease-in-out lg:static lg:translate-x-0 shadow-2xl
           ${sidebarOpen ? "translate-x-0" : "-translate-x-full"}
         `}
@@ -187,7 +187,7 @@ export function AdminLayout({ children }: AdminLayoutProps) {
       </aside>
 
       <div className="flex-1 min-w-0 overflow-x-clip">
-        <header className="sticky top-0 z-30 flex h-16 items-center gap-4 border-b border-slate-200 bg-white/80 backdrop-blur-md px-4 shadow-sm lg:px-6">
+        <header className="sticky top-0 z-30 box-content flex h-16 pt-[env(safe-area-inset-top)] items-center gap-4 border-b border-slate-200 bg-white/80 backdrop-blur-md px-4 shadow-sm lg:px-6">
           <button
             onClick={() => setSidebarOpen(true)}
             className="text-slate-600 hover:text-slate-900 lg:hidden p-2 rounded-lg hover:bg-slate-100 transition-colors"

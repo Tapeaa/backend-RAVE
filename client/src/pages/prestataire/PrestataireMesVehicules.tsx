@@ -859,12 +859,12 @@ export function PrestataireMesVehicules() {
                   !vehicle.isActive ? 'opacity-60' : ''
                 }`}
               >
-                <div className="w-20 h-16 bg-gray-100 rounded-lg overflow-hidden flex-shrink-0 flex items-center justify-center">
+                <div className="w-24 h-16 bg-gray-50 rounded-lg overflow-hidden flex-shrink-0 flex items-center justify-center">
                   {vehicle.customImageUrl || vehicle.modelImageUrl ? (
                     <img
                       src={vehicle.customImageUrl || vehicle.modelImageUrl!}
                       alt={vehicle.modelName}
-                      className="w-full h-full object-cover"
+                      className="w-full h-full object-contain"
                     />
                   ) : (
                     <CarFront className="w-8 h-8 text-gray-300" />
@@ -960,8 +960,8 @@ export function PrestataireMesVehicules() {
       )}
 
       {showFleetPolicy && (
-        <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4">
-          <div className="bg-white rounded-2xl w-full max-w-xl max-h-[90vh] overflow-y-auto">
+        <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center px-4 pt-[max(1rem,env(safe-area-inset-top))] pb-[max(1rem,env(safe-area-inset-bottom))]">
+          <div className="bg-white rounded-2xl w-full max-w-xl max-h-full overflow-y-auto">
             <div className="flex items-center justify-between p-5 border-b sticky top-0 bg-white z-10">
               <h2 className="text-lg font-bold">Conditions d’annulation</h2>
               <button onClick={() => setShowFleetPolicy(false)} className="p-1 hover:bg-gray-100 rounded-lg">
@@ -1044,8 +1044,8 @@ export function PrestataireMesVehicules() {
       )}
 
       {showModal && (
-        <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4">
-          <div className="bg-white rounded-2xl w-full max-w-2xl max-h-[90vh] overflow-y-auto">
+        <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center px-4 pt-[max(1rem,env(safe-area-inset-top))] pb-[max(1rem,env(safe-area-inset-bottom))]">
+          <div className="bg-white rounded-2xl w-full max-w-2xl max-h-full overflow-y-auto">
             <div className="flex items-center justify-between p-5 border-b sticky top-0 bg-white z-10">
               <h2 className="text-lg font-bold">{editingVehicle ? 'Modifier le véhicule' : 'Ajouter un véhicule'}</h2>
               <button onClick={() => setShowModal(false)} className="p-1 hover:bg-gray-100 rounded-lg">

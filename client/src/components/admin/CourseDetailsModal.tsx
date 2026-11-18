@@ -151,8 +151,8 @@ export function CourseDetailsModal({ orderId, isOpen, onClose }: CourseDetailsMo
   if (!isOpen) return null;
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black bg-opacity-50 p-4">
-      <div className="relative w-full max-w-2xl max-h-[90vh] overflow-y-auto rounded-xl bg-white shadow-xl">
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black bg-opacity-50 px-4 pt-[max(1rem,env(safe-area-inset-top))] pb-[max(1rem,env(safe-area-inset-bottom))]">
+      <div className="relative w-full max-w-2xl max-h-full overflow-y-auto rounded-xl bg-white shadow-xl">
         {/* Header */}
         <div className="sticky top-0 z-10 flex items-center justify-between border-b bg-white p-6">
           <h2 className="text-xl font-bold text-gray-900">Détails de la course</h2>

@@ -163,7 +163,7 @@ export function PrestataireLayout({ children }: Props) {
         </aside>
 
         <div className="flex min-w-0 flex-1 flex-col">
-          <header className="sticky top-0 z-40 flex h-14 items-center justify-between border-b border-gray-200 bg-white px-4 lg:hidden">
+          <header className="sticky top-0 z-40 box-content flex h-14 pt-[env(safe-area-inset-top)] items-center justify-between border-b border-gray-200 bg-white px-4 lg:hidden">
             {brand}
             <button
               type="button"
@@ -176,7 +176,7 @@ export function PrestataireLayout({ children }: Props) {
           </header>
 
           {isMobileMenuOpen && (
-            <div className="fixed inset-x-0 top-14 z-40 border-b border-gray-200 bg-white p-3 shadow-lg lg:hidden">
+            <div className="fixed inset-x-0 top-[calc(3.5rem+env(safe-area-inset-top))] z-40 max-h-[calc(100dvh-3.5rem-env(safe-area-inset-top))] overflow-y-auto border-b border-gray-200 bg-white p-3 shadow-lg lg:hidden">
               {nav}
               <div className="mt-3 border-t border-gray-100 pt-3">{account}</div>
             </div>

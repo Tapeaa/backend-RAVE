@@ -1214,8 +1214,8 @@ export function AdminMessages() {
       )}
 
       {showNewModal && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4">
-          <div className="w-full max-w-lg max-h-[90vh] overflow-y-auto rounded-2xl bg-white p-4 shadow-xl sm:p-6">
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 px-4 pt-[max(1rem,env(safe-area-inset-top))] pb-[max(1rem,env(safe-area-inset-bottom))]">
+          <div className="w-full max-w-lg max-h-full overflow-y-auto rounded-2xl bg-white p-4 shadow-xl sm:p-6">
             <div className="flex items-center justify-between">
               <h2 className="text-lg font-semibold text-gray-900">Nouveau message</h2>
               <button
