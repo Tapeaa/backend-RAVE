@@ -241,7 +241,7 @@ export function PrestataireDashboard() {
         ))}
       </div>
 
-      <div className="grid gap-6 lg:grid-cols-3">
+      <div className="grid grid-cols-1 gap-6 lg:grid-cols-3 [&>*]:min-w-0">
         <div className="rounded-xl border border-gray-200 bg-white lg:col-span-2">
           <div className="flex items-center justify-between border-b border-gray-100 px-5 py-4">
             <div>

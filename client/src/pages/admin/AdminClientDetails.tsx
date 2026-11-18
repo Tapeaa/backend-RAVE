@@ -256,7 +256,7 @@ export function AdminClientDetails() {
         </div>
       )}
 
-      <div className="grid gap-6 lg:grid-cols-3">
+      <div className="grid grid-cols-1 gap-6 lg:grid-cols-3 [&>*]:min-w-0">
         {/* Informations client */}
         <div className="lg:col-span-1">
           <div className="rounded-xl bg-white p-6 shadow-sm">

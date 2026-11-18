@@ -386,9 +386,9 @@ export function AdminCommandeDetails() {
       </div>
 
       {/* Contenu principal */}
-      <div className="grid gap-6 lg:grid-cols-3">
+      <div className="grid grid-cols-1 gap-6 lg:grid-cols-3">
         {/* Colonne gauche : Trajet, Acteurs, Notations */}
-        <div className="space-y-6 lg:col-span-2">
+        <div className="min-w-0 space-y-6 lg:col-span-2">
           {isRental ? (
             /* Location de véhicule */
             <div className="rounded-xl border border-amber-200/80 bg-white p-4 sm:p-6 shadow-sm">
@@ -632,7 +632,7 @@ export function AdminCommandeDetails() {
         </div>
 
         {/* Sidebar droite : Récap financier (sticky) */}
-        <div className="lg:col-span-1">
+        <div className="min-w-0 lg:col-span-1">
           <div className="lg:sticky lg:top-20 rounded-xl border border-gray-200/80 bg-white p-4 sm:p-6 shadow-sm">
             <h2 className="mb-4 flex items-center gap-2 text-base font-semibold text-gray-900">
               <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-purple-100">

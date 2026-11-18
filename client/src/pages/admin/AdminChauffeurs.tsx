@@ -186,34 +186,34 @@ export function AdminChauffeurs() {
 
       {/* Stats Cards */}
       <div className="grid grid-cols-3 gap-3">
-        <div className="rounded-xl bg-white p-4 shadow-sm border border-slate-100">
-          <div className="flex items-center gap-3">
+        <div className="rounded-xl bg-white p-3 sm:p-4 shadow-sm border border-slate-100">
+          <div className="flex flex-col items-start gap-2 sm:flex-row sm:items-center sm:gap-3">
             <div className="rounded-lg bg-orange-100 p-2">
               <Car className="h-5 w-5 text-orange-600" />
             </div>
-            <div>
+            <div className="min-w-0">
               <p className="text-2xl font-bold text-slate-900">{chauffeurs.length}</p>
               <p className="text-xs text-slate-500">Total</p>
             </div>
           </div>
         </div>
-        <div className="rounded-xl bg-white p-4 shadow-sm border border-slate-100">
-          <div className="flex items-center gap-3">
+        <div className="rounded-xl bg-white p-3 sm:p-4 shadow-sm border border-slate-100">
+          <div className="flex flex-col items-start gap-2 sm:flex-row sm:items-center sm:gap-3">
             <div className="rounded-lg bg-green-100 p-2">
               <Power className="h-5 w-5 text-green-600" />
             </div>
-            <div>
+            <div className="min-w-0">
               <p className="text-2xl font-bold text-slate-900">{activeCount}</p>
               <p className="text-xs text-slate-500">Actifs (visibles catalogue)</p>
             </div>
           </div>
         </div>
-        <div className="rounded-xl bg-white p-4 shadow-sm border border-slate-100">
-          <div className="flex items-center gap-3">
+        <div className="rounded-xl bg-white p-3 sm:p-4 shadow-sm border border-slate-100">
+          <div className="flex flex-col items-start gap-2 sm:flex-row sm:items-center sm:gap-3">
             <div className="rounded-lg bg-slate-100 p-2">
               <Power className="h-5 w-5 text-slate-500" />
             </div>
-            <div>
+            <div className="min-w-0">
               <p className="text-2xl font-bold text-slate-900">{inactiveCount}</p>
               <p className="text-xs text-slate-500">Inactifs (masqués)</p>
             </div>

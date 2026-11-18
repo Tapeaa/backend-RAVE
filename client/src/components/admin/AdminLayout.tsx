@@ -186,7 +186,7 @@ export function AdminLayout({ children }: AdminLayoutProps) {
         </div>
       </aside>
 
-      <div className="flex-1 min-w-0 overflow-hidden">
+      <div className="flex-1 min-w-0 overflow-x-clip">
         <header className="sticky top-0 z-30 flex h-16 items-center gap-4 border-b border-slate-200 bg-white/80 backdrop-blur-md px-4 shadow-sm lg:px-6">
           <button
             onClick={() => setSidebarOpen(true)}
@@ -205,7 +205,7 @@ export function AdminLayout({ children }: AdminLayoutProps) {
           </div>
         </header>
 
-        <main className="p-3 sm:p-4 lg:p-6 overflow-hidden w-full">{children}</main>
+        <main className="p-3 sm:p-4 lg:p-6 overflow-x-clip w-full">{children}</main>
       </div>
     </div>
   );

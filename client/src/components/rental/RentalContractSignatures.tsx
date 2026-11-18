@@ -344,7 +344,7 @@ export function RentalContractSignatures({
         </div>
       )}
 
-      <div className="grid gap-4 sm:grid-cols-2">
+      <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 [&>*]:min-w-0">
         <div className="rounded-lg border border-slate-100 bg-slate-50/80 p-3 space-y-2">
           <p className="text-xs font-medium uppercase tracking-wider text-slate-500">Client</p>
           {clientOk ? (

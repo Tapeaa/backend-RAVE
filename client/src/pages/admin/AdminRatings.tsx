@@ -48,7 +48,7 @@ export function AdminRatings() {
                 <th className="px-4 py-3 text-left">Score</th>
                 <th className="px-4 py-3 text-left">De → Vers</th>
                 <th className="px-4 py-3 text-left">Commentaire</th>
-                <th className="px-4 py-3 text-left">Commande</th>
+                <th className="hidden px-4 py-3 text-left sm:table-cell">Commande</th>
                 <th className="px-4 py-3"></th>
               </tr>
             </thead>
@@ -60,8 +60,8 @@ export function AdminRatings() {
                     {r.raterType === "client" ? "Client" : r.raterType === "driver" ? "Loueur" : r.raterType} →{" "}
                     {r.ratedType === "client" ? "Client" : r.ratedType === "driver" ? "Loueur" : r.ratedType}
                   </td>
-                  <td className="px-4 py-3 max-w-xs truncate">{r.comment || "—"}</td>
-                  <td className="px-4 py-3 font-mono text-xs">{String(r.orderId).slice(0, 8)}…</td>
+                  <td className="px-4 py-3 max-w-xs break-words sm:truncate">{r.comment || "—"}</td>
+                  <td className="hidden px-4 py-3 font-mono text-xs sm:table-cell">{String(r.orderId).slice(0, 8)}…</td>
                   <td className="px-4 py-3 text-right">
                     <button onClick={() => remove(r.id)} className="text-red-500"><Trash2 className="h-4 w-4" /></button>
                   </td>

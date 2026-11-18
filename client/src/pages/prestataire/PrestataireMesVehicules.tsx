@@ -1317,7 +1317,7 @@ export function PrestataireMesVehicules() {
                   </div>
                 ) : null}
 
-                <div className="grid gap-2 sm:grid-cols-2">
+                <div className="grid grid-cols-1 gap-2 sm:grid-cols-2 [&>*]:min-w-0">
                   {([
                     { value: true, title: 'Carte en ligne', sub: 'Le client paie à la réservation, la demande vous arrive déjà payée.', Icon: CreditCard },
                     { value: false, title: 'Sur place uniquement', sub: 'Le client règle chez vous à la prise du véhicule.', Icon: Banknote },
@@ -1518,7 +1518,7 @@ export function PrestataireMesVehicules() {
                   </p>
                 </div>
 
-                <div className="grid md:grid-cols-2 gap-3">
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-3 [&>*]:min-w-0">
                   <div>
                     <label className="block text-xs font-medium text-gray-700 mb-1">Paiement — titre</label>
                     <input

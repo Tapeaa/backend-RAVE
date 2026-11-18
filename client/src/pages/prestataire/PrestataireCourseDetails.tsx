@@ -359,7 +359,7 @@ export function PrestataireCourseDetails() {
         </div>
       )}
 
-      <div className="grid grid-cols-1 gap-6 lg:grid-cols-3">
+      <div className="grid grid-cols-1 gap-6 lg:grid-cols-3 [&>*]:min-w-0">
         {/* Colonne gauche */}
         <div className="lg:col-span-2 space-y-6">
           {isRental ? (
@@ -483,7 +483,7 @@ export function PrestataireCourseDetails() {
           )}
 
           {/* Acteurs : Client & Loueur */}
-          <div className="grid gap-6 sm:grid-cols-2">
+          <div className="grid grid-cols-1 gap-6 sm:grid-cols-2 [&>*]:min-w-0">
             <div className="rounded-xl border border-gray-200/80 bg-white p-5 shadow-sm">
               <h2 className="mb-4 flex items-center gap-2 text-base font-semibold text-gray-900">
                 <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-blue-100">
@@ -531,7 +531,7 @@ export function PrestataireCourseDetails() {
               </div>
               Notations
             </h2>
-            <div className="grid gap-4 sm:grid-cols-2">
+            <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 [&>*]:min-w-0">
               <div className="rounded-lg border border-gray-100 p-4">
                 <h3 className="text-xs font-medium text-gray-500 mb-2">Client → Loueur</h3>
                 {ratings?.client ? (

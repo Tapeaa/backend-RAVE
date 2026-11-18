@@ -80,7 +80,7 @@ export function AdminUsers() {
             <thead className="bg-slate-50 text-xs uppercase text-slate-500">
               <tr>
                 <th className="px-4 py-3 text-left">Nom</th>
-                <th className="px-4 py-3 text-left">Email</th>
+                <th className="hidden px-4 py-3 text-left sm:table-cell">Email</th>
                 <th className="px-4 py-3 text-left">Rôle</th>
                 <th className="px-4 py-3 text-left">Actif</th>
               </tr>
@@ -88,8 +88,11 @@ export function AdminUsers() {
             <tbody>
               {users.map((u) => (
                 <tr key={u.id} className="border-t">
-                  <td className="px-4 py-3 font-medium">{u.name}</td>
-                  <td className="px-4 py-3">{u.email}</td>
+                  <td className="px-4 py-3">
+                    <div className="font-medium">{u.name}</div>
+                    <div className="break-all text-xs text-slate-500 sm:hidden">{u.email}</div>
+                  </td>
+                  <td className="hidden px-4 py-3 sm:table-cell">{u.email}</td>
                   <td className="px-4 py-3">{u.role}</td>
                   <td className="px-4 py-3">
                     <button onClick={() => toggle(u)} className={`rounded-full px-2 py-0.5 text-xs ${u.isActive ? "bg-green-100 text-green-700" : "bg-slate-100"}`}>

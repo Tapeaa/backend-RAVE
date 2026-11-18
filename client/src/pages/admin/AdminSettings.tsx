@@ -134,7 +134,7 @@ export function AdminSettings() {
           <h2 className="font-semibold text-slate-900">Notifications Push (OneSignal)</h2>
         </div>
 
-        <div className="grid gap-3 sm:grid-cols-2">
+        <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 [&>*]:min-w-0">
           {(
             [
               { key: "client" as const, label: "App RAVE Client", envKey: "ONESIGNAL_REST_API_KEY_CLIENT" },
@@ -205,7 +205,7 @@ export function AdminSettings() {
           ) : null}
         </div>
 
-        <div className="grid gap-4 sm:grid-cols-2">
+        <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 [&>*]:min-w-0">
           {(["monthly", "semiannual"] as const).map((key) => {
             const plan = subPlans[key];
             if (!plan) return null;

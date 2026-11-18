@@ -105,7 +105,45 @@ export function AdminFleet() {
           <div className="h-8 w-8 animate-spin rounded-full border-4 border-amber-500 border-t-transparent" />
         </div>
       ) : (
-        <div className="overflow-x-auto rounded-xl border border-slate-200 bg-white shadow-sm">
+        <>
+        <div className="space-y-3 md:hidden">
+          {filtered.map((v) => (
+            <div key={v.id} className="rounded-xl border border-slate-200 bg-white p-4 shadow-sm">
+              <div className="flex items-start justify-between gap-3">
+                <div className="min-w-0">
+                  <div className="truncate font-semibold text-slate-900">{v.modelName || "—"}</div>
+                  <div className="text-xs text-slate-500">
+                    {v.category}
+                    {v.plate ? <span className="ml-2 font-mono text-slate-600">{v.plate}</span> : null}
+                  </div>
+                </div>
+                <div className="shrink-0 text-right text-sm font-semibold text-slate-900">
+                  {v.pricePerDay?.toLocaleString("fr-FR")} XPF<span className="text-xs font-normal text-slate-500">/j</span>
+                </div>
+              </div>
+              <div className="mt-2 flex flex-wrap items-center gap-2 text-xs text-slate-600">
+                <span className="truncate">{v.prestataireNom || "—"}</span>
+                <span className={`rounded-full px-2 py-0.5 font-medium ${v.rentalContractMode === "custom" ? "bg-violet-50 text-violet-700" : "bg-slate-100 text-slate-600"}`}>
+                  {v.rentalContractMode === "custom" ? "Contrat perso" : "Contrat RAVE"}
+                </span>
+              </div>
+              <div className="mt-3 flex items-center gap-6 border-t border-slate-100 pt-3 text-sm text-slate-700">
+                <button onClick={() => toggleRental(v)} className="flex items-center gap-2">
+                  {v.availableForRental ? <ToggleRight className="h-6 w-6 text-amber-600" /> : <ToggleLeft className="h-6 w-6 text-slate-400" />}
+                  Location
+                </button>
+                <button onClick={() => toggleActive(v)} className="flex items-center gap-2">
+                  {v.isActive ? <ToggleRight className="h-6 w-6 text-amber-600" /> : <ToggleLeft className="h-6 w-6 text-slate-400" />}
+                  Actif
+                </button>
+              </div>
+            </div>
+          ))}
+          {filtered.length === 0 && (
+            <div className="rounded-xl border border-slate-200 bg-white px-4 py-8 text-center text-slate-500">Aucun véhicule</div>
+          )}
+        </div>
+        <div className="hidden overflow-x-auto rounded-xl border border-slate-200 bg-white shadow-sm md:block">
           <table className="min-w-full text-sm">
             <thead className="bg-slate-50 text-left text-xs uppercase text-slate-500">
               <tr>
@@ -155,6 +193,7 @@ export function AdminFleet() {
             </tbody>
           </table>
         </div>
+        </>
       )}
     </div>
   );

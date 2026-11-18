@@ -728,7 +728,7 @@ export function PrestataireProfil() {
         </div>
       )}
 
-      <div className="grid items-start gap-6 lg:grid-cols-5">
+      <div className="grid grid-cols-1 items-start gap-6 lg:grid-cols-5 [&>*]:min-w-0">
       <div className="space-y-6 lg:order-2 lg:col-span-2">
       {/* Abonnement plateforme */}
       <section className={cardClass}>
@@ -969,7 +969,7 @@ export function PrestataireProfil() {
         </div>
 
         {/* Formulaire / lecture */}
-        <div className="grid gap-5 p-5 sm:grid-cols-2">
+        <div className="grid grid-cols-1 gap-5 p-5 sm:grid-cols-2 [&>*]:min-w-0">
           <div>
             <label className={labelClass}>
               Nom / Raison sociale
@@ -1274,7 +1274,7 @@ export function PrestataireProfil() {
             {codeSuccess}
           </div>
         )}
-        <div className="grid gap-3 sm:grid-cols-3">
+        <div className="grid grid-cols-1 gap-3 sm:grid-cols-3 [&>*]:min-w-0">
           <div>
             <label className={labelClass}>Code actuel</label>
             <input
