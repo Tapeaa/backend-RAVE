@@ -274,6 +274,15 @@ export function buildRentalContractHtml(
     totalLabel: `${Number(totalPrice).toLocaleString("fr-FR")} XPF${
       tvaRegime === "assujetti" ? " TTC" : ""
     }`,
+    tva: hasTvaSplit
+      ? {
+          htLabel: `${Math.round(priceHt).toLocaleString("fr-FR")} XPF`,
+          rateLabel: `TVA ${tvaRate} %${tvaMode === "extra" ? " (en sus)" : " (incluse)"}`,
+          amountLabel: `${Math.round(priceTva).toLocaleString("fr-FR")} XPF`,
+        }
+      : tvaRegime === "assujetti"
+        ? undefined
+        : null,
     paymentNote:
       tvaRegime === "assujetti"
         ? tvaMode === "extra"
